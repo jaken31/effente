@@ -5,8 +5,8 @@ Companion to [PRD.md](PRD.md). Numbers marked "starting value" are first guesses
 ## Architecture
 
 ```
- accelerometer (+ mic)
-        |
+ magnetic sensor head: accelerometer (+ mic)
+        |  short cable
  UNO Q microcontroller (STM32)      real-time sampling, 2.4" screen
         |  Arduino Bridge (RPC)
  UNO Q Linux side (Debian, 4 GB)    FFT, classifier, unknown alarm,
@@ -26,8 +26,13 @@ Detection, explanation and the unknown alarm run with no network. The agent need
 - Arduino UNO Q, 4 GB
 - Accelerometer: MPU6050 or ADXL345
 - 2.4" OLED screen
+- Sensor head: printed puck with a magnet in the base, on a short cable
+- Steel discs glued to each machine as probe points
+- USB power bank
 - Microphone (after vibration works end to end)
 - Small fan or motor as the demo machine, run at one fixed speed
+
+The device is handheld. Only the small sensor head touches the machine, held by its magnet, so nobody presses or holds it during a reading. Research and drawing: [physical-design.md](research/physical-design.md), [mockup.svg](mockup.svg).
 
 ## Signal pipeline
 
@@ -176,3 +181,4 @@ The university cluster is used only for stretch work. Nothing in the demo depend
 | Hidden units do not map cleanly to faults | Sparse autoencoder fallback |
 | Uneven sample timing distorts the spectrum | Sampling on the microcontroller, not Linux |
 | Venue WiFi | Own phone hotspot |
+| Readings change with hand pressure or angle | Magnetic head holds itself on a fixed probe point |

@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="Helvetica, Arial, sans-serif" font-size="12">
+  <rect width="900" height="640" fill="#ffffff"/>
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 z" fill="#555"/></marker>
+  </defs>
+  <text x="24" y="30" font-size="18" font-weight="bold" fill="#1d2433">effente: handheld mock-up</text>
+  <text x="24" y="48" fill="#667">Dimensions in mm. Draft values: measure the real parts before printing.</text>
+
+  <!-- A: in use -->
+  <text x="24" y="84" font-weight="bold" fill="#1d2433">A. In use</text>
+  <rect x="24" y="290" width="852" height="8" fill="#c9ced8"/>
+  <rect x="60" y="130" width="160" height="160" rx="10" fill="#eef1f6" stroke="#445" stroke-width="2"/>
+  <circle cx="140" cy="210" r="68" fill="#fff" stroke="#445" stroke-width="1.5"/>
+  <circle cx="140" cy="210" r="16" fill="#445"/>
+  <g stroke="#445" stroke-width="10" stroke-linecap="round">
+    <line x1="140" y1="210" x2="140" y2="152"/><line x1="140" y1="210" x2="190" y2="239"/><line x1="140" y1="210" x2="90" y2="239"/>
+  </g>
+  <text x="60" y="312" fill="#667">machine under test (demo fan)</text>
+  <!-- steel disc + head -->
+  <rect x="220" y="190" width="5" height="40" fill="#9aa3b2" stroke="#556"/>
+  <rect x="225" y="186" width="30" height="48" rx="4" fill="#2f7d6d" stroke="#1c4e44" stroke-width="1.5"/>
+  <text x="232" y="150" fill="#1c4e44" font-weight="bold">sensor head</text>
+  <text x="232" y="166" fill="#1c4e44">snaps on by magnet</text>
+  <text x="150" y="330" fill="#667">steel disc glued on as the probe point</text>
+  <line x1="222" y1="320" x2="222" y2="234" stroke="#889" stroke-dasharray="3 3"/>
+  <!-- coiled cable -->
+  <path d="M255 210 q10 -14 20 0 q10 14 20 0 q10 -14 20 0 q10 14 20 0 q10 -14 20 0 q10 14 20 0 q10 -14 20 0 q10 14 20 0 q10 -14 20 0 q10 14 20 0 q10 -14 20 0 L490 210" fill="none" stroke="#333" stroke-width="2.5"/>
+  <text x="310" y="246" fill="#667">short coiled cable</text>
+  <!-- handheld body -->
+  <rect x="490" y="112" width="130" height="176" rx="16" fill="#1d2433"/>
+  <rect x="504" y="128" width="102" height="62" rx="4" fill="#0b0e14" stroke="#5aa"/>
+  <text x="511" y="152" fill="#7fe3c8" font-size="13" font-weight="bold">IMBALANCE</text>
+  <text x="511" y="168" fill="#cfe" font-size="9">once-per-turn vibration</text>
+  <polyline points="511,182 526,182 531,172 536,182 598,182" fill="none" stroke="#7fe3c8" stroke-width="1.2"/>
+  <circle cx="555" cy="222" r="15" fill="#d9822b"/>
+  <text x="544" y="226" fill="#fff" font-size="10">SCAN</text>
+  <rect x="525" y="250" width="60" height="28" rx="6" fill="none" stroke="#5a6" stroke-dasharray="4 3"/>
+  <text x="536" y="268" fill="#8c9" font-size="10">head dock</text>
+  <text x="640" y="150" fill="#1d2433" font-weight="bold">handheld body</text>
+  <text x="640" y="166" fill="#667">UNO Q, 2.4" screen,</text>
+  <text x="640" y="182" fill="#667">power bank, one button</text>
+  <text x="640" y="214" fill="#667">Held in the hand or parked</text>
+  <text x="640" y="230" fill="#667">nearby. Never rests on the</text>
+  <text x="640" y="246" fill="#667">machine during a reading.</text>
+
+  <!-- B: head detail -->
+  <text x="24" y="366" font-weight="bold" fill="#1d2433">B. Sensor head (4x scale)</text>
+  <text x="40" y="388" fill="#667">top</text>
+  <rect x="40" y="396" width="120" height="96" rx="8" fill="#2f7d6d" stroke="#1c4e44" stroke-width="1.5"/>
+  <rect x="58" y="412" width="84" height="64" fill="#3b5fb5" stroke="#243a70"/>
+  <rect x="88" y="434" width="18" height="18" fill="#111"/>
+  <g fill="#ddd" stroke="#555"><circle cx="69" cy="423" r="6"/><circle cx="131" cy="423" r="6"/></g>
+  <text x="62" y="470" fill="#fff" font-size="10">breakout 21 x 16</text>
+  <rect x="160" y="434" width="14" height="20" fill="#1c4e44"/>
+  <line x1="40" y1="506" x2="160" y2="506" stroke="#555" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="92" y="521" fill="#333">30</text>
+  <line x1="24" y1="396" x2="24" y2="492" stroke="#555" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="6" y="448" fill="#333">24</text>
+  <text x="250" y="388" fill="#667">side</text>
+  <rect x="250" y="436" width="120" height="24" fill="#2f7d6d" stroke="#1c4e44" stroke-width="1.5"/>
+  <rect x="250" y="412" width="10" height="24" fill="#2f7d6d" stroke="#1c4e44"/>
+  <rect x="360" y="412" width="10" height="24" fill="#2f7d6d" stroke="#1c4e44"/>
+  <rect x="268" y="429" width="84" height="7" fill="#3b5fb5"/>
+  <rect x="286" y="446" width="48" height="14" fill="#b33a3a" stroke="#6d1f1f"/>
+  <text x="293" y="457" fill="#fff" font-size="9">magnet</text>
+  <rect x="270" y="460" width="80" height="5" fill="#9aa3b2" stroke="#556"/>
+  <rect x="230" y="465" width="160" height="14" fill="#eef1f6" stroke="#445"/>
+  <text x="396" y="476" fill="#667">machine</text>
+  <text x="396" y="462" fill="#556">steel disc</text>
+  <line x1="240" y1="412" x2="240" y2="460" stroke="#555" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="216" y="440" fill="#333">12</text>
+  <g fill="#333">
+    <text x="40" y="550">Magnet sits flush in the base. Board screwed flat above it.</text>
+    <text x="40" y="568">Print solid (100% infill). Keep it light.</text>
+    <text x="40" y="586">Same head and same probe point for every recording.</text>
+  </g>
+
+  <!-- C: body detail -->
+  <text x="520" y="366" font-weight="bold" fill="#1d2433">C. Handheld body (1.5x scale)</text>
+  <text x="520" y="388" fill="#667">front</text>
+  <rect x="520" y="396" width="120" height="210" rx="12" fill="#1d2433"/>
+  <rect x="534" y="410" width="92" height="50" fill="#0b0e14" stroke="#5aa"/>
+  <circle cx="580" cy="494" r="13" fill="#d9822b"/>
+  <rect x="550" y="530" width="60" height="30" rx="6" fill="none" stroke="#5a6" stroke-dasharray="4 3"/>
+  <text x="560" y="549" fill="#8c9" font-size="10">head dock</text>
+  <text x="548" y="590" fill="#aab" font-size="10">grip</text>
+  <line x1="520" y1="618" x2="640" y2="618" stroke="#555" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="574" y="632" fill="#333">80</text>
+  <line x1="652" y1="396" x2="652" y2="606" stroke="#555" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="658" y="504" fill="#333">140</text>
+  <text x="700" y="388" fill="#667">side</text>
+  <rect x="700" y="396" width="60" height="210" rx="8" fill="#fff" stroke="#1d2433" stroke-width="2"/>
+  <rect x="706" y="410" width="3" height="50" fill="#0b0e14"/>
+  <rect x="722" y="404" width="3" height="104" fill="#1f8a70"/>
+  <rect x="734" y="404" width="18" height="150" rx="3" fill="#c9ced8" stroke="#778"/>
+  <line x1="700" y1="618" x2="760" y2="618" stroke="#555" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="722" y="632" fill="#333">40</text>
+  <g fill="#667" font-size="11">
+    <text x="770" y="424">screen in lid</text>
+    <text x="770" y="470">UNO Q on</text>
+    <text x="770" y="484">standoffs</text>
+    <text x="770" y="530">power bank</text>
+    <text x="770" y="544">behind</text>
+  </g>
+</svg>
