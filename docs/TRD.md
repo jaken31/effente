@@ -24,7 +24,7 @@ Detection, explanation and the unknown alarm run with no network. The agent need
 ## Hardware
 
 - Arduino UNO Q, 4 GB
-- Accelerometer: MPU6050 or ADXL345
+- Accelerometer: MPU6050 (GY-521). Its built-in filter passes vibration up to about 260 Hz (datasheet figure, not re-checked), so the usable spectrum ends there. A BNO085 is on hand as a spare only
 - 2.4" OLED screen
 - Sensor head: printed puck with a magnet in the base, on a short cable
 - Steel discs glued to each machine as probe points

@@ -45,7 +45,7 @@ The device is a handheld built on an Arduino UNO Q, with a small magnetic sensor
 ## Hardware
 
 - Arduino UNO Q (4 GB)
-- Accelerometer (MPU6050 or ADXL345)
+- Accelerometer: MPU6050 (GY-521)
 - 2.4" OLED screen
 - Magnet for the sensor head, steel discs as probe points
 - USB power bank
