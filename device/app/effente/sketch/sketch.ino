@@ -44,8 +44,9 @@ int mpuRead(uint8_t reg, uint8_t *buf, uint8_t n) {
 }
 
 bool mpuOk = false;
-uint32_t overflows = 0;
+uint32_t overflows = 0, readErrors = 0;  // FIFO restarts: full, or after a failed read
 uint8_t whoAmI = 0;
+uint16_t fifoBytes = 512;  // FIFO size: 1024 on the MPU-6050, 512 on the MPU-6500 and MPU-9250
 
 void fifoReset() {
   mpuWrite(0x6A, 0x04);  // USER_CTRL: reset the FIFO
@@ -57,6 +58,7 @@ bool mpuBegin() {
   uint8_t who = 0;
   mpuRead(0x75, &who, 1);
   whoAmI = who;
+  fifoBytes = who == 0x68 ? 1024 : 512;
   // DLPF_CFG 1 with SMPLRT_DIV 0 gives exactly 1 kHz on both the MPU-6050 (WHO_AM_I 0x68) and the
   // MPU-6500 that many "MPU6050" boards carry (0x70; this board's). With DLPF_CFG 0 the 6500 runs
   // its FIFO at about 1,445 a second. Accelerometer low-pass: 184 Hz (6050) or 218 Hz (6500).
@@ -110,7 +112,10 @@ const uint8_t FONT[96][5] = {
 uint8_t fb[8][128];
 bool oledOk = false;
 const uint32_t MPU_I2C_HZ = 400000;     // the MPU-6500 is rated for 400 kHz
-const uint32_t OLED_I2C_HZ = 1000000;   // the screen is written faster (set to 400000 if it glitches)
+// The screen shares the bus with the MPU. At 1 MHz the MPU's readings came back corrupted on the board
+// (12 Nov: 2 g of "vibration" and 0.2-0.5 g of gravity at rest), so the whole bus stays at 400 kHz.
+const uint32_t OLED_I2C_HZ = 400000;
+const uint32_t FRAME_EVERY_MS = 100;    // 10 frames a second: readable, and leaves the bus to the MPU
 uint16_t oledChunk = 128;               // data bytes per I2C write; falls back to 32, then 16
 uint32_t frames = 0, frameUs = 0, oledErrors = 0;
 
@@ -130,26 +135,24 @@ bool oledBegin() {
   return true;
 }
 
-void oledFrame() {  // the whole screen in one go: 8 pages, each one command write and one long data write
-  uint32_t t0 = micros();
+// One page (an eighth of the screen, about 3.5 ms at 400 kHz) per loop pass, never the whole screen at
+// once: a whole frame held the bus for about 27 ms, and with the sensor read on top the MPU-6500's 512-byte
+// FIFO (42 ms of samples) overflowed and the samples after it came out of step (12 Nov, on the board).
+void oledPage(uint8_t page) {
   BUS.setClock(OLED_I2C_HZ);
-  for (uint8_t page = 0; page < 8; page++) {
-    const uint8_t pos[3] = {(uint8_t)(0xB0 + page), (uint8_t)(0x00 + (OLED_COL_OFFSET & 0x0F)),
-                            (uint8_t)(0x10 + (OLED_COL_OFFSET >> 4))};
-    oledCmds(pos, 3);
-    for (uint16_t x = 0; x < 128; x += oledChunk) {
-      BUS.beginTransmission(OLED_ADDR);
-      BUS.write(0x40);
-      for (uint16_t i = 0; i < oledChunk && x + i < 128; i++) BUS.write(fb[page][x + i]);
-      if (BUS.endTransmission() != 0) {
-        oledErrors++;
-        if (oledChunk > 16) oledChunk = oledChunk > 32 ? 32 : 16;  // the bus refused a long write
-      }
+  const uint8_t pos[3] = {(uint8_t)(0xB0 + page), (uint8_t)(0x00 + (OLED_COL_OFFSET & 0x0F)),
+                          (uint8_t)(0x10 + (OLED_COL_OFFSET >> 4))};
+  oledCmds(pos, 3);
+  for (uint16_t x = 0; x < 128; x += oledChunk) {
+    BUS.beginTransmission(OLED_ADDR);
+    BUS.write(0x40);
+    for (uint16_t i = 0; i < oledChunk && x + i < 128; i++) BUS.write(fb[page][x + i]);
+    if (BUS.endTransmission() != 0) {
+      oledErrors++;
+      if (oledChunk > 16) oledChunk = oledChunk > 32 ? 32 : 16;  // the bus refused a long write
     }
   }
   BUS.setClock(MPU_I2C_HZ);
-  frameUs = micros() - t0;
-  frames++;
 }
 
 void textLine(uint8_t line, const char *s, uint8_t len) {
@@ -183,7 +186,9 @@ void onSample(const uint8_t *s) {
 
 void updateLive(float dt) {
   if (nSq) {
-    float a = dt / 0.25f;  // shown level follows the last quarter second
+    // The shown level follows about the last second: steady enough to read. Display only; the data sent
+    // to the Linux side (and so the model and the safety checks) is never smoothed.
+    float a = dt / 1.0f;
     shownRms2 += (a > 1 ? 1 : a) * (sumSq / nSq - shownRms2);
   }
   sumSq = 0;
@@ -211,9 +216,19 @@ char *fnum(char *out, float v, uint8_t dec) {  // by hand: small cores often lac
   return out;
 }
 
+// log10 without libm: the board's newer Zephyr toolchain links libm's log10f to a missing __errno.
+// Exponent plus a quadratic for the mantissa: within 0.0024 of log10, a tenth of a bar pixel.
+float log10Approx(float x) {
+  union { float f; uint32_t i; } u = {x};
+  int e = (int)((u.i >> 23) & 0xFF) - 127;
+  u.i = (u.i & 0x007FFFFF) | 0x3F800000;  // the mantissa, in [1, 2)
+  float t = u.f - 1.0f;
+  return (e + t * (1.34484843f - 0.34484843f * t)) * 0.30103f;
+}
+
 void barLine(uint8_t line, float mg) {  // log scale: 1 mg at the left edge, 1000 mg at the right
   memset(fb[line], 0, 128);
-  float x = mg > 1 ? log10f(mg) / 3.0f : 0;
+  float x = mg > 1 ? log10Approx(mg) / 3.0f : 0;
   uint8_t w = (uint8_t)((x > 1 ? 1 : x) * 127);
   for (uint8_t i = 0; i <= w; i++) fb[line][i] = 0x3C;
   for (uint8_t t = 0; t < 128; t += 42) fb[line][t] |= 0x81;  // ticks at 1, 10, 100 mg
@@ -292,7 +307,7 @@ void setup() {
 
 void readFifo() {
   uint16_t avail = fifoCount();
-  if (avail >= 1008) {  // nearly full: data was lost; start clean and say so
+  if (avail >= fifoBytes - 24) {  // nearly full: data was lost (a full FIFO overwrites bytes); start clean, say so
     overflows++;
     fifoReset();
     return;
@@ -303,12 +318,23 @@ void readFifo() {
     MsgPack::bin_t<uint8_t> acc, gyr;
     acc.reserve(take * 6);
     uint8_t s[12];
-    for (uint16_t i = 0; i < take; i++) {
-      if (mpuRead(0x74, s, 12) != 12) break;  // FIFO_R_W: one sample (accel xyz, gyro xyz)
+    uint16_t got = 0;
+    bool failed = false;
+    for (; got < take; got++) {
+      // FIFO_R_W: one sample (accel xyz, gyro xyz). A short or failed read has still moved the FIFO on,
+      // so every later sample would be assembled from the wrong bytes: reset it and start clean instead.
+      if (mpuRead(0x74, s, 12) != 12) { failed = true; break; }
       for (int k = 0; k < 6; k++) acc.push_back(s[k]);
       onSample(s);
-      if ((seq + i) % GYRO_EVERY == 0) for (int k = 6; k < 12; k++) gyr.push_back(s[k]);
+      if ((seq + got) % GYRO_EVERY == 0) for (int k = 6; k < 12; k++) gyr.push_back(s[k]);
     }
+    if (failed) {
+      readErrors++;
+      overflows++;  // reported like an overflow: samples were lost and the FIFO restarted
+      fifoReset();
+      n = take = got;  // send what was read, then stop until the next read
+    }
+    if (take == 0) break;
     uint32_t t = micros();
     uint8_t tb[2] = {0, 0};
     mpuRead(0x41, tb, 2);  // TEMP_OUT: the IMU's temperature sensor (deg C = raw / 340 + 36.53)
@@ -329,12 +355,20 @@ void loop() {
     lastRead = now;
     readFifo();
   }
-  if (oledOk) {  // as fast as the bus allows: a full frame every pass between sensor reads
+  static uint8_t nextPage = 8;  // 8: no frame being drawn
+  if (oledOk && nextPage >= 8 && micros() - lastFrameAt >= FRAME_EVERY_MS * 1000) {  // a frame every FRAME_EVERY_MS
     uint32_t at = micros();
     updateLive((at - lastFrameAt) / 1e6f);
     lastFrameAt = at;
     compose();
-    oledFrame();
+    nextPage = 0;
+  }
+  if (oledOk && nextPage < 8) {  // one page per pass, so the FIFO is read in between
+    oledPage(nextPage++);
+    if (nextPage == 8) {
+      frameUs = micros() - lastFrameAt;
+      frames++;
+    }
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
   if (down != buttonDown && millis() - buttonChange > 30) {  // 30 ms debounce
@@ -349,32 +383,19 @@ void loop() {
     lastSeq = seq;
     lastUs = us;
     lastStatus = millis();
-    Monitor.print("WHO_AM_I 0x");
-    Monitor.print(whoAmI, HEX);
-    Monitor.print(", rate ");
-    Monitor.print((int)rate);
+    // One message, not twenty: each Monitor.print is its own Bridge call, and twenty in a row held the
+    // loop long enough for the FIFO to overflow once every report (12 Nov).
     static uint32_t lastFrames = 0;
-    Monitor.print("/s, screen ");
-    Monitor.print((frames - lastFrames) / 5);
-    Monitor.print(" fps (frame ");
-    Monitor.print(frameUs);
-    Monitor.print(" us, chunk ");
-    Monitor.print(oledChunk);
-    Monitor.print(", errors ");
-    Monitor.print(oledErrors);
-    Monitor.print("), Bridge sends ");
-    Monitor.print(notifyUs / 50000);
-    Monitor.print("% of the time, samples ");
+    char msg[240];
+    snprintf(msg, sizeof msg, "WHO_AM_I 0x%02X, rate %d/s, screen %lu fps (frame %lu us, chunk %u, errors %lu), "
+             "Bridge sends %lu%% of the time, samples %lu, batches %lu, FIFO restarts %lu (read errors %lu), "
+             "screen updates %lu, button presses %lu",
+             whoAmI, (int)rate, (unsigned long)((frames - lastFrames) / 5), (unsigned long)frameUs, oledChunk,
+             (unsigned long)oledErrors, (unsigned long)(notifyUs / 50000), (unsigned long)seq,
+             (unsigned long)batches, (unsigned long)overflows, (unsigned long)readErrors,
+             (unsigned long)screenUpdates, (unsigned long)presses);
     lastFrames = frames;
     notifyUs = 0;
-    Monitor.print(seq);
-    Monitor.print(", batches ");
-    Monitor.print(batches);
-    Monitor.print(", FIFO overflows ");
-    Monitor.print(overflows);
-    Monitor.print(", screen updates ");
-    Monitor.print(screenUpdates);
-    Monitor.print(", button presses ");
-    Monitor.println(presses);
+    Monitor.println(msg);
   }
 }
