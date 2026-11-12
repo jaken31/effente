@@ -65,14 +65,16 @@ class ServerRackSim:
     sensors = ("accel", "gyro", "audio", "thermal", "room")
 
     def __init__(self, days: int = 3, seed: int = 2, faults: list[Fault] | None = None,
-                 start_s: float = 0.0, end_s: float | None = None):
-        self.days, self.seed = days, seed
+                 start_s: float = 0.0, end_s: float | None = None, week: int = 0):
+        # `week` gives another week of the same machine and device: a different load schedule and
+        # noise, the same camera (its fixed pattern stays). Week 0 is the original.
+        self.days, self.seed, self.week = days, seed, week
         self.faults = default_faults() if faults is None else faults
         self.start_s = start_s
         self.end_s = min(end_s if end_s is not None else days * DAY, days * DAY)
         self.info = SourceInfo(audio_rate_hz=AUDIO_HZ, audio_gain_db=GAIN_DB, accel_lsb_per_g=4096,
                                accel_range_g=8.0, gyro_lsb_per_dps=131.0, audio_block_len=256, week_offset_s=0.0)
-        self.rng = np.random.default_rng([seed, 0])
+        self.rng = np.random.default_rng(self._key(0))
         self.f = {k.kind: k for k in self.faults}
         self._timeline()
         self._banks()
@@ -151,7 +153,7 @@ class ServerRackSim:
 
     # ------------------------------------------------------------ noise and scene
     def _banks(self):
-        rng = np.random.default_rng([self.seed, 1])
+        rng = np.random.default_rng(self._key(1))
 
         def bank(sos, n, ch=1):
             x = signal.sosfilt(sos, rng.standard_normal((ch, n) if ch > 1 else n), axis=-1)
@@ -166,7 +168,7 @@ class ServerRackSim:
                                       signal.butter(2, 6000, fs=fs, output="sos")]), 960_000)
         self.b_grind = bank(signal.butter(2, [2000, 4000], "band", fs=fs, output="sos"), 960_000)
         self.b_click = bank(signal.butter(2, [800, 6000], "band", fs=fs, output="sos"), 960_000)
-        self.nrng = np.random.default_rng([self.seed, 2])
+        self.nrng = np.random.default_rng(self._key(2))
 
     def _slice(self, bank, n):
         i = int(self.nrng.integers(0, bank.shape[-1] - n))
@@ -197,6 +199,9 @@ class ServerRackSim:
         self.fpn = np.random.default_rng([self.seed, 3]).normal(0, 0.15, SHAPE)
 
     # ------------------------------------------------------------ labels
+    def _key(self, stream: int):
+        return [self.seed, stream] if self.week == 0 else [self.seed, stream, self.week]
+
     def label_at(self, t: float) -> str:
         active = [f.kind for f in self.faults if f.start_s <= t < f.end_s
                   and (f.kind != "fan3_bearing" or self.wear3[int(t)] > 0.05)]
