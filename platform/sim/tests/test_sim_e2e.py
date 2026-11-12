@@ -44,6 +44,23 @@ def test_announces_then_sends_contract_records(tmp_path):
         assert mf["simulated"] is True and mf["features"][0]["sentence"] == "vibration once per turn"
 
 
+def test_records_carry_heat_by_source(tmp_path):
+    with FakePlatform() as fp:
+        p = run_sim("--interval", "0.1", "--count", "2", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        cam = [r["heat"] for r in fp.records]
+    assert all(h["source"] == "camera" and len(h["frames"]) == 2 for h in cam)
+    assert all(record_problems(r) == [] for r in fp.records)
+    assert record_problems({"heat": {"source": "camera", "imu_temp_c": 40, "cells": [0] * 47}})  # the check can fail
+
+    with FakePlatform() as fp:
+        assert run_sim("--interval", "0.1", "--count", "2", "--heat", "imu", url=fp.url).returncode == 0
+        assert [set(r["heat"]) for r in fp.records] == [{"source", "imu_temp_c"}] * 2
+    with FakePlatform() as fp:
+        assert run_sim("--interval", "0.1", "--count", "2", "--heat", "none", url=fp.url).returncode == 0
+        assert all("heat" not in r for r in fp.records)
+
+
 def test_problem_while_the_model_says_normal():
     with FakePlatform() as fp:
         p = run_sim("--problem", "too_hot", "--hold", "0", "--interval", "0.1", "--count", "3", url=fp.url)
@@ -187,6 +204,8 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             out += _pump(master, 0.8)
             os.write(master, b"2")
             out += _pump(master, 0.8)
+            os.write(master, b"t")
+            out += _pump(master, 0.8)
             os.write(master, b"m")  # watching -> display: check-ins instead of records
             out += _pump(master, 0.8)
             os.write(master, b"q")
@@ -202,6 +221,9 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             os.close(slave)
         text = out.decode(errors="ignore")
         assert "case unrecognised" in text and "case unbalance" in text and "[SIM] display" in text
+        assert "heat camera" in text and "heat imu" in text
+        recs = fp.records
+        assert recs[0]["heat"]["source"] == "camera" and recs[-1]["heat"]["source"] == "imu"
         diags = [r["diagnosis"] for r in fp.records]
         assert "unrecognised_pattern" in diags and "unbalance_like" in diags
         assert fp.check_ins and fp.check_ins[-1][1]["mode"] == "display"

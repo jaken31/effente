@@ -20,6 +20,9 @@ Stub-only controls, outside the contract:
   POST /dev/resume     start again
   POST /dev/agent-run  start a sample agent run now
   POST /dev/step?n=N   jump to step N of the script (0 is the first)
+  POST /dev/heat?source=camera|imu|none
+                       what the records' heat field carries (contract 3.3;
+                       made up by platform/sim/sim_heat.py)
 """
 
 import argparse
@@ -41,6 +44,7 @@ for sub in ("server", "sim"):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+import sim_heat  # noqa: E402  (the simulator's made-up heat readings)
 import sim_model  # noqa: E402
 from receiver_server import Handler, Receiver  # noqa: E402
 
@@ -70,8 +74,10 @@ def iso(t=None):
 class StubDevice:
     """A scripted simulated device and agent that talk straight to a receiver's store."""
 
-    def __init__(self, store, seed=7, step_s=STEP_S):
+    def __init__(self, store, seed=7, step_s=STEP_S, heat="camera", interval_s=1.0):
         self.store = store
+        self.heat = sim_heat.HeatSim(heat, seed)
+        self.interval_s = interval_s
         self.rng = random.Random(seed)
         self.step_s = step_s
         self.lock = threading.Lock()
@@ -103,6 +109,9 @@ class StubDevice:
             problems = [sim_model.make_problem(n, self.rng, self.since.setdefault(n, iso(now))) for n in names]
             if mode == "watching":
                 rec = sim_model.make_record(case, self.rng, problems, DEVICE_ID, MACHINE_ID, at=iso(now))
+                heat = self.heat.heat(rec["at"], self.interval_s)
+                if heat is not None:
+                    rec["heat"] = heat
                 reply = self.store.add_records(rec)
                 if reply["need_model"]:
                     self.store.announce_model(sim_model.model_announcement(DEVICE_ID, MACHINE_ID))
@@ -186,6 +195,7 @@ class StubHandler(Handler):
         parsed = urllib.parse.urlsplit(self.path)
         if not parsed.path.startswith("/dev/"):
             return super().do_POST()
+        self._discard_body()  # no control takes a body; unread bytes would spoil a keep-alive connection
         device = self.server.stub_device
         what = parsed.path[len("/dev/"):]
         if what == "pause":
@@ -199,6 +209,11 @@ class StubHandler(Handler):
                 device.jump(int(urllib.parse.parse_qs(parsed.query).get("n", ["0"])[0]))
             except ValueError:
                 return self._error(400, "n must be a whole number")
+        elif what == "heat":
+            source = urllib.parse.parse_qs(parsed.query).get("source", [""])[0]
+            if source not in sim_heat.MODES:
+                return self._error(400, "source must be camera, imu or none")
+            device.heat.mode = source
         else:
             return self._error(404, "no such stub control")
         return self._json(200, {"ok": True})
@@ -207,11 +222,11 @@ class StubHandler(Handler):
 class Stub:
     """Receiver on a throwaway data folder, plus the scripted device."""
 
-    def __init__(self, host="0.0.0.0", port=8000, quiet_after=None, seed=7, step_s=STEP_S):
+    def __init__(self, host="0.0.0.0", port=8000, quiet_after=None, seed=7, step_s=STEP_S, heat="camera"):
         self.data_dir = tempfile.mkdtemp(prefix="effente-dev-stub-")
         kw = {} if quiet_after is None else {"quiet_after": quiet_after}
         self.receiver = Receiver(host, port, self.data_dir, HERE, log=lambda m: None, handler=StubHandler, **kw)
-        self.device = StubDevice(self.receiver.store, seed=seed, step_s=step_s)
+        self.device = StubDevice(self.receiver.store, seed=seed, step_s=step_s, heat=heat)
         self.receiver.httpd.stub_device = self.device
         self.port = self.receiver.port
         self.stopping = threading.Event()
@@ -243,8 +258,9 @@ def main():
     ap = argparse.ArgumentParser(description="Dashboard dev stub (simulated data only).")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--heat", default="camera", choices=sim_heat.MODES, help="what the records' heat field carries")
     args = ap.parse_args()
-    stub = Stub(args.host, args.port)
+    stub = Stub(args.host, args.port, heat=args.heat)
     stub.receiver.start()
     stub.start_background()
     print(f"effente dev stub (SIMULATED DATA) on http://localhost:{stub.port}/  - Ctrl+C to stop")

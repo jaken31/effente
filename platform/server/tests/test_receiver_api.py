@@ -1,10 +1,13 @@
 """End-to-end tests: a real receiver on a free port, talked to over HTTP."""
 
 import copy
+import http.client
 import json
 import socket
 import threading
 import time
+
+import pytest
 
 from receiver_testkit import ABOVE_NORMAL, MODEL, TOO_HOT, make_check_in, make_record, make_run
 
@@ -149,6 +152,26 @@ def test_machine_history_spectrum_and_limit(client):
 
     _, hist = client.json("GET", "/api/machines/nobody/records")
     assert hist == {"ok": True, "records": []}
+
+
+def test_machine_history_leaves_out_heat_frames_unless_asked(client):
+    frame = {"at": "2026-11-14T16:00:00Z", "min_c": 24.0, "step_c": 0.1, "data": "AAAA"}
+    heat = {"source": "camera", "imu_temp_c": 42.6, "max_c": 61.2, "frames": [frame]}
+    client.json("POST", "/api/records", [make_record(heat=heat), make_record(heat={"source": "imu", "imu_temp_c": 42.0})])
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records")
+    cam, imu = (r["heat"] for r in hist["records"])
+    assert cam == {"source": "camera", "imu_temp_c": 42.6, "max_c": 61.2}
+    assert imu == {"source": "imu", "imu_temp_c": 42.0}
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records?frames=1")
+    assert hist["records"][0]["heat"]["frames"] == [frame]
+    assert "spectrum" not in hist["records"][0]
+
+    _, state = client.json("GET", "/api/state")
+    assert state["devices"]["effente-01"]["latest"]["heat"]["source"] == "imu"
+    _, again = client.json("GET", "/api/machines/conveyor-07/records?frames=1")
+    assert again["records"][0]["heat"]["frames"] == [frame]  # leaving them out did not change the stored copy
 
     status, body = client.json("GET", "/api/machines/conveyor-07/records?limit=abc")
     assert status == 400 and body["ok"] is False
@@ -567,3 +590,23 @@ def test_corrupt_last_line_does_not_stop_start(make_receiver, tmp_path):
     _, client = make_receiver(data_dir=data)
     _, hist = client.json("GET", "/api/machines/conveyor-07/records")
     assert [r["n"] for r in hist["records"]] == [0, 1, 2]
+
+
+# ---- connection handling ----------------------------------------------------
+
+
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/api/devices/effente-01/mask"),  # no such route (the mask went in contract 3)
+    ("PUT", "/api/records"),  # route exists, method does not
+    ("POST", "/index.html"),  # dashboard files take no POST
+])
+def test_unread_body_does_not_spoil_the_next_request(client, method, path):
+    conn = http.client.HTTPConnection("127.0.0.1", client.port, timeout=5)
+    try:
+        conn.request(method, path, body=b'{"mode": "recording"}', headers={"Content-Type": "application/json"})
+        assert conn.getresponse().read()
+        conn.request("GET", "/api/state")  # same keep-alive connection
+        res = conn.getresponse()
+        assert res.status == 200 and json.loads(res.read())["ok"] is True
+    finally:
+        conn.close()

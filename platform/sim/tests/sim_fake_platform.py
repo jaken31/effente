@@ -6,6 +6,8 @@ platform: it checks shapes, keeps what arrived, and replies as the contract
 says.
 """
 
+import base64
+import binascii
 import json
 import socket
 import threading
@@ -138,6 +140,8 @@ def record_problems(r: dict) -> list[str]:
     p += _problem_list_problems(problems)
     if isinstance(problems, list) and r.get("wrong") is not (abnormal or bool(problems)):
         p.append("wrong does not match the diagnosis and problems")
+    if r.get("heat") is not None:
+        p += heat_problems(r["heat"])
     return p
 
 
@@ -156,6 +160,56 @@ def check_in_problems(body) -> list[str]:
             p.append("only limits can be on outside watching")
         if body["wrong"] is not bool(body["problems"]):
             p.append("wrong must be true exactly when problems is not empty")
+    return p
+
+
+def _num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def heat_problems(h) -> list[str]:
+    """Contract 3.3 checks on a record's `heat` field."""
+    if not isinstance(h, dict):
+        return ["heat is not an object"]
+    p = []
+    if h.get("source") not in ("camera", "imu"):
+        p.append("heat.source is not camera or imu")
+    if "imu_temp_c" not in h or not (h["imu_temp_c"] is None or _num(h["imu_temp_c"])):
+        p.append("heat.imu_temp_c missing or not a number")
+    if h.get("source") == "imu":
+        extra = set(h) - {"source", "imu_temp_c"}
+        if extra:
+            p.append(f"heat with source imu carries {sorted(extra)}")
+        return p
+    for k in ("max_c", "background_c"):
+        if not _num(h.get(k)):
+            p.append(f"heat.{k} is not a number")
+    if not (isinstance(h.get("hot_row"), int) and 0 <= h["hot_row"] < 24):
+        p.append("heat.hot_row not 0..23")
+    if not (isinstance(h.get("hot_col"), int) and 0 <= h["hot_col"] < 32):
+        p.append("heat.hot_col not 0..31")
+    for k in ("cells", "spots"):
+        v = h.get(k)
+        if not (isinstance(v, list) and len(v) == 48 and all(_num(x) for x in v)):
+            p.append(f"heat.{k} is not 48 numbers")
+    if not isinstance(h.get("frozen"), bool):
+        p.append("heat.frozen is not true or false")
+    sm = h.get("scene_match")
+    if not (sm is None or (_num(sm) and -1 <= sm <= 1)):
+        p.append("heat.scene_match not null or -1..1")
+    frames = h.get("frames", [])
+    if not isinstance(frames, list) or len(frames) > 2:
+        p.append("heat.frames is not a list of at most 2")
+        return p
+    for i, f in enumerate(frames):
+        try:
+            ok = (isinstance(f, dict) and isinstance(f.get("at"), str) and _num(f.get("min_c"))
+                  and _num(f.get("step_c")) and f["step_c"] > 0
+                  and len(base64.b64decode(f.get("data", ""), validate=True)) == 768)
+        except (binascii.Error, TypeError, ValueError):
+            ok = False
+        if not ok:
+            p.append(f"heat.frames[{i}] is not at, min_c, step_c and 768 bytes of base64")
     return p
 
 

@@ -11,6 +11,7 @@
     loadedMachine: null,
     lastHeadKey: null, // null until the first render, so nothing flashes on load
     es: null,
+    heatTimer: null, // shows a record's next image when it is due
   };
 
   const $ = (id) => document.getElementById(id);
@@ -222,6 +223,7 @@
     renderHero(id, d, rec, status, now);
     renderReadings(id, d, rec, live, watching);
     drawSpectrum(rec, model, live, watching);
+    renderHeat(d, rec, machine, live, now);
     renderAgent(machine, run, L.featureTexts(state, id));
     renderHistory(machine);
   }
@@ -586,6 +588,157 @@
     $("spectrum-note").textContent = usable
       ? (live ? "latest reading" : "last reading, not live") + " · " + spec.length + " bands · log10 band power"
       : "";
+  }
+
+  // ---------------- heat (contract 3.3) ----------------
+  const fmtC = (v) => (typeof v === "number" && isFinite(v) ? v.toFixed(1) + " °C" : "none");
+
+  function heatFact(box, k, v, warn) {
+    box.appendChild(el("span", "k", k));
+    box.appendChild(el("span", "v" + (warn ? " warn" : ""), v));
+  }
+
+  function renderHeat(d, rec, machine, live, now) {
+    clearTimeout(ui.heatTimer);
+    ui.heatTimer = null;
+    const v = L.heatView(rec);
+    const facts = $("heat-facts");
+    facts.textContent = "";
+    $("heat-imu").hidden = v.kind !== "imu";
+    const wrap = $("heat-wrap");
+    wrap.hidden = v.kind === "imu";
+    wrap.classList.toggle("fit", v.kind === "camera");
+
+    if (v.kind === "imu") {
+      $("heat-note").textContent = live ? "optional thermal camera" : "last reading, not live";
+      $("heat-imu-v").textContent = fmtC(v.imuTempC);
+      const t = L.imuTrend((machine && state.history[machine]) || []);
+      $("heat-imu-trend").textContent = t
+        ? (t.deltaC >= 0 ? "+" : "−") + Math.abs(t.deltaC).toFixed(1) + " °C in the last " + Math.round(t.spanMs / 60000) + " min"
+        : "change shows after a minute of readings";
+      return;
+    }
+
+    const rem = remPx();
+    const barW = 0.8 * rem, barGap = 0.6 * rem, labelW = 3.6 * rem;
+    // An image keeps the canvas just tall enough for it, so the facts sit right under it.
+    wrap.style.height = v.kind === "camera"
+      ? Math.max(0, (wrap.getBoundingClientRect().width - barW - barGap - labelW) * (L.HEAT_H / L.HEAT_W)) + "px"
+      : "";
+    const { ctx, w, h } = prepCanvas($("heat-canvas"));
+    if (v.kind !== "camera") {
+      $("heat-note").textContent = "";
+      ctx.fillStyle = css("--muted");
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "600 " + 1.2 * rem + "px " + css("--sans");
+      const msg = !rec ? "No readings yet" : v.kind === "none" ? "This device sends no heat reading" : "This heat reading cannot be shown";
+      ctx.fillText(msg, w / 2, h / 2);
+      return;
+    }
+
+    const elapsed = d && d.lastRecordLocalMs != null ? now - d.lastRecordLocalMs : Infinity;
+    const pick = L.frameAt(v.frames, elapsed);
+    const frame = pick.index >= 0 ? v.frames[pick.index] : null;
+    if (live && pick.nextMs != null) ui.heatTimer = setTimeout(scheduleRender, pick.nextMs + 5);
+    const range = L.heatRange(v);
+
+    // Layout: the image at 4:3 on the left, a colour bar on the right.
+    const availW = Math.max(1, w - barW - barGap - labelW);
+    const cell = Math.max(1, Math.min(availW / L.HEAT_W, h / L.HEAT_H));
+    const iw = cell * L.HEAT_W, ih = cell * L.HEAT_H;
+    const ix = 0, iy = 0;
+    const scale = (t) => (t - range.lo) / (range.hi - range.lo);
+
+    ctx.save();
+    if (!live) ctx.filter = "grayscale(1) opacity(0.6)";
+    if (frame) {
+      const img = ctx.createImageData(L.HEAT_W, L.HEAT_H);
+      for (let i = 0; i < frame.pixels.length; i++) {
+        const c = L.heatColor(scale(frame.pixels[i]));
+        img.data[i * 4] = c[0];
+        img.data[i * 4 + 1] = c[1];
+        img.data[i * 4 + 2] = c[2];
+        img.data[i * 4 + 3] = 255;
+      }
+      const off = document.createElement("canvas");
+      off.width = L.HEAT_W;
+      off.height = L.HEAT_H;
+      off.getContext("2d").putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false; // one block per real pixel: no detail the camera did not see
+      ctx.drawImage(off, ix, iy, iw, ih);
+    } else {
+      // No images in this reading: the 8 x 6 grid of block averages.
+      const bw = iw / L.HEAT_COLS, bh = ih / L.HEAT_ROWS;
+      for (let i = 0; i < v.cells.length; i++) {
+        const c = L.heatColor(scale(v.backgroundC + v.cells[i]));
+        ctx.fillStyle = "rgb(" + c.join(",") + ")";
+        ctx.fillRect(ix + (i % L.HEAT_COLS) * bw, iy + Math.floor(i / L.HEAT_COLS) * bh, bw, bh);
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 1;
+      for (let c = 1; c < L.HEAT_COLS; c++) {
+        ctx.beginPath(); ctx.moveTo(ix + c * bw, iy); ctx.lineTo(ix + c * bw, iy + ih); ctx.stroke();
+      }
+      for (let r = 1; r < L.HEAT_ROWS; r++) {
+        ctx.beginPath(); ctx.moveTo(ix, iy + r * bh); ctx.lineTo(ix + iw, iy + r * bh); ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // Hottest pixel: a ring, so it reads in both colour and shape.
+    if (v.hotRow != null && v.hotCol != null) {
+      const cx = ix + (v.hotCol + 0.5) * cell, cy = iy + (v.hotRow + 0.5) * cell;
+      const r = Math.max(cell * 1.3, 0.7 * rem);
+      ctx.lineWidth = 0.32 * rem;
+      ctx.strokeStyle = "#000";
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+      ctx.lineWidth = 0.16 * rem;
+      ctx.strokeStyle = "#fff";
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    }
+
+    if (v.frozen) {
+      ctx.fillStyle = css("--hazard");
+      ctx.fillRect(ix, iy, iw, 1.9 * rem);
+      ctx.fillStyle = "#111";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const msg = "FROZEN: CAMERA STUCK";
+      let size = rem;
+      ctx.font = "800 " + size + "px " + css("--sans");
+      const fit = (iw - 0.8 * rem) / ctx.measureText(msg).width;
+      if (fit < 1) ctx.font = "800 " + size * fit + "px " + css("--sans");
+      ctx.fillText(msg, ix + iw / 2, iy + 0.95 * rem);
+    }
+
+    // Colour bar with its range.
+    const bx = ix + iw + barGap;
+    const grad = ctx.createLinearGradient(0, iy + ih, 0, iy);
+    for (let k = 0; k <= 8; k++) grad.addColorStop(k / 8, "rgb(" + L.heatColor(k / 8).join(",") + ")");
+    ctx.save();
+    if (!live) ctx.filter = "grayscale(1) opacity(0.6)";
+    ctx.fillStyle = grad;
+    ctx.fillRect(bx, iy, barW, ih);
+    ctx.restore();
+    ctx.strokeStyle = css("--ink");
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx, iy, barW, ih);
+    ctx.fillStyle = css("--ink");
+    ctx.font = "700 " + 0.95 * rem + "px " + css("--sans");
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(range.hi + " °C", bx + barW + 0.35 * rem, iy);
+    ctx.textBaseline = "bottom";
+    ctx.fillText(range.lo + " °C", bx + barW + 0.35 * rem, iy + ih);
+
+    $("heat-note").textContent = live
+      ? "MLX90640 · " + (frame ? "image " + (pick.index + 1) + " of " + v.frames.length + " in this reading" : "8 × 6 grid, no image in this reading")
+      : "last reading, not live";
+    heatFact(facts, "Hottest", fmtC(v.maxC));
+    if (v.hotRow != null && v.hotCol != null) heatFact(facts, "Where", "row " + (v.hotRow + 1) + ", col " + (v.hotCol + 1) + " (ringed)");
+    heatFact(facts, "Background", fmtC(v.backgroundC));
+    heatFact(facts, "View", v.frozen ? "frozen: camera stuck" : v.sceneMatch == null ? "usual view not learned" : v.sceneMatch.toFixed(2) + " match to usual", v.frozen);
   }
 
   // History: what the model said, whether a problem was on, and the unknown

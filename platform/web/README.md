@@ -9,7 +9,7 @@ python3 platform/web/dev_stub.py            # then open http://localhost:8000/
 python3 platform/web/dev_stub.py --port 8100
 ```
 
-`dev_stub.py` is a development aid, not the product. It runs the real receiver (`platform/server`) on a throwaway data folder and feeds it in-process from a scripted simulated device (`platform/sim/sim_model.py`), so the page sees exactly the receiver's API. One fake device (`effente-sim-01`) on one fake machine (`sim-fan-01`) sends one record or check-in a second, all `simulated: true`, and loops through every state the page must show, 8 seconds each: normal; `too_hot` while the model says normal; unbalance with `too_hot`; unbalance alone; stopped with `too_hot`; recording (check-ins) with `too_hot`; warming up; an unrecognised pattern with `vibration_above_normal`. Problems show at once in the stub; the real device holds them for about 10 seconds. A sample agent run with tool calls starts after 6 seconds and every minute; every third one fails on purpose to show the no-report state.
+`dev_stub.py` is a development aid, not the product. It runs the real receiver (`platform/server`) on a throwaway data folder and feeds it in-process from a scripted simulated device (`platform/sim/sim_model.py`), so the page sees exactly the receiver's API. One fake device (`effente-sim-01`) on one fake machine (`sim-fan-01`) sends one record or check-in a second, all `simulated: true`, and loops through every state the page must show, 8 seconds each: normal; `too_hot` while the model says normal; unbalance with `too_hot`; unbalance alone; stopped with `too_hot`; recording (check-ins) with `too_hot`; warming up; an unrecognised pattern with `vibration_above_normal`. Records carry the contract 3.3 `heat` field from the simulator's made-up thermal camera (`--heat camera`, the default; `imu` or `none` for the other states); check-ins carry none. Problems show at once in the stub; the real device holds them for about 10 seconds. A sample agent run with tool calls starts after 6 seconds and every minute; every third one fails on purpose to show the no-report state.
 
 Stub-only controls, outside the contract:
 
@@ -18,6 +18,7 @@ curl -X POST localhost:8000/dev/pause       # device goes quiet, then disconnect
 curl -X POST localhost:8000/dev/resume
 curl -X POST localhost:8000/dev/agent-run   # start a sample agent run now
 curl -X POST 'localhost:8000/dev/step?n=4'  # jump to step 4 of the script (0 is the first)
+curl -X POST 'localhost:8000/dev/heat?source=imu'   # heat source: camera, imu or none
 ```
 
 ## What the page shows
@@ -29,6 +30,7 @@ curl -X POST 'localhost:8000/dev/step?n=4'  # jump to step 4 of the script (0 is
 - **Problems**, under the model panel and never merged with it: one row per problem, in the order sent: the device's `text`, the value with its unit (for the names in the contract; any other name shows its value as sent), the kind ("limit for any machine", solid border; "beyond this machine's normal", dashed), the name and when it started. "None found by the safety checks" when the list is empty. While the device is not live it says the problems are not known, rather than showing none.
 - **Readings that moved**: the newest record's `features`, each with the text from the announced feature table, its name, and a bar from the middle (right for up, hatched left for down), full at 8 spreads.
 - **Vibration spectrum**: the newest record's 20 bands on the announced `spectrum_edges_hz`, log frequency axis, log10 band power on a fixed scale of -7 to -2 that widens only if a value falls outside it.
+- **Heat** (contract 3.3 `heat`, optional): with a thermal camera, the record's images played back at the spacing they were taken (2 a second from the device), one block per camera pixel, colour scale in whole degrees, the hottest pixel ringed, and hottest, where, background and the view check under it. A record without images (history) draws the 8 x 6 grid instead. A frozen image gets a yellow "FROZEN: CAMERA STUCK" band. Without a camera: "No thermal camera fitted", the IMU temperature and its change over the last 2 minutes, with a note that it is not the surface temperature. A record with no `heat` says so. Grey when not live.
 - **Agent report**: latest run for the shown machine. Tool calls in order (latest six), "working…" while running, then summary, priority, cited readings (with their announced text), action and part reference; or the reason and problems if `ok` is false. Its own "Simulated" tag when the run says so.
 - **History**: for the last 300 records of the shown machine, from `GET /api/machines/<id>/records` and kept up to date from the stream: a strip of what the model said (named when there is room), a strip that is red while any problem was on, and the unknown score against its alarm line (dashed, 1 when a record does not say).
 

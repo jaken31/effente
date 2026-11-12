@@ -167,18 +167,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError as e:
             raise BadRequest(f"body is not valid JSON: {e}")
 
+    def _discard_body(self):
+        """Read and drop a body no route will read. On a keep-alive connection,
+        unread bytes would be taken as the start of the next request. A body
+        that cannot be read safely closes the connection instead."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower() or not 0 <= length <= MAX_BODY_BYTES:
+            self.close_connection = True
+        elif length:
+            self.rfile.read(length)
+
     def _route(self, method):
         parsed = urllib.parse.urlsplit(self.path)
         path = parsed.path
         if not path.startswith("/api/") and path != "/api":
             if method in ("GET", "HEAD"):
                 return self._static(path, head_only=method == "HEAD")
+            self._discard_body()
             return self._error(405, f"{method} is not allowed on dashboard files")
         query = urllib.parse.parse_qs(parsed.query)
         parts = [urllib.parse.unquote(p) for p in path.split("/")[2:]]
         try:
             handler, args = self._match(method, parts)
             if handler is None:
+                self._discard_body()
                 return self._error(args, "method not allowed" if args == 405 else f"no such API route: {path}")
             handler(query, *args)
         except BadRequest as e:
@@ -253,8 +268,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def get_machine_records(self, query, machine_id):
         limit = _limit(query, DEFAULT_HISTORY_LIMIT)
-        spectrum = query.get("spectrum", ["0"])[-1].lower() in ("1", "true", "yes")
-        records = self.server.store.machine_records(machine_id, limit, spectrum)
+        spectrum = _flag(query, "spectrum")
+        frames = _flag(query, "frames")
+        records = self.server.store.machine_records(machine_id, limit, spectrum, frames)
         self._json(200, {"ok": True, "records": records})
 
     def get_machine_runs(self, query, machine_id):
@@ -316,6 +332,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ext = os.path.splitext(full)[1].lower()
         content_type = CONTENT_TYPES.get(ext) or mimetypes.guess_type(full)[0] or "application/octet-stream"
         self._send(200, body, content_type, head_only)
+
+
+def _flag(query, name):
+    return query.get(name, ["0"])[-1].lower() in ("1", "true", "yes")
 
 
 def _limit(query, default):

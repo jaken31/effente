@@ -317,3 +317,115 @@ test("page never puts API text into innerHTML", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "dashboard.js"), "utf8");
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(src));
 });
+
+// ---------------- heat (contract 3.3) ----------------
+
+function frame(at, fill, minC, stepC) {
+  const bytes = Buffer.alloc(768, 0);
+  if (typeof fill === "function") for (let i = 0; i < 768; i++) bytes[i] = fill(i);
+  return { at, min_c: minC ?? 20, step_c: stepC ?? 0.25, data: bytes.toString("base64") };
+}
+
+function camHeat(over) {
+  return Object.assign(
+    {
+      source: "camera",
+      imu_temp_c: 42.6,
+      max_c: 61.2,
+      hot_row: 9,
+      hot_col: 21,
+      background_c: 25,
+      cells: new Array(48).fill(0.5),
+      spots: new Array(48).fill(1.5),
+      frozen: false,
+      scene_match: 0.93,
+      frames: [frame("2026-11-14T16:02:10.5Z", (i) => i % 256), frame("2026-11-14T16:02:11Z", () => 8)],
+    },
+    over
+  );
+}
+
+test("decodeFrame turns bytes into degC and rejects bad images", () => {
+  const f = L.decodeFrame(frame("2026-11-14T16:02:11Z", (i) => (i === 5 ? 255 : 4), 20, 0.25));
+  assert.equal(f.pixels.length, 768);
+  assert.equal(f.pixels[0], 21);
+  assert.equal(f.pixels[5], 20 + 255 * 0.25);
+  assert.equal(f.atMs, Date.parse("2026-11-14T16:02:11Z"));
+  assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0.25, data: Buffer.alloc(10).toString("base64") }), null);
+  assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0, data: Buffer.alloc(768).toString("base64") }), null);
+  assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0.1, data: "%%%not base64" }), null);
+  assert.equal(L.decodeFrame(null), null);
+});
+
+test("heatView reads each heat source", () => {
+  assert.equal(L.heatView(null).kind, "none");
+  assert.equal(L.heatView(rec({})).kind, "none");
+  assert.equal(L.heatView(rec({ heat: null })).kind, "none");
+  assert.deepEqual(L.heatView(rec({ heat: { source: "imu", imu_temp_c: 42.6 } })), { kind: "imu", imuTempC: 42.6 });
+  assert.deepEqual(L.heatView(rec({ heat: { source: "imu", imu_temp_c: null } })), { kind: "imu", imuTempC: null });
+  assert.equal(L.heatView(rec({ heat: { source: "laser" } })).kind, "bad");
+  assert.equal(L.heatView(rec({ heat: "hot" })).kind, "bad");
+
+  const v = L.heatView(rec({ heat: camHeat() }));
+  assert.equal(v.kind, "camera");
+  assert.equal(v.frames.length, 2);
+  assert.deepEqual([v.maxC, v.hotRow, v.hotCol, v.backgroundC, v.sceneMatch, v.frozen], [61.2, 9, 21, 25, 0.93, false]);
+
+  // History records have no images: the grid alone still draws.
+  const g = L.heatView(rec({ heat: camHeat({ frames: undefined }) }));
+  assert.equal(g.kind, "camera");
+  assert.equal(g.frames.length, 0);
+  // Neither images nor a grid: nothing to draw.
+  assert.equal(L.heatView(rec({ heat: camHeat({ frames: [], cells: [1, 2] }) })).kind, "bad");
+  // Out-of-range position is dropped, not drawn off the image.
+  assert.equal(L.heatView(rec({ heat: camHeat({ hot_row: 24 }) })).hotRow, null);
+});
+
+test("frameAt plays images at the spacing they were taken", () => {
+  const fs2 = L.heatView(rec({ heat: camHeat() })).frames;
+  assert.deepEqual(L.frameAt(fs2, 0), { index: 0, nextMs: 500 });
+  assert.deepEqual(L.frameAt(fs2, 499), { index: 0, nextMs: 1 });
+  assert.deepEqual(L.frameAt(fs2, 500), { index: 1, nextMs: null });
+  assert.deepEqual(L.frameAt([], 0), { index: -1, nextMs: null });
+  const odd = [{ atMs: 1000, pixels: [] }, { atMs: 0, pixels: [] }];
+  assert.deepEqual(L.frameAt(odd, 0), { index: 1, nextMs: null });
+});
+
+test("heatRange covers the images in whole degrees, at least 4 wide", () => {
+  const v = L.heatView(rec({ heat: camHeat() }));
+  assert.deepEqual(L.heatRange(v), { lo: 20, hi: Math.ceil(20 + 255 * 0.25) });
+  const flat = L.heatView(rec({ heat: camHeat({ frames: [frame("2026-11-14T16:02:11Z", () => 0, 30.3, 0.1)] }) }));
+  assert.deepEqual(L.heatRange(flat), { lo: 30, hi: 34 });
+  const grid = L.heatView(rec({ heat: camHeat({ frames: undefined }) }));
+  assert.deepEqual(L.heatRange(grid), { lo: 25, hi: 29 });
+});
+
+test("heatColor runs dark to pale and clamps", () => {
+  assert.deepEqual(L.heatColor(0), [20, 11, 52]);
+  assert.deepEqual(L.heatColor(1), [252, 255, 164]);
+  assert.deepEqual(L.heatColor(-3), L.heatColor(0));
+  assert.deepEqual(L.heatColor(7), L.heatColor(1));
+  const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  for (let t = 0.1; t <= 1; t += 0.1) assert.ok(lum(L.heatColor(t)) > lum(L.heatColor(t - 0.1)) - 1e-9, "brighter as it gets hotter");
+});
+
+test("imuTrend is the change over the last 2 minutes", () => {
+  const at = (s) => new Date(Date.parse("2026-11-14T16:00:00Z") + s * 1000).toISOString();
+  const r = (s, v) => rec({ at: at(s), heat: { source: "imu", imu_temp_c: v } });
+  const t = L.imuTrend([r(0, 40), r(60, 41), r(130, 42), r(180, 42.5)]);
+  assert.equal(t.spanMs, 120000);
+  assert.ok(Math.abs(t.deltaC - 1.5) < 1e-9);
+  assert.equal(L.imuTrend([r(0, 40)]), null);
+  assert.equal(L.imuTrend([r(0, 40), r(5, 41)]), null); // too short to call a trend
+  assert.equal(L.imuTrend([rec({}), rec({})]), null);
+});
+
+test("history keeps heat but drops its images", () => {
+  const s = L.createState();
+  L.setHistory(s, "conveyor-07", []);
+  L.applyEvent(s, "record", rec({ seq: 1, heat: camHeat() }), T0);
+  const kept = s.history["conveyor-07"][0];
+  assert.equal(kept.heat.max_c, 61.2);
+  assert.equal("frames" in kept.heat, false);
+  assert.equal(s.devices["effente-01"].latest.heat.frames.length, 2); // newest record keeps them
+});

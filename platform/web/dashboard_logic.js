@@ -175,6 +175,10 @@
     if (!list) return; // only machines whose history was loaded are kept
     const slim = Object.assign({}, rec);
     delete slim.spectrum;
+    if (slim.heat && typeof slim.heat === "object" && "frames" in slim.heat) {
+      slim.heat = Object.assign({}, slim.heat);
+      delete slim.heat.frames; // images are only drawn from the newest record
+    }
     if (typeof slim.seq === "number") {
       for (let i = list.length - 1; i >= 0; i--) {
         if (list[i].seq === slim.seq) return; // duplicate after reconnect
@@ -430,7 +434,163 @@
     return out;
   }
 
+  // ---------------- heat (contract 3.3, optional) ----------------
+  const HEAT_W = 32;
+  const HEAT_H = 24;
+  const HEAT_ROWS = 6;
+  const HEAT_COLS = 8;
+  const IMU_TREND_MS = 120000;
+
+  const isNum = (v) => typeof v === "number" && isFinite(v);
+
+  function b64Bytes(text) {
+    if (typeof text !== "string") return null;
+    let bin;
+    try {
+      bin = atob(text);
+    } catch (e) {
+      return null;
+    }
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  // One contract 3.3 image -> {atMs, pixels: Float32Array(768) in degC}, or
+  // null if it is not 768 bytes with a usable min_c and step_c.
+  function decodeFrame(frame) {
+    if (!frame || !isNum(frame.min_c) || !isNum(frame.step_c) || frame.step_c <= 0) return null;
+    const raw = b64Bytes(frame.data);
+    if (!raw || raw.length !== HEAT_W * HEAT_H) return null;
+    const px = new Float32Array(raw.length);
+    for (let i = 0; i < raw.length; i++) px[i] = frame.min_c + raw[i] * frame.step_c;
+    return { atMs: parseTime(frame.at), pixels: px };
+  }
+
+  // What the heat panel can draw from a record.
+  //   kind "none"    the record has no heat field (or no record)
+  //   kind "imu"     no camera: IMU temperature only
+  //   kind "camera"  summary, and images when the record carried them
+  //   kind "bad"     a heat field this page cannot read
+  function heatView(rec) {
+    const h = rec && rec.heat;
+    if (h == null) return { kind: "none" };
+    if (typeof h !== "object") return { kind: "bad" };
+    const imu = isNum(h.imu_temp_c) ? h.imu_temp_c : null;
+    if (h.source === "imu") return { kind: "imu", imuTempC: imu };
+    if (h.source !== "camera") return { kind: "bad" };
+    const grid = (v) => (Array.isArray(v) && v.length === HEAT_ROWS * HEAT_COLS && v.every(isNum) ? v : null);
+    const frames = (Array.isArray(h.frames) ? h.frames : []).map(decodeFrame).filter(Boolean);
+    const view = {
+      kind: "camera",
+      imuTempC: imu,
+      maxC: isNum(h.max_c) ? h.max_c : null,
+      backgroundC: isNum(h.background_c) ? h.background_c : null,
+      hotRow: Number.isInteger(h.hot_row) && h.hot_row >= 0 && h.hot_row < HEAT_H ? h.hot_row : null,
+      hotCol: Number.isInteger(h.hot_col) && h.hot_col >= 0 && h.hot_col < HEAT_W ? h.hot_col : null,
+      cells: grid(h.cells),
+      spots: grid(h.spots),
+      frozen: h.frozen === true,
+      sceneMatch: isNum(h.scene_match) ? h.scene_match : null,
+      frames,
+    };
+    if (!frames.length && !(view.cells && view.backgroundC != null)) view.kind = "bad";
+    return view;
+  }
+
+  // Which of a record's images to show elapsedMs after it arrived: the images
+  // are played back at the spacing they were taken. Returns {index, nextMs}
+  // where nextMs is how long until the next image is due (null if none).
+  function frameAt(frames, elapsedMs) {
+    if (!frames || !frames.length) return { index: -1, nextMs: null };
+    const t0 = frames[0].atMs;
+    let index = 0;
+    for (let i = 1; i < frames.length; i++) {
+      const off = isNum(frames[i].atMs) && isNum(t0) ? frames[i].atMs - t0 : NaN;
+      if (!(off >= 0 && off <= 2000)) return { index: frames.length - 1, nextMs: null }; // odd times: newest only
+      if (elapsedMs >= off) index = i;
+      else return { index, nextMs: off - elapsedMs };
+    }
+    return { index, nextMs: null };
+  }
+
+  // Colour range for a camera view: whole degrees around the coldest and
+  // hottest pixel of its images (or grid), at least 4 degC wide.
+  function heatRange(view) {
+    let lo = Infinity, hi = -Infinity;
+    for (const f of view.frames || []) {
+      for (const v of f.pixels) {
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (!isFinite(lo) && view.cells && view.backgroundC != null) {
+      for (let i = 0; i < view.cells.length; i++) {
+        lo = Math.min(lo, view.backgroundC + view.cells[i]);
+        hi = Math.max(hi, view.backgroundC + (view.spots ? view.spots[i] : view.cells[i]));
+      }
+    }
+    if (!isFinite(lo)) return null;
+    lo = Math.floor(lo);
+    hi = Math.ceil(hi);
+    if (hi - lo < 4) hi = lo + 4;
+    return { lo, hi };
+  }
+
+  // Thermal colour ramp (dark purple, red, orange, pale yellow), t in 0..1.
+  const RAMP = [
+    [0.0, [20, 11, 52]],
+    [0.25, [101, 21, 110]],
+    [0.5, [188, 55, 84]],
+    [0.75, [249, 142, 9]],
+    [1.0, [252, 255, 164]],
+  ];
+  function heatColor(t) {
+    const x = Math.max(0, Math.min(1, isNum(t) ? t : 0));
+    for (let i = 1; i < RAMP.length; i++) {
+      const [t1, c1] = RAMP[i];
+      if (x <= t1) {
+        const [t0, c0] = RAMP[i - 1];
+        const f = (x - t0) / (t1 - t0);
+        return c0.map((v, k) => Math.round(v + (c1[k] - v) * f));
+      }
+    }
+    return RAMP[RAMP.length - 1][1].slice();
+  }
+
+  // Change of the IMU temperature over the last 2 minutes of a machine's
+  // history (records oldest first), ending at the newest record with one.
+  function imuTrend(records) {
+    const pts = [];
+    for (const r of records || []) {
+      const v = r && r.heat && isNum(r.heat.imu_temp_c) ? r.heat.imu_temp_c : null;
+      const t = r ? parseTime(r.at) : NaN;
+      if (v != null && !isNaN(t)) pts.push([t, v]);
+    }
+    if (pts.length < 2) return null;
+    const end = pts[pts.length - 1];
+    let start = null;
+    for (const p of pts) {
+      if (end[0] - p[0] <= IMU_TREND_MS) {
+        start = p;
+        break;
+      }
+    }
+    if (!start || start === end || end[0] - start[0] < 10000) return null;
+    return { deltaC: end[1] - start[1], spanMs: end[0] - start[0] };
+  }
+
   return {
+    HEAT_W,
+    HEAT_H,
+    HEAT_ROWS,
+    HEAT_COLS,
+    decodeFrame,
+    heatView,
+    frameAt,
+    heatRange,
+    heatColor,
+    imuTrend,
     STALE_MS,
     HISTORY_CAP,
     WATCHING,

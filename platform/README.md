@@ -14,7 +14,7 @@ python3 platform/run.py
 
 Then open http://localhost:8000.
 
-That starts the receiver and the simulated device. The simulated device takes over the terminal: `1` normal, `2` unbalance, `3` looseness, `4` unrecognised pattern, `5` stopped, `6` warming up, `h` too hot (a limit), `v` vibration above normal, `m` next mode, `p` pause (send nothing), `q` quit. Quitting stops the receiver too. [sim/README.md](sim/README.md) has the details.
+That starts the receiver and the simulated device. The simulated device takes over the terminal: `1` normal, `2` unbalance, `3` looseness, `4` unrecognised pattern, `5` stopped, `6` warming up, `h` too hot (a limit), `v` vibration above normal, `m` next mode, `t` heat source (camera, IMU only, none), `p` pause (send nothing), `q` quit. Quitting stops the receiver too. [sim/README.md](sim/README.md) has the details.
 
 Options: `--fresh` deletes stored history first, `--port N`, `--case unbalance` to start in a case, `--no-sim` for a real device.
 

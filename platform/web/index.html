@@ -71,6 +71,19 @@
     <div class="canvas-wrap"><canvas id="spectrum-canvas"></canvas></div>
   </section>
 
+  <section class="panel heat">
+    <h2>Heat <span class="h2-note" id="heat-note"></span></h2>
+    <div class="canvas-wrap" id="heat-wrap"><canvas id="heat-canvas" aria-label="Thermal image"></canvas></div>
+    <div class="heat-imu" id="heat-imu" hidden>
+      <div class="heat-imu-head">No thermal camera fitted</div>
+      <div class="heat-imu-k">IMU temperature</div>
+      <div class="heat-imu-v" id="heat-imu-v"></div>
+      <div class="heat-imu-trend" id="heat-imu-trend"></div>
+      <div class="panel-note">From the IMU chip's own sensor. It follows the machine slowly and is not the surface temperature, so watch the change.</div>
+    </div>
+    <div class="heat-facts" id="heat-facts"></div>
+  </section>
+
   <section class="panel agent">
     <h2>Agent report <span class="h2-tags" id="agent-tags"></span></h2>
     <div class="agent-body" id="agent-body"></div>

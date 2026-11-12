@@ -20,10 +20,11 @@ Keys (when started in a terminal, no Enter needed):
 | `h` | switch the `too_hot` condition on or off (a limit) |
 | `v` | switch the `vibration_above_normal` condition on or off (outside normal, so it shows only while watching) |
 | `m` | next mode: watching, display, calibrating, recording, training, then watching again |
+| `t` | next heat source: camera, IMU only, none |
 | `p` | pause: send nothing at all, as if the device dropped off the network |
 | `q` | quit |
 
-A problem shows about 10 seconds after its condition is switched on (`--hold`), and clears about 8 seconds after it is switched off, as on the device. The status line shows the mode, the case, each problem (`too_hot in 4s`, `too_hot on`, `too_hot clearing`), what was sent last and whether the platform is reachable. Started from a script (stdin not a terminal) it reads no keys and prints one status line per message.
+A problem shows about 10 seconds after its condition is switched on (`--hold`), and clears about 8 seconds after it is switched off, as on the device. The status line shows the mode, the case, each problem (`too_hot in 4s`, `too_hot on`, `too_hot clearing`), the heat source, what was sent last and whether the platform is reachable. Started from a script (stdin not a terminal) it reads no keys and prints one status line per message.
 
 | Option | Default | |
 |--------|---------|---|
@@ -33,6 +34,7 @@ A problem shows about 10 seconds after its condition is switched on (`--hold`), 
 | `--case` | `normal` | `normal`, `unbalance`, `looseness`, `unrecognised`, `stopped`, `warming_up` |
 | `--mode` | `watching` | `watching` sends records; `display`, `calibrating`, `recording`, `training` send check-ins |
 | `--problem NAME` | none | a problem condition on from the start; repeatable. Any name in the contract's problems table |
+| `--heat` | `camera` | `camera`, `imu` or `none`: what the record's `heat` field carries (see Heat below) |
 | `--hold S` | `10` | seconds a problem must hold before it shows; `0` shows it at once |
 | `--interval` | `1` | seconds between records or check-ins, at most 2 (the contract's rule) |
 | `--seed` | random | repeatable output |
@@ -92,6 +94,16 @@ The simulator changes the diagnosis at once when the case changes. The real devi
 - **unrecognised:** a strong tone in the 251-315 Hz band.
 - **stopped:** everything low.
 
+## Heat
+
+Records carry the contract 3.3 `heat` field ([sim_heat.py](sim_heat.py)). Made up like everything else: the thermal scene is a hand-drawn layout (a warm motor body, a hot bearing spot, the room) with 0.15 degC noise and slow drift, and the IMU temperature wanders around 42.5 degC.
+
+- **camera:** the summary (hottest pixel and where, background, the 48-block grid, frozen, a made-up `scene_match`) and two 32 x 24 images per record, half an interval apart. The summary uses the same definitions as the `th_*` features in `effente/features.py`; a test checks they agree.
+- **imu:** `{"source": "imu", "imu_temp_c": ...}` only, as a device with no camera sends it.
+- **none:** no `heat` field.
+
+Heat has its own random generator, so `--seed` gives the same vibration records with or without it.
+
 ## Replay
 
 `--replay FILE` sends each line of a JSON lines file. Every time in it (`at`, and each problem's `since`) is moved by the same amount so the first record goes out now and the spacing is kept. `device_id` and `model_version` become the simulator's own, so they line up with its announcement; `machine_id` is kept from the file. Records from before version 3 get `problems: []` and a `wrong` worked out from their diagnosis. A record is `simulated: true` unless it says `simulated: false` explicitly.
@@ -101,7 +113,7 @@ The simulator changes the diagnosis at once when the case changes. The real devi
 ## Testing a real device against this
 
 1. **Shape:** run `python3 platform/sim/main.py --count 5 --log sim.jsonl` and compare a real device record with `sim.jsonl` field by field.
-2. **Behaviour:** point the device at the small fake receiver used by the tests. It prints each announcement, record and check-in and flags contract problems (missing fields, a spectrum that is not 20 numbers, `wrong` not matching the diagnosis and problems, an outside-normal problem in a check-in, a reason on normal):
+2. **Behaviour:** point the device at the small fake receiver used by the tests. It prints each announcement, record and check-in and flags contract problems (missing fields, a spectrum that is not 20 numbers, `wrong` not matching the diagnosis and problems, an outside-normal problem in a check-in, a reason on normal, a `heat` field of the wrong shape):
 
    ```
    python3 platform/sim/tests/sim_fake_platform.py 8000

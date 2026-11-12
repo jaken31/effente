@@ -70,6 +70,46 @@ def test_problem_keeps_its_since_while_it_stays_on(stub):
     assert a["problems"][0]["since"] == b["problems"][0]["since"]
 
 
+def test_heat_sources_and_history_without_frames(stub):
+    port = stub.port
+    stub.device.tick()
+    assert call(port, "POST", "/dev/heat?source=imu")[0] == 200
+    stub.device.tick()
+    assert call(port, "POST", "/dev/heat?source=none")[0] == 200
+    stub.device.tick()
+    assert call(port, "POST", "/dev/heat?source=laser")[0] == 400
+    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records")
+    cam, imu, none = body["records"]
+    assert cam["heat"]["source"] == "camera" and "frames" not in cam["heat"] and len(cam["heat"]["cells"]) == 48
+    assert imu["heat"] == {"source": "imu", "imu_temp_c": imu["heat"]["imu_temp_c"]}
+    assert "heat" not in none
+    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records?frames=1")
+    assert len(body["records"][0]["heat"]["frames"]) == 2
+
+
+def test_check_ins_carry_no_heat(stub):
+    stub.device.jump(5)  # recording: check-ins, not records
+    sent = stub.device.tick()
+    assert sent["mode"] == "recording" and "heat" not in sent
+
+
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/dev/pause"),  # stub control, takes no body
+    ("POST", "/dev/nothing"),
+    ("PUT", "/api/nowhere"),
+])
+def test_unread_body_does_not_spoil_the_next_request(stub, method, path):
+    conn = http.client.HTTPConnection("127.0.0.1", stub.port, timeout=5)
+    try:
+        conn.request(method, path, body=b'{"mode": "recording"}', headers={"Content-Type": "application/json"})
+        conn.getresponse().read()
+        conn.request("GET", "/api/state")  # same keep-alive connection
+        res = conn.getresponse()
+        assert res.status == 200 and json.loads(res.read())["ok"] is True
+    finally:
+        conn.close()
+
+
 def read_events(port, act, want, timeout=5.0):
     """Open the stream, run act(), collect events until want(events) is true."""
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)

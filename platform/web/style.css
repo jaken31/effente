@@ -148,12 +148,12 @@ body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.48fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, auto) minmax(0, 1fr) minmax(0, 0.78fr);
   grid-template-areas:
-    "hero readings"
-    "spectrum agent"
-    "history agent";
+    "hero hero readings"
+    "spectrum heat agent"
+    "history history agent";
   gap: 0.9rem;
   padding: 0.9rem 1.4rem 1rem;
 }
@@ -162,6 +162,7 @@ body {
 .spectrum { grid-area: spectrum; }
 .agent { grid-area: agent; }
 .history { grid-area: history; }
+.heat { grid-area: heat; }
 
 .panel {
   background: var(--panel);
@@ -361,6 +362,28 @@ body {
 .legend-line.dashed { border-top: 2px dashed var(--ink); }
 
 /* ---------- whole-page states ---------- */
+/* ---------- heat ---------- */
+.heat .canvas-wrap.fit { flex: 0 1 auto; }
+.heat-facts {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.15rem 0.7rem;
+  margin-top: 0.5rem;
+  font-size: 1rem;
+  align-items: baseline;
+}
+.heat-facts:empty { display: none; }
+.heat-facts .k { color: var(--muted); font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.heat-facts .v { font-family: var(--mono); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heat-facts .v.warn { color: var(--unknown); }
+.heat-imu { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0.35rem; justify-content: center; }
+.heat-imu-head { font-weight: 800; font-size: 1.2rem; }
+.heat-imu-k { color: var(--muted); font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.4rem; }
+.heat-imu-v { font-family: var(--mono); font-weight: 800; font-size: 3rem; line-height: 1; }
+.heat-imu-trend { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
+body.stale-all .heat-imu-v, body.stale-all .heat-imu-trend { color: var(--stale); }
+
 body.platform-lost .grid { filter: grayscale(1); opacity: 0.6; }
 
 @media (prefers-reduced-motion: reduce) {

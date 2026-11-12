@@ -15,6 +15,7 @@ import signal
 import sys
 import time
 
+import sim_heat
 import sim_model as model
 from sim_link import Link
 
@@ -24,7 +25,7 @@ CASE_KEYS = {str(i + 1): case for i, case in enumerate(model.CASES)}
 PROBLEM_KEYS = {"h": "too_hot", "v": "vibration_above_normal"}
 KEY_HELP = (
     "keys: 1 normal  2 unbalance  3 looseness  4 unrecognised  5 stopped  6 warming up\n"
-    "      h too hot (limit)  v vibration above normal  m next mode  p pause (send nothing)  q quit\n"
+    "      h too hot (limit)  v vibration above normal  m next mode  t heat source  p pause (send nothing)  q quit\n"
 )
 
 
@@ -88,6 +89,7 @@ class Sim:
         for name in args.problem or []:
             self.checks.start(name, now, model.now_iso())
         self.stretch_start = now if self.case in model.ABNORMAL_CASES else None
+        self.heat = sim_heat.HeatSim(args.heat, args.seed)
         self.reachable = None  # None until the first attempt
         self.need_announce = True
         self.paused = False
@@ -122,6 +124,9 @@ class Sim:
             self.toggle_problem(PROBLEM_KEYS[k])
         elif k == "m":
             self.next_mode()
+        elif k == "t":
+            modes = sim_heat.MODES
+            self.heat.mode = modes[(modes.index(self.heat.mode) + 1) % len(modes)]
         elif k in ("p", " "):
             self.paused = not self.paused
         return True
@@ -181,8 +186,12 @@ class Sim:
             src = self.replay[self.replay_index]
             self.replay_index += 1
             return self.replayer.record(src)
-        return model.make_record(self.case, self.rng, problems, self.args.device, self.args.machine,
-                                 abnormal_minutes=self.abnormal_minutes())
+        record = model.make_record(self.case, self.rng, problems, self.args.device, self.args.machine,
+                                   abnormal_minutes=self.abnormal_minutes())
+        heat = self.heat.heat(record["at"], self.args.interval)
+        if heat is not None:
+            record["heat"] = heat
+        return record
 
     def step(self) -> bool:
         """Send one record (watching) or check-in (any other mode). False when there is nothing more to send."""
@@ -237,7 +246,7 @@ class Sim:
             plat = "platform ok"
         if self.pending:
             plat += f" ({len(self.pending)} queued)"
-        return (f"[SIM] {self.mode} | case {source} | problems {', '.join(checks) or 'none'} | "
+        return (f"[SIM] {self.mode} | case {source} | problems {', '.join(checks) or 'none'} | heat {self.heat.mode} | "
                 f"sent {self.last_sent or 'nothing yet'} | {plat}")
 
     # --- main loop --------------------------------------------------------
@@ -305,6 +314,8 @@ def parse_args(argv=None):
     p.add_argument("--hold", type=float, default=model.HOLD_S,
                    help=f"seconds a problem must hold before it shows (default {model.HOLD_S:g}, as on the device)")
     p.add_argument("--interval", type=float, default=1.0, help="seconds between records or check-ins (at most 2)")
+    p.add_argument("--heat", default="camera", choices=sim_heat.MODES,
+                   help="camera: thermal summary and images; imu: IMU temperature only; none: no heat field")
     p.add_argument("--seed", type=int, default=None, help="repeatable output")
     p.add_argument("--log", metavar="FILE", help="append every record to FILE (JSON lines)")
     p.add_argument("--model-file", metavar="FILE", help="write a model file for the agent")
