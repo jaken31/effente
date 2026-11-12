@@ -84,27 +84,35 @@ es.addEventListener("events", e => alert(JSON.parse(e.data)));
 | `events` | when they happen: jolt, bang, beeping, heat jump, device moved or dropped, sensor lost or back, gaps, sensor clipping or stuck, storage cleanup, recording paused, stopped (needs `--record`) | `event`, `t`, `details` |
 | `status` | every 5 s, and once at the end with `running: false` | model, window counts, missing sensors, recording, stream clients |
 
-One message of each, from a 30 s run of the simulated conveyor with no model (only the feature values are cut short):
+One message of each, from a 30 s run of the simulated conveyor with no model (only the feature values are cut short; the results line is from after the contract fields were added, the others from before, with `at` updated to the Z form):
 
 ```
 id: 6af60669-154
 event: results
-data: {"device_id": "effente-01", "machine_id": "conveyor-07", "at": "2026-11-12T18:33:21+00:00", "t": 36029.0, "status": "no model", "spectrum": [-4.702, -4.62, -4.627, -5.241, -4.892, -5.018, -5.037, -3.415, -4.819, -4.382, -4.075, -4.289, -4.182, -4.197, -4.095, -3.759, -3.934, -4.103, -4.582, -5.972], "result": null, "missing": [], "queue_wait_ms": 0.1}
+data: {"device_id": "effente-01", "machine_id": "conveyor-07", "model_version": "none", "at": "2026-11-12T21:16:00Z", "t": 36029.0, "status": "warming_up", "diagnosis": "unknown", "diagnosis_detail": "no_model", "reason": "", "mask": [], "features": {}, "spectrum": [-4.7, -4.616, -4.636, -5.234, -4.894, -5.017, -5.036, -3.416, -4.818, -4.38, -4.075, -4.286, -4.183, -4.196, -4.11, -3.757, -3.929, -4.105, -4.578, -5.97], "simulated": true, "result": null, "missing": [], "queue_wait_ms": 0.1}
 
 id: 6af6065b-1
 event: features
-data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:00+00:00","t":36000.0,"features_version":"c985a0908a96","missing":[],"values":[-1.87222,-1.98179,-1.91626,-5.00315,-4.68125, ... 278 values, null where NaN]}
+data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:00Z","t":36000.0,"features_version":"c985a0908a96","missing":[],"values":[-1.87222,-1.98179,-1.91626,-5.00315,-4.68125, ... 278 values, null where NaN]}
 
 id: 6af6065b-155
 event: events
-data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:07+00:00","t":36029.0,"event":"recording_stopped","details":{"wall_time":"2026-11-12T18:33:07+00:00","windows":117,"rows":30}}
+data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:07Z","t":36029.0,"event":"recording_stopped","details":{"wall_time":"2026-11-12T18:33:07+00:00","windows":117,"rows":30}}
 
 id: 6af60669-30
 event: status
-data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:15+00:00","uptime_s":2.0,"running":true,"t":36005.25,"status":"no model","missing":[],"model":{"status":"no model","error":null,"loads":0},"windows":{"made":22,"scored":22,"dropped":0,"model_errors":0},"model_ms_avg":0.0,"queue_wait_ms_avg":0.1,"recording":true,"recording_paused":false,"intake_error":null,"stream":{"clients":1,"client_drops":0,"stalled_disconnects":0,"published":{"results":22,"features":6,"events":0,"status":1}}}
+data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:15Z","uptime_s":2.0,"running":true,"t":36005.25,"status":"no model","missing":[],"model":{"status":"no model","error":null,"loads":0},"windows":{"made":22,"scored":22,"dropped":0,"model_errors":0},"model_ms_avg":0.0,"queue_wait_ms_avg":0.1,"recording":true,"recording_paused":false,"intake_error":null,"stream":{"clients":1,"client_drops":0,"stalled_disconnects":0,"published":{"results":22,"features":6,"events":0,"status":1}}}
 ```
 
-With a model, `results` also carries `diagnosis`, `confidence`, `unknown_score`, `features` and `mask` when the model gives them, and `result` is the model's full result. `at` is UTC: from the device clock when it is Unix time, otherwise (a replay or simulation) the time the line was made. NaN never appears in any message.
+A results line is a record in the shape of [platform/CONTRACT.md](../../platform/CONTRACT.md) (message 2):
+
+- **Always there:** `device_id`, `machine_id`, `model_version` (`none` without a model), `at`, `diagnosis`, `reason`, `features`, `mask` and `simulated`.
+- **`diagnosis`** is one of the contract's four values: `normal`, `imbalance`, `loose_mount` or `unknown`. `diagnosis_detail` keeps our own name: `unbalance_like`, `warming_up`, `no_model`, and so on.
+- **With a model**, the line also has `confidence`, `unknown_score`, `deviations` (our model's signed deviations, which used to be in `features`), and `wrong`, `what` and `problems` (the device's own answer). `result` is the model's full result.
+- **`at`** is UTC with a `Z`. It comes from the device clock when that is Unix time. Otherwise (a replay or simulation) it is the time the line was made.
+- **NaN** never appears in any message.
+
+Where the contract and the device still differ, and why: [CONTRACT_NOTES.md](CONTRACT_NOTES.md).
 
 - **On connect** a client first gets the last 30 s of its topics, then live data. EventSource reconnects by itself after 3 s and sends `Last-Event-ID`; the stream then resumes after that item, with no repeats (as far back as it keeps: 248 results, 34 feature rows, 200 events). After a device restart, ids start again and the client gets the normal replay.
 - **Never slows the device**: publishing only puts items in memory. Each client has its own queue of 256 items that drops its oldest when full (counted as `client_drops`), and a client that cannot be written to for 10 s is disconnected (`stalled_disconnects`). At most 16 clients; more get 503. Measured once on a laptop: 3 minutes of the simulated conveyor ran in 3.58 s without the stream and 3.73 s with it and a client that never reads, 717 windows made and 717 scored both times.
@@ -223,6 +231,8 @@ python3 -m device.intake.coverage_check data/fake/server-rack --sim server
 python3 -m device.intake.tests.test_intake
 python3 -m device.intake.tests.test_conveyor
 python3 -m device.intake.tests.test_stream
+python3 -m device.intake.tests.test_contract
+python3 -m device.intake.tests.test_fan_test
 ```
 
 ## Not done yet

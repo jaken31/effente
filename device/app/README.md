@@ -19,8 +19,9 @@ Pressing the button while in inference starts a new recording, to relearn. After
 
 ## What counts as wrong
 
-The device answers two things only: is something wrong, and what. There are no severity levels. Problems show on the screen as `! …` lines in every mode, go out on the stream as `problem` and `problem_cleared` events, and appear in `/latest` status as `wrong`, `what` and `problems`. The rules are in [effente/safety.py](../../effente/safety.py).
+The device answers two things only: is something wrong, and what. There are no severity levels. "What" is a plain description of what is going on (VIBRATION TOO HIGH, UNUSUAL VIBRATION, KNOCKING OR JOLTS, RAPID TEMP CHANGES, …), not a guess at the cause. The description comes straight from which groups of readings left normal (vibration level, vibration shape, spikiness, speed, temperature, sound, …). On 20 real bearings, the cause guesses were mostly wrong, but the descriptions were accurate for all 35 faults caught ([OTTAWA_RESULTS.md](../../training/record/datasets/OTTAWA_RESULTS.md)). The specific fault type still goes out in the data (`details`, `diagnosis`) for the team. Problems show on the screen as `! …` lines in every mode, go out on the stream as `problem` and `problem_cleared` events, and appear in `/latest` status as `wrong`, `what` and `problems`. The rules are in [effente/safety.py](../../effente/safety.py).
 
+- **The sensor itself, first:** `SENSOR PROBLEM` when the readings make no sense. That means gravity far from 1 g (outside 0.85–1.15 g), no noise at all on any axis (stuck or disconnected), or an IMU temperature outside its rated −40 to 125 °C. While it's on, the vibration checks and the model's diagnosis are set aside, because they would only be judging bad data. On 12 Nov, corrupted samples made the device say VIBRATION TOO HIGH while it sat still; now that case says SENSOR PROBLEM. Learning on such data gives a training note. Sensors that remove gravity by design (industrial piezo sensors) skip the gravity test: their data source sets `accel_measures_gravity = False`.
 - **From the moment it's plugged in (no setup, any machine):**
   - vibration over 11 mm/s
   - knocking: impulsive vibration with peaks of 0.5 g or more
@@ -77,6 +78,43 @@ curl -N http://localhost:8765/stream
 
 Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/`, `state.json`, `settings.json` and `history.npz`. The deploy script never touches it.
 
+## The fan test
+
+This tests the whole device. Fix it to a desk fan and let it learn the fan's normal. Then tape a coin to one blade and see whether it says something is wrong and describes it as a vibration problem. [fan_test.py](fan_test.py) runs on the laptop and guides you through it.
+
+You need:
+
+- the board on USB, with the app deployed (`device/app/deploy.sh`)
+- a desk fan
+- a coin and some tape
+- about 45 minutes
+
+```bash
+python3 device/app/fan_test.py
+```
+
+The script sets up `adb forward tcp:8765 tcp:8765` itself, then:
+
+1. checks the app is up (`/health`, `/latest`) and prints the sensitivity (`GET /settings`)
+2. asks you to fix the device to the fan and switch it on, then presses the button (`adb shell touch …/data/press`) to start learning
+3. waits `--minutes` (default 20), showing how long it has learned. Leave the fan running.
+4. presses again to train and shows training progress until the device is in inference
+5. watches `--normal-minutes` (default 10) with the fan as it is. Anything wrong now is a false alarm.
+6. asks you to switch the fan off, tape the coin near the tip of one blade and switch it back on. It then watches up to `--fault-minutes` (default 10). It reports whether the device said something is wrong, what it named, and how long that took. It stops 30 s (`--settle`) after the vibration is described.
+7. optionally tries another sensitivity with the coin still on: `--try-sensitivity 0.7`, or type a value when asked. It watches for `--sensitivity-minutes` (default 5), then puts the old sensitivity back.
+8. writes a JSON report to `data/fan-test-<time>.json`. Like all of `data/`, it is never committed.
+
+The test passes if there were no false alarms and the coin was described as UNUSUAL VIBRATION or VIBRATION TOO HIGH (`unusual_vibration` or `vibration_too_high` in `what`). The report also says whether the guessed cause was unbalance (`unbalance_like` in `details` or `diagnosis_detail`, which the platform contract calls `imbalance`), for information only. "Wrong" is the device's own `wrong`, in a results line or in status. It covers the model and the no-setup limits (vibration over 11 mm/s, …), so a false alarm from either counts. The exit code is 0 for a pass and 1 otherwise.
+
+Other options:
+
+- `--url` for a board reached over the network, with `--no-forward`
+- `--press-cmd "…"` for another way to press the button
+- `--poll` for how often status is checked
+- `--yes` to skip the Enter prompts
+
+It is tested without hardware, against a local `DeviceApp` fed simulated conveyor data (`python3 -m device.intake.tests.test_fan_test`). **It hasn't been run on the board or a real fan yet.**
+
 ## Measured on this board (12 Nov 2026)
 
 | | |
@@ -87,7 +125,8 @@ Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/
 | IMU temperature | 42–43 °C, from the IMU's own temperature sensor, sent with every batch, and used as the heat reading when there's no thermal camera |
 | Features per window | 29 ms with every sensor (12 % of one core at 4 windows a second); less with only the IMU |
 | Model | Loads in 8 ms, judges in 6 ms |
-| OLED | A full frame is 27 ms of I2C time (about 35 frames a second at most). With sensor reads in between, a frame takes 45–55 ms. Text from the Linux side costs about 180 bytes of Bridge line per update, so about 10 updates a second fit; the app sends 2 |
+| OLED | 10 frames a second, drawn one eighth of the screen per pass at 400 kHz. Drawing the whole frame at once held the bus for about 27 ms; with the sensor read on top, that overflowed the MPU-6500's 512-byte FIFO, which corrupted every later sample (2 g of "vibration" at rest). Running the bus at 1 MHz didn't help. Text from the Linux side costs about 180 bytes of Bridge line per update |
+| After the fix (12 Nov, after the reflash) | At rest: 1.018 g gravity, 2–4 mg noise per axis, 0.3–0.5 mm/s. About one FIFO restart every 5 s remains (about 0.7 % of samples, rate 993 a second); the cause isn't found yet |
 
 ## Limits and known issues
 
@@ -95,5 +134,6 @@ Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/
   - process them on the microcontroller
   - connect the mic to the Linux side
   - raise the router's baud rate (a system service change that needs `sudo`; untested)
+- **After reflashing the board:** check `systemctl status arduino-burn-bootloader`. On 12 Nov its first-boot run timed out, so the sketch never started (0 samples). Running `arduino-cli burn-bootloader -b arduino:zephyr:unoq -P jlink` on the board fixed it. The newer toolchain also no longer links `log10f` (missing `__errno`), so the sketch uses its own.
 - **Startup:** now and then, after the app restarts, the sketch doesn't start: the screen stays on `starting...` and no samples arrive. Stopping the app and starting it again (or starting another app first) has fixed it every time so far. The cause hasn't been found.
 - **Ownership:** the sketch belongs in `firmware/` and the app in `device/`, which is track 1's area under AGENTS.md. It's here as track 2's sensor app, until track 1's work replaces it.

@@ -55,14 +55,17 @@ UNITS = {
 }
 
 
+ISO_UTC = "%Y-%m-%dT%H:%M:%SZ"  # platform/CONTRACT.md: ISO 8601 UTC with a Z
+
+
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).strftime(ISO_UTC)
 
 
 def at_of(t) -> str:
     """UTC time of a device timestamp, or now when the timestamp is not Unix time (a replay)."""
     if t is not None and t > WALL_CLOCK_AFTER_S:
-        return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(t, timezone.utc).strftime(ISO_UTC)
     return now_iso()
 
 

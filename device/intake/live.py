@@ -50,6 +50,7 @@ import numpy as np
 
 from effente import features as F
 from effente.history import History
+from device.intake import contract as C
 from device.intake.extract import add_source_args, feature_stream, features_version, make_source
 from device.intake.recorder import HISTORY_SAVE_EVERY_S, Recorder
 from device.intake.source import FileSource
@@ -68,6 +69,7 @@ class ModelSlot:
         self.check_every_s = check_every_s
         self.model = None
         self.status = "no model"
+        self.version = C.NO_MODEL  # the contract's model_version: changes when the model's files do
         self.error: str | None = None
         self.loads = 0
         self._stamp = None
@@ -85,7 +87,7 @@ class ModelSlot:
             self._retries = 3  # a file caught half-copied gets a few more tries
         self._stamp = stamp
         if not self.loader:
-            self.model, self.status = None, "no model"
+            self.model, self.status, self.version = None, "no model", C.NO_MODEL
             return
         try:
             spec = importlib.util.spec_from_file_location(f"effente_model_{self.loads}", self.loader)
@@ -98,6 +100,7 @@ class ModelSlot:
                 return
             model = mod.load(str(self.model_path) if self.model_path else None)
             self.model, self.status, self.error = model, "ready", None
+            self.version = getattr(mod, "MODEL_VERSION", None) or C.model_version_of(self.loader, self.model_path)
             self.loads += 1
         except Exception as e:  # noqa: BLE001  a bad model file must not stop the device
             self._failed("error", f"{type(e).__name__}: {e}", retry=True)
@@ -179,7 +182,6 @@ def _put_dropping_oldest(q: queue.Queue, item, stats: Stats) -> None:
                 pass
 
 
-TRD_FIELDS = ("diagnosis", "confidence", "unknown_score", "features", "mask", "spectrum")
 _SPECTRUM = [F.INDEX[f"vib_band_{i:02d}"] for i in range(len(F.VIB_EDGES_HZ) - 1)]
 WALL_CLOCK_AFTER_S = 1e9  # timestamps above this are Unix time (from 2001 on); below, a replay or simulation
 
@@ -188,28 +190,36 @@ def _jsonable(o):
     return o.tolist() if hasattr(o, "tolist") else str(o)  # NumPy arrays and scalars, anything else as text
 
 
-def log_record(t0, x, result, status, missing, wait_s, device_id, machine_id) -> str:
-    """One results line in the TRD's log-record shape, plus intake fields.
+def log_record(t0, x, result, status, missing, wait_s, device_id, machine_id, *,
+               model_version: str = C.NO_MODEL, simulated: bool = False) -> str:
+    """One results line in the log-record shape of platform/CONTRACT.md (message 2), plus intake fields.
 
-    The TRD fields (diagnosis, confidence, unknown_score, features, mask, spectrum) are copied from
-    the model's result when it gives them; fields it does not give are left out, never null. The
-    spectrum defaults to the 20 vibration bands (log10 power, 5-500 Hz) for the dashboard."""
+    Always there: the contract's required fields (device_id, machine_id, model_version, at, diagnosis),
+    reason, features, mask and simulated. `diagnosis` is the contract's value and `diagnosis_detail`
+    our own name (device/intake/contract.py). confidence and unknown_score come from the model's
+    result when it gives finite ones; otherwise they are left out, never null. The spectrum defaults
+    to the 20 vibration bands (log10 power, 5-500 Hz), which is not the contract's shape
+    (CONTRACT_NOTES.md)."""
     at = (datetime.fromtimestamp(t0, timezone.utc) if t0 > WALL_CLOCK_AFTER_S else datetime.now(timezone.utc))
-    rec = {"device_id": device_id, "machine_id": machine_id, "at": at.isoformat(timespec="seconds"),
-           "t": round(float(t0), 3), "status": status}
-    if isinstance(result, dict):
-        rec.update({k: result[k] for k in TRD_FIELDS if k in result})
+    head = {"device_id": device_id, "machine_id": machine_id, "model_version": model_version or C.NO_MODEL,
+            "at": C.iso_utc(at), "t": round(float(t0), 3), "status": status}
+    rec = dict(head)
+    rec.update(C.record_fields(result, status))
+    if isinstance(result, dict) and "spectrum" in result:
+        rec["spectrum"] = result["spectrum"]
     if "spectrum" not in rec and not np.isnan(x[_SPECTRUM]).any():
         rec["spectrum"] = [round(float(v), 3) for v in x[_SPECTRUM]]
-    rec.update({"result": result, "missing": missing, "queue_wait_ms": round(1000 * wait_s, 1)})
+    rec.update({"simulated": bool(simulated), "result": result, "missing": missing,
+                "queue_wait_ms": round(1000 * wait_s, 1)})
     try:
         return json.dumps(rec, default=_jsonable, allow_nan=False)
     except (TypeError, ValueError) as e:  # NaN or something odd in the result: keep the line, not the crash
-        rec["result"] = {"error": f"result could not be written: {type(e).__name__}: {e}"}
-        for k in TRD_FIELDS:  # a spectrum from the model may be what failed; the default one never has NaN
-            rec.pop(k, None)
-        if not np.isnan(x[_SPECTRUM]).any():
+        error = f"result could not be written: {type(e).__name__}: {e}"
+        # Only what cannot fail: the required fields, as if there were no usable result.
+        rec = {**head, **C.record_fields({"error": error}, status), "simulated": bool(simulated)}
+        if not np.isnan(x[_SPECTRUM]).any():  # a spectrum from the model may be what failed; ours never has NaN
             rec["spectrum"] = [round(float(v), 3) for v in x[_SPECTRUM]]
+        rec.update({"result": {"error": error}, "missing": missing, "queue_wait_ms": round(1000 * wait_s, 1)})
         return json.dumps(rec, default=_jsonable, allow_nan=False)
 
 
@@ -238,12 +248,15 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
              speed: float = 0.0, queue_size: int = 40, warmup_s: float = 60.0,
              window_s: float = WINDOW_S, hop_s: float = HOP_S, console: bool = True,
              report_every_s: float = 600.0, history: History | None = None, history_path=None,
-             device_id: str = "effente-01", machine_id: str = "machine-1", stream: Stream | None = None) -> Stats:
+             device_id: str = "effente-01", machine_id: str = "machine-1", stream: Stream | None = None,
+             simulated: bool | None = None) -> Stats:
     """Run intake and the model together. `history` carries trend features across
     restarts: it is saved to `history_path` every 5 minutes (by the recorder, if
     one is attached) and at the end. `stream` (a started device.intake.stream.Stream)
-    gets every result, a feature row a second, the recorder's events and a status."""
+    gets every result, a feature row a second, the recorder's events and a status. `simulated` (the
+    contract's flag) is worked out from the source when not given."""
     stats = Stats()
+    simulated = C.is_simulated(source) if simulated is None else simulated
     q: queue.Queue = queue.Queue(maxsize=queue_size)
     history = history if history is not None else (recorder.history if recorder else None) or History()
     if recorder is not None and recorder.history is None:
@@ -257,6 +270,7 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
             n = max(1, stats.scored)
             storage = recorder.storage if recorder is not None else None
             return {**now, "model": {"status": slot.status, "error": slot.error, "loads": slot.loads},
+                    "model_version": slot.version, "simulated": simulated,
                     "windows": {"made": stats.produced, "scored": stats.scored, "dropped": stats.dropped,
                                 "model_errors": stats.model_errors},
                     "model_ms_avg": round(1000 * stats.model_s / n, 2),
@@ -321,7 +335,8 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
         stats.wait_max_s = max(stats.wait_max_s, wait)
         stats.scored += 1
         status = "warming_up" if t0 - first_t0 < warmup_s else slot.status
-        line = (log_record(t0, x, result, status, missing, wait, device_id, machine_id)
+        line = (log_record(t0, x, result, status, missing, wait, device_id, machine_id,
+                           model_version=slot.version, simulated=simulated)
                 if log or stream is not None else None)
         if log:
             log.write(line + "\n")
