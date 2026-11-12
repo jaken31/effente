@@ -8,6 +8,7 @@ import math
 import socket
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import numpy as np
 from effente import fault_types as FT
 from effente import features as F
 from effente import safety as SF
-from device.intake.tests.fake_platform import FakePlatform, free_port, record_errors
+from device.intake.tests.fake_platform import FakePlatform, record_errors
 from device.intake.uploader import NO_TYPE_FITS, Uploader
 
 START = 6 * 3600 + 10 * 60  # Monday 06:10 in the simulated conveyor's week: it is running
@@ -188,7 +189,9 @@ def test_need_model_repeats_message_1():
 
 
 def test_platform_down_then_catch_up_with_the_newest_records():
-    port = free_port()
+    hold = socket.socket()  # bound, not listening: requests are refused and no other test can take the port
+    hold.bind(("127.0.0.1", 0))
+    port = hold.getsockname()[1]
     with tempfile.TemporaryDirectory() as tmp:
         path, d = model_file(tmp)
         logs = []
@@ -201,6 +204,7 @@ def test_platform_down_then_catch_up_with_the_newest_records():
                 up.on_row(5000.0 + k, row(), "watching", {"diagnosis": "normal"}, [], 0.5, 1.0)
             assert time.perf_counter() - t < 0.5  # the pipeline never waits for the network
             assert until(lambda: up.reachable is False)
+            hold.close()
             with FakePlatform(port) as fp:
                 assert up.wait_idle(10), up.stats
                 assert len(fp.models) == 1
@@ -213,6 +217,7 @@ def test_platform_down_then_catch_up_with_the_newest_records():
                 assert not fp.errors, fp.errors
         finally:
             up.stop()
+            hold.close()
         assert any("not reachable" in m for m in logs) and any("reachable again" in m for m in logs), logs
 
 
@@ -291,6 +296,63 @@ def test_device_announces_its_model_and_sends_records_while_watching():
             assert fp.models[1]["model_version"] == version
         finally:
             up.stop()
+
+
+def test_wait_idle_waits_for_records_still_on_their_way():
+    with tempfile.TemporaryDirectory() as tmp, FakePlatform() as fp:
+        path, d = model_file(tmp)
+        fp.delay_s = 0.5  # a slow platform: the batch is off the queue but not yet stored
+        up = Uploader(fp.url, "effente-01", "conveyor-07", log=lambda m: None).start()
+        try:
+            up.announce(path, d, 0.5)
+            for k in range(3):
+                up.on_row(5000.0 + k, row(), "watching", {"diagnosis": "normal"}, [], 0.5, 1.0)
+            assert up.wait_idle(10)
+            assert len(fp.records) == 3 and up.stats["records_sent"] == 3, (len(fp.records), up.stats)
+        finally:
+            up.stop()
+
+
+def test_a_broken_reply_keeps_the_records():
+    junk = socket.socket()
+    junk.bind(("127.0.0.1", 0))
+    junk.listen(8)
+    stop = threading.Event()
+
+    def answer_junk():  # the model is accepted; every later request gets bytes that are not HTTP
+        junk.settimeout(0.2)
+        first = True
+        while not stop.is_set():
+            try:
+                c, _ = junk.accept()
+            except OSError:
+                continue
+            with c:
+                c.recv(65536)
+                body = b'{"ok": true}'
+                c.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n"
+                          b"Connection: close\r\n\r\n%s" % (len(body), body) if first else b"not http at all\r\n\r\n")
+                first = False
+
+    threading.Thread(target=answer_junk, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, d = model_file(tmp)
+            up = Uploader(f"http://127.0.0.1:{junk.getsockname()[1]}", "effente-01", "m", retry_s=(0.1,),
+                          log=lambda m: None).start()
+            try:
+                up.announce(path, d)
+                assert until(lambda: up.stats["models_sent"] == 1), up.stats
+                for k in range(5):
+                    up.on_row(100.0 + k, row(), "watching", {"diagnosis": "normal"}, [], 0.5, 1.0)
+                assert until(lambda: up.reachable is False), up.stats
+                with up.lock:  # put back on the queue, not lost
+                    assert len(up.records) == 5 and up.stats["records_sent"] == 0, (len(up.records), up.stats)
+            finally:
+                up.stop()
+    finally:
+        stop.set()
+        junk.close()
 
 
 class _NoSource:

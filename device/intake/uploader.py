@@ -23,6 +23,7 @@ Standard library only.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import threading
@@ -137,6 +138,7 @@ class Uploader:
         self._fails = 0
         self._retry_at = 0.0
         self._logged: dict[str, float] = {}
+        self._busy = False  # the sender is working: something taken off the queues may be in flight
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -163,11 +165,12 @@ class Uploader:
             self._thread.join(self.timeout + 1.0)
 
     def wait_idle(self, timeout: float) -> bool:
-        """Wait until nothing is queued (True), or until timeout (False)."""
+        """Wait until nothing is queued or in flight (True), or until timeout (False)."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self.lock:
-                if not self.records and self.checkin is None and not (self.need_model and self.model):
+                if (not self._busy and not self.records and self.checkin is None
+                        and not (self.need_model and self.model)):
                     return True
             time.sleep(0.02)
         return False
@@ -275,10 +278,15 @@ class Uploader:
                 break
             if time.monotonic() < self._retry_at:
                 continue
+            with self.lock:
+                self._busy = True
             try:
                 self._send_pending()
             except Exception as e:  # noqa: BLE001  the sender must keep going whatever happens
                 self._say("sender", f"{type(e).__name__}: {e}")
+            finally:
+                with self.lock:
+                    self._busy = False
 
     def _send_pending(self) -> None:
         with self.lock:
@@ -363,7 +371,7 @@ class Uploader:
                 body = {}
             body = body if isinstance(body, dict) else {}
             return _Reply(False, True, body, f"HTTP {e.code} {body.get('error', '')}".strip())
-        except (OSError, ValueError) as e:  # refused, timed out, no route, bad URL
+        except (OSError, ValueError, http.client.HTTPException) as e:  # refused, timed out, no route, bad URL, a broken reply
             self.stats["requests_failed"] += 1
             return _Reply(False, False, error=f"{type(e).__name__}: {e}")
         try:
