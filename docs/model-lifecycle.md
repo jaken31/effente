@@ -202,6 +202,7 @@ The most valuable data in the loop. Build it before the review agent.
 - For a real problem, a follow-up some days later: "What did you find?" with common answers (loose bolt, worn bearing, belt, misalignment, overheating, other: free text).
 - Stored with the alarm: the verdict, the cause, who answered, when, and the model entry and version that raised it.
 - A reminder, not a nag, for alarms left unanswered.
+- Contract version 2.1 (section 6 of [CONTRACT.md](../platform/CONTRACT.md)) defines the alarm and the answer. The platform works out alarms from the records, so the device needs no change. The finding is free text for now; the dashboard can offer the common answers as ready-made text. A fixed list of causes waits until there are enough answers to see which ones come up.
 
 ## Learning over time
 
@@ -268,8 +269,8 @@ Record all training data with the MPU-6500 and never mix it with MPU6050 data (T
 | Area | Change | Owner | Needs all-team agreement |
 |------|--------|-------|--------------------------|
 | Model file | Add library entry id and version, and the profile | Track 3 | Yes: shared format |
-| Log record | Add model entry and version, protection level, alarm id | Track 3 and 5 | Yes: shared format |
-| Contract | Model pull request, `new_model` flag, feedback endpoints (version 2 already has the new diagnosis names) | Track 5 | Yes |
+| Log record | Add model entry and version, protection level. An alarm id from the device is optional: contract 2.1 has the platform work it out | Track 3 and 5 | Yes: shared format |
+| Contract | Model pull request, `new_model` flag (version 2 already has the new diagnosis names; version 2.1 has the feedback endpoint) | Track 5 | Yes |
 | Device | Auto-start recording after setup, model pull and rollback, one model per machine with re-calibration on attach, day-0 rules, protection level on the screen | Track 1 | No |
 | Trainer | Calibrate on top of a library network; start full training from it | Track 3 | No |
 | Platform | Profile store, feedback store, replay data store, review agent | Track 5 | No |
