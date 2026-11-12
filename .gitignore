@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local agent tooling
+.claude/
+.claude-flow/
+
+# OS and editor
+.DS_Store
+*.swp

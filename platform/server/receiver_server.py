@@ -108,12 +108,12 @@ class ReceiverHTTPServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, store, hub, web_dir, keepalive=KEEPALIVE_S):
+    def __init__(self, address, store, hub, web_dir, keepalive=KEEPALIVE_S, handler=None):
         self.store = store
         self.hub = hub
         self.web_dir = os.path.realpath(web_dir)
         self.keepalive = keepalive
-        super().__init__(address, Handler)
+        super().__init__(address, handler or Handler)
 
     def handle_error(self, request, client_address):
         # A client vanishing mid-request is normal; anything else gets a traceback.
@@ -167,18 +167,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError as e:
             raise BadRequest(f"body is not valid JSON: {e}")
 
+    def _discard_body(self):
+        """Read and drop a body no route will read. On a keep-alive connection,
+        unread bytes would be taken as the start of the next request. A body
+        that cannot be read safely closes the connection instead."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower() or not 0 <= length <= MAX_BODY_BYTES:
+            self.close_connection = True
+        elif length:
+            self.rfile.read(length)
+
     def _route(self, method):
         parsed = urllib.parse.urlsplit(self.path)
         path = parsed.path
         if not path.startswith("/api/") and path != "/api":
             if method in ("GET", "HEAD"):
                 return self._static(path, head_only=method == "HEAD")
+            self._discard_body()
             return self._error(405, f"{method} is not allowed on dashboard files")
         query = urllib.parse.parse_qs(parsed.query)
         parts = [urllib.parse.unquote(p) for p in path.split("/")[2:]]
         try:
             handler, args = self._match(method, parts)
             if handler is None:
+                self._discard_body()
                 return self._error(args, "method not allowed" if args == 405 else f"no such API route: {path}")
             handler(query, *args)
         except BadRequest as e:
@@ -193,7 +208,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         routes = [
             (("model",), {"POST": self.post_model}),
             (("records",), {"POST": self.post_records}),
-            (("devices", None, "mask"), {"GET": self.get_mask, "PUT": self.put_mask}),
+            (("devices", None), {"POST": self.post_check_in}),
             (("agent", "runs", None), {"PUT": self.put_run}),
             (("state",), {"GET": self.get_state}),
             (("stream",), {"GET": self.get_stream}),
@@ -240,11 +255,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def post_records(self, query):
         self._json(200, self.server.store.add_records(self._body()))
 
-    def put_mask(self, query, device_id):
-        self._json(200, self.server.store.set_mask(device_id, self._body()))
-
-    def get_mask(self, query, device_id):
-        self._json(200, self.server.store.get_mask(device_id))
+    def post_check_in(self, query, device_id):
+        self.server.store.check_in(device_id, self._body())
+        self._json(200, {"ok": True})
 
     def put_run(self, query, run_id):
         self.server.store.put_run(run_id, self._body())
@@ -255,8 +268,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def get_machine_records(self, query, machine_id):
         limit = _limit(query, DEFAULT_HISTORY_LIMIT)
-        spectrum = query.get("spectrum", ["0"])[-1].lower() in ("1", "true", "yes")
-        records = self.server.store.machine_records(machine_id, limit, spectrum)
+        spectrum = _flag(query, "spectrum")
+        frames = _flag(query, "frames")
+        records = self.server.store.machine_records(machine_id, limit, spectrum, frames)
         self._json(200, {"ok": True, "records": records})
 
     def get_machine_runs(self, query, machine_id):
@@ -320,6 +334,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(200, body, content_type, head_only)
 
 
+def _flag(query, name):
+    return query.get(name, ["0"])[-1].lower() in ("1", "true", "yes")
+
+
 def _limit(query, default):
     raw = query.get("limit", [str(default)])[-1]
     try:
@@ -337,14 +355,19 @@ def _html_escape(text):
 
 class Receiver:
     """The whole running receiver: store, event hub, HTTP server and the
-    watcher that marks quiet devices. Used by main.py and by the tests."""
+    watcher that marks quiet devices. Used by main.py, the tests and
+    platform/web/dev_stub.py (which passes its own `handler` subclass)."""
 
-    def __init__(self, host, port, data_dir, web_dir, quiet_after=QUIET_AFTER_S, keepalive=KEEPALIVE_S, log=None):
+    def __init__(
+        self, host, port, data_dir, web_dir, quiet_after=QUIET_AFTER_S, keepalive=KEEPALIVE_S, log=None, handler=None
+    ):
         log = log or (lambda message: print(message, flush=True))
         self.hub = Hub()
         self.log = log
         self.store = Store(data_dir, emit=self.hub.publish, quiet_after=quiet_after, log=log)
-        self.httpd = ReceiverHTTPServer((host, port), self.store, self.hub, web_dir, keepalive=keepalive)
+        self.httpd = ReceiverHTTPServer(
+            (host, port), self.store, self.hub, web_dir, keepalive=keepalive, handler=handler
+        )
         self.port = self.httpd.server_address[1]
         self._stop = threading.Event()
         self._watcher = threading.Thread(target=self._watch, name="quiet-watcher", daemon=True)

@@ -13,10 +13,10 @@ Pick **one** conveyor option: A (kit), B (wood) or C (3D-printed).
 ## Device (already on the repo's parts list)
 
 - [ ] ⬜ Arduino UNO Q (4 GB)
-- [ ] ⬜ MPU6050 accelerometer (GY-521)
-- [ ] ⬜ 2.4" OLED screen
+- [ ] ⬜ MPU-6500 accelerometer (MPU-9250/6500 breakout)
+- [ ] ⬜ 2.42" OLED screen (SSD1309, I2C)
 - [ ] ⬜ Push button
-- [ ] ⬜ USB power bank + short USB-C cable
+- [ ] ⬜ USB power bank, 5 V / 3 A or more, + short USB-C cable
 - [ ] ⬜ Sensor cable (30–50 cm), jumper wires, breadboard
 - [ ] ⬜ Sensor head: magnet, steel discs, instant glue, M3 screws, cable ties, printed head
 
@@ -32,18 +32,21 @@ Pick **one** conveyor option: A (kit), B (wood) or C (3D-printed).
 - [ ] 🟫 Metal L-bracket + 2 screws (motor mount; these screws become the loose-mount fault)
 - [ ] 🟫 About 10 wood screws for the frame
 
-## Conveyor: option C (3D-printed parts + solid base)
+## Conveyor: option C (printed kit, what the team is building)
 
-A fully printed frame flexes and adds its own vibration, so print the detailed parts and keep one solid base.
+Files and print settings: [device/cad/](../../device/cad/README.md). Sized for the yellow TT gear motor: no bearings, rods or coupler.
 
-- [ ] 🟦 Solid base: wood board or aluminium extrusion (e.g. 2020 profile), about 45 cm
-- [ ] 🟦 2 printed rollers with 608 bearing pockets (or solid on an 8 mm rod), printed true and centred
-- [ ] 🟦 Printed side plates / bearing blocks, with a tension slot at the tail end
-- [ ] 🟦 Printed motor mount bracket, held down by 2 screws (the loose-mount fault)
-- [ ] 🟦 Printed belt guides (optional)
-- [ ] 🟦 Screws to fix printed parts to the base
+- [ ] 🟦 TT motor shaft and gearbox measured, CAD numbers checked
+- [ ] 🟦 Drive roller printed first and test-fitted on the TT shaft
+- [ ] 🟦 Printed frame, idle roller and motor bracket
+- [ ] 🟦 Belt: TPU print, or duct tape folded sticky-side in, 40 mm wide
+- [ ] 🟦 TT gear motor (+ 1 spare)
+- [ ] 🟦 2 × M3 bolts (8–10 mm) + nuts for the motor bracket (the loose-mount fault)
+- [ ] 🟦 2 zip ties (motor into bracket)
+- [ ] 🟦 Grease or petroleum jelly on the roller pins
+- [ ] 🟦 Frame on a rubber mat or taped to the table
 
-## Shared conveyor parts (options B and C)
+## Shared conveyor parts (option B)
 
 - [ ] ⬜ 4 × 608 skateboard bearings
 - [ ] ⬜ 2 × 8 mm steel rods, about 20 cm (or M8 bolts)
@@ -55,6 +58,7 @@ A fully printed frame flexes and adds its own vibration, so print the detailed p
 ## Conveyor power (fixed speed)
 
 - [ ] ⬜ Regulated DC supply matching the motor (e.g. 9 or 12 V, 1 A+), or an adjustable buck converter + wall adapter
+- [ ] 🟦 TT motor: 5 V USB charger with a cut cable, or a TB6612FNG driver + Arduino Nano at one fixed PWM value
 - [ ] ⬜ On/off switch + wires
 - [ ] ⬜ Conveyor motor kept separate from the UNO Q
 
@@ -69,7 +73,7 @@ A fully printed frame flexes and adds its own vibration, so print the detailed p
 
 ## Sensor placement
 
-- [ ] ⬜ Steel disc glued on the side next to the drive-roller bearing (probe point)
+- [ ] ⬜ Magnetic steel disc (about 20 mm) glued at the probe point: the pocket on the printed frame's wall, or the side rail next to the drive-roller bearing
 - [ ] ⬜ Probe point marked; same spot for every recording
 - [ ] ⬜ Sensor NOT on the motor mount (it gets loosened in the demo)
 
@@ -85,10 +89,9 @@ A fully printed frame flexes and adds its own vibration, so print the detailed p
 
 ## Before recording
 
-- [ ] ⬜ Motor shaft measured and coupler fits
+- [ ] ⬜ Motor shaft measured; coupler fits (option B) or drive roller fits the shaft (option C)
 - [ ] ⬜ Power supply matches motor voltage and current
-- [ ] 🟦 Bearing-pocket fit checked on a test print (22 mm bearings)
-- [ ] 🟦 Rollers, bearing blocks, motor mount and sensor puck printed at 100% infill
+- [ ] 🟦 Motor bracket and sensor head printed solid; rollers printed upright, round, with no wobble
 - [ ] ⬜ Rollers spin with no visible wobble
 - [ ] ⬜ Belt runs straight and doesn't slip
 - [ ] ⬜ Healthy run is smooth

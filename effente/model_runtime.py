@@ -205,5 +205,5 @@ class Watcher:
                          features={k: round(v, 2) for k, v in top.items()}, note="")
         if oor:
             state["note"] = (state["note"] + "; " if state["note"] else "") + \
-                f"{oor} readings far outside anything seen while learning"
+                f"{oor} reading{'s' if oor != 1 else ''} far outside anything seen while learning"
         self.state = state

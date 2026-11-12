@@ -1,9 +1,9 @@
-"""Tests for the dashboard dev stub: routes follow CONTRACT.md shapes, and a
-mask PUT changes what the stub emits."""
+"""Tests for the dashboard dev stub: the real receiver fed by a scripted
+simulated device, plus the stub's /dev/ controls."""
 
 import http.client
 import json
-import threading
+import time
 
 import pytest
 
@@ -12,21 +12,16 @@ import dev_stub
 
 @pytest.fixture
 def stub():
-    platform = dev_stub.StubPlatform(mask_delay_s=0.0)
-    server = dev_stub.make_server(platform, host="127.0.0.1", port=0)
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-    yield platform, server.server_address[1]
-    server.stopping = True
-    server.shutdown()
-    server.server_close()
+    s = dev_stub.Stub(host="127.0.0.1", port=0, step_s=2)
+    s.receiver.start()
+    yield s
+    s.stop()
 
 
 def call(port, method, path, body=None):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-    data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode())
-    headers = {"Content-Type": "application/json"} if data is not None else {}
-    conn.request(method, path, body=data, headers=headers)
+    data = None if body is None else json.dumps(body).encode()
+    conn.request(method, path, body=data, headers={"Content-Type": "application/json"} if data else {})
     res = conn.getresponse()
     raw = res.read()
     conn.close()
@@ -34,154 +29,93 @@ def call(port, method, path, body=None):
     return res.status, (json.loads(raw) if "json" in ctype else raw)
 
 
-RECORD_KEYS = {
-    "device_id", "machine_id", "model_version", "at", "diagnosis", "confidence",
-    "unknown_score", "reason", "features", "mask", "spectrum", "simulated", "seq", "received_at",
-}
+def device_state(port):
+    return call(port, "GET", "/api/state")[1]["devices"][dev_stub.DEVICE_ID]
 
 
-def test_state_empty_before_any_record(stub):
-    _, port = stub
-    status, body = call(port, "GET", "/api/state")
-    assert status == 200
-    assert body["ok"] is True
+def test_state_empty_before_the_first_tick(stub):
+    status, body = call(stub.port, "GET", "/api/state")
+    assert status == 200 and body["ok"] is True
     assert body["devices"] == {} and body["models"] == {} and body["machines"] == []
-    assert isinstance(body["now"], str)
 
 
-def test_state_after_records(stub):
-    platform, port = stub
-    platform.tick()
-    rec = platform.tick()
-    _, body = call(port, "GET", "/api/state")
-    dev = body["devices"][dev_stub.DEVICE_ID]
-    assert set(dev) == {"connected", "last_seen", "model_version", "mask", "mask_version", "latest"}
-    assert dev["connected"] is True and dev["mask"] == [] and dev["mask_version"] == 0
-    assert dev["latest"]["seq"] == rec["seq"]
-    model = body["models"][dev_stub.MODEL_VERSION]
-    assert model["simulated"] is True
-    assert model["spectrum_hz_max"] == 500
-    assert [f["name"] for f in model["features"]] == dev_stub.FEATURE_NAMES
+def test_script_walks_through_every_state(stub):
+    seen = []
+    for _ in range(len(dev_stub.SCRIPT) * stub.device.step_s):
+        sent = stub.device.tick()
+        dev = device_state(stub.port)
+        latest = dev["latest"] or {}
+        seen.append((dev["mode"], latest.get("diagnosis") if dev["mode"] == "watching" else None,
+                     tuple(p["name"] for p in dev["problems"]), dev["wrong"]))
+        assert dev["connected"] is True
+        assert dev["problems"] == sent["problems"]
+    assert ("watching", "normal", (), False) in seen
+    assert ("watching", "normal", ("too_hot",), True) in seen  # a problem while the model says normal
+    assert ("watching", "unbalance_like", ("too_hot",), True) in seen
+    assert ("watching", "unbalance_like", (), True) in seen
+    assert ("watching", "stopped", ("too_hot",), True) in seen
+    assert ("recording", None, ("too_hot",), True) in seen  # check-ins
+    assert ("watching", "warming_up", (), False) in seen
+    assert ("watching", "unrecognised_pattern", ("vibration_above_normal",), True) in seen
+    _, body = call(stub.port, "GET", "/api/state")
+    model = body["models"][dev_stub.sim_model.MODEL_VERSION]
+    assert model["simulated"] is True and len(model["spectrum_edges_hz"]) == 21
     assert body["machines"] == [dev_stub.MACHINE_ID]
 
 
-def test_record_shape():
-    p = dev_stub.StubPlatform()
-    seqs = []
-    for _ in range(4 * p.records_per_phase):
-        r = p.tick()
-        assert set(r) == RECORD_KEYS
-        assert r["simulated"] is True
-        assert len(r["spectrum"]) == 64 and all(0 <= v <= 1 for v in r["spectrum"])
-        assert set(r["features"]) == set(dev_stub.FEATURE_NAMES)
-        assert r["diagnosis"] in ("normal", "imbalance", "loose_mount", "unknown")
-        assert (r["reason"] == "") == (r["diagnosis"] in ("normal", "unknown"))
-        seqs.append(r["seq"])
-    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+def test_problem_keeps_its_since_while_it_stays_on(stub):
+    stub.device.jump(1)
+    a = stub.device.tick()
+    b = stub.device.tick()
+    assert a["problems"][0]["since"] == b["problems"][0]["since"]
 
 
-def test_cycles_all_four_diagnoses():
-    p = dev_stub.StubPlatform()
-    seen = {p.tick()["diagnosis"] for _ in range(4 * p.records_per_phase)}
-    assert seen == {"normal", "imbalance", "loose_mount", "unknown"}
+def test_heat_sources_and_history_without_frames(stub):
+    port = stub.port
+    stub.device.tick()
+    assert call(port, "POST", "/dev/heat?source=imu")[0] == 200
+    stub.device.tick()
+    assert call(port, "POST", "/dev/heat?source=none")[0] == 200
+    stub.device.tick()
+    assert call(port, "POST", "/dev/heat?source=laser")[0] == 400
+    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records")
+    cam, imu, none = body["records"]
+    assert cam["heat"]["source"] == "camera" and "frames" not in cam["heat"] and len(cam["heat"]["cells"]) == 48
+    assert imu["heat"] == {"source": "imu", "imu_temp_c": imu["heat"]["imu_temp_c"]}
+    assert "heat" not in none
+    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records?frames=1")
+    assert len(body["records"][0]["heat"]["frames"]) == 2
 
 
-def test_mask_put_get_and_effect(stub):
-    platform, port = stub
-    platform.tick()
-    status, reply = call(port, "PUT", f"/api/devices/{dev_stub.DEVICE_ID}/mask", {"mask": ["once_per_turn"]})
-    assert status == 200
-    assert reply == {"ok": True, "device_id": dev_stub.DEVICE_ID, "mask": ["once_per_turn"], "mask_version": 1}
-    status, got = call(port, "GET", f"/api/devices/{dev_stub.DEVICE_ID}/mask")
-    assert got == reply
-    # same mask again: version does not move
-    _, again = call(port, "PUT", f"/api/devices/{dev_stub.DEVICE_ID}/mask", {"mask": ["once_per_turn"]})
-    assert again["mask_version"] == 1
-
-    # Run a full cycle: the masked feature reads 0, records acknowledge the
-    # mask, and imbalance never appears while its feature is off.
-    recs = [platform.tick() for _ in range(4 * platform.records_per_phase)]
-    assert all(r["mask"] == ["once_per_turn"] for r in recs)
-    assert all(r["features"]["once_per_turn"] == 0.0 for r in recs)
-    diags = {r["diagnosis"] for r in recs}
-    assert "imbalance" not in diags
-    assert "loose_mount" in diags  # the other fault stays
-
-    _, cleared = call(port, "PUT", f"/api/devices/{dev_stub.DEVICE_ID}/mask", {"mask": []})
-    assert cleared["mask"] == [] and cleared["mask_version"] == 2
-    recs = [platform.tick() for _ in range(4 * platform.records_per_phase)]
-    assert "imbalance" in {r["diagnosis"] for r in recs}
-    assert all(r["mask"] == [] for r in recs)
+def test_check_ins_carry_no_heat(stub):
+    stub.device.jump(5)  # recording: check-ins, not records
+    sent = stub.device.tick()
+    assert sent["mode"] == "recording" and "heat" not in sent
 
 
-def test_mask_delay_keeps_old_mask_until_due():
-    p = dev_stub.StubPlatform(mask_delay_s=10.0)
-    p.tick(now=1000.0)
-    p.set_mask(["rattle"], now=1000.0)
-    assert p.tick(now=1005.0)["mask"] == []
-    assert p.tick(now=1010.5)["mask"] == ["rattle"]
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/dev/pause"),  # stub control, takes no body
+    ("POST", "/dev/nothing"),
+    ("PUT", "/api/nowhere"),
+])
+def test_unread_body_does_not_spoil_the_next_request(stub, method, path):
+    conn = http.client.HTTPConnection("127.0.0.1", stub.port, timeout=5)
+    try:
+        conn.request(method, path, body=b'{"mode": "recording"}', headers={"Content-Type": "application/json"})
+        conn.getresponse().read()
+        conn.request("GET", "/api/state")  # same keep-alive connection
+        res = conn.getresponse()
+        assert res.status == 200 and json.loads(res.read())["ok"] is True
+    finally:
+        conn.close()
 
 
-@pytest.mark.parametrize("body", [{"mask": ["no_such_feature"]}, {"mask": "rattle"}, {"nope": []}, b"not json"])
-def test_mask_put_rejects_bad_body(stub, body):
-    _, port = stub
-    status, reply = call(port, "PUT", f"/api/devices/{dev_stub.DEVICE_ID}/mask", body)
-    assert status == 400
-    assert reply["ok"] is False and reply["error"]
-
-
-def test_mask_unknown_device(stub):
-    _, port = stub
-    status, reply = call(port, "PUT", "/api/devices/other/mask", {"mask": []})
-    assert status == 400 and reply["ok"] is False
-
-
-def test_history_records(stub):
-    platform, port = stub
-    for _ in range(10):
-        platform.tick()
-    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records?limit=4")
-    recs = body["records"]
-    assert body["ok"] is True and len(recs) == 4
-    assert [r["seq"] for r in recs] == [7, 8, 9, 10]  # newest 4, oldest first
-    assert all("spectrum" not in r for r in recs)
-    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records?limit=2&spectrum=1")
-    assert all(len(r["spectrum"]) == 64 for r in body["records"])
-    _, body = call(port, "GET", "/api/machines/unknown-machine/records")
-    assert body == {"ok": True, "records": []}
-
-
-def test_agent_runs(stub):
-    platform, port = stub
-    for _ in range(5):
-        platform.tick()
-    steps = list(platform.agent_run_steps())
-    assert steps[0]["status"] == "running" and steps[0]["tool_calls"] == []
-    assert [len(s["tool_calls"]) for s in steps] == [0, 1, 2, 3, 3]
-    assert len({s["run_id"] for s in steps}) == 1
-    first = platform.run_agent()
-    second = platform.run_agent()
-    third = platform.run_agent()
-    for run in (first, second, third):
-        assert run["status"] == "done" and run["simulated"] is True
-        assert {"run_id", "machine_id", "at", "status", "ok", "reason", "problems", "tool_calls", "report"} <= set(run)
-    assert first["ok"] is True and set(first["report"]) == {
-        "summary", "priority", "cited_features", "recommended_action", "part_reference"}
-    assert set(first["report"]["cited_features"]) <= set(dev_stub.FEATURE_NAMES)
-    assert third["ok"] is False and third["report"] is None and third["reason"]
-    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/agent-runs?limit=2")
-    assert body["ok"] is True and len(body["runs"]) == 2
-    ats = [r["at"] for r in body["runs"]]
-    assert ats == sorted(ats, reverse=True)  # newest first
-
-
-def read_events(port, platform, act, want, timeout=5.0):
+def read_events(port, act, want, timeout=5.0):
     """Open the stream, run act(), collect events until want(events) is true."""
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     conn.request("GET", "/api/stream")
     res = conn.getresponse()
     assert res.status == 200
-    assert res.getheader("Content-Type").startswith("text/event-stream")
     assert res.fp.readline() == b": connected\n"
     act()
     events, name = [], None
@@ -197,45 +131,79 @@ def read_events(port, platform, act, want, timeout=5.0):
     return events
 
 
-def test_stream_emits_contract_events(stub):
-    platform, port = stub
-
+def test_stream_has_device_mode_and_problem_events(stub):
     def act():
-        platform.tick()
-        call(port, "PUT", f"/api/devices/{dev_stub.DEVICE_ID}/mask", {"mask": ["rattle"]})
-        platform.run_agent()
+        for _ in range(6 * stub.device.step_s):  # through the recording step
+            stub.device.tick()
 
-    events = read_events(port, platform, act, lambda ev: any(n == "agent_run" and d["status"] == "done" for n, d in ev))
+    events = read_events(stub.port, act, lambda ev: any(n == "device" and d["mode"] == "recording" for n, d in ev))
     names = [n for n, _ in events]
     assert names[:3] == ["model", "device", "record"]
-    rec = dict(events)["record"]
-    assert rec["simulated"] is True and "seq" in rec
-    mask = dict(events)["mask"]
-    assert mask == {"ok": True, "device_id": dev_stub.DEVICE_ID, "mask": ["rattle"], "mask_version": 1}
-    assert dict(events)["device"]["connected"] is True
+    assert events[1][1]["mode"] == "watching"
+    appeared = [d["problem"]["name"] for n, d in events if n == "problem"]
+    cleared = [d["name"] for n, d in events if n == "problem_cleared"]
+    assert appeared[:2] == ["too_hot", "too_hot"] and cleared[:1] == ["too_hot"]
 
 
-def test_device_goes_quiet():
-    p = dev_stub.StubPlatform()
-    q = p.subscribe()
-    p.tick(now=1000.0)
-    p.check_connected(now=1004.0)
-    p.check_connected(now=1006.0)
-    events = []
-    while not q.empty():
-        events.append(q.get())
-    dev = [d for n, d in events if n == "device"]
-    assert [d["connected"] for d in dev] == [True, False]
-    assert p.state()["devices"][dev_stub.DEVICE_ID]["connected"] is False
+def test_dev_controls(stub):
+    port = stub.port
+    assert call(port, "POST", "/dev/step?n=5") == (200, {"ok": True})
+    assert stub.device.step() == dev_stub.SCRIPT[5]
+    assert call(port, "POST", "/dev/step?n=x")[0] == 400
+    assert call(port, "POST", "/dev/pause")[0] == 200 and stub.device.paused is True
+    assert call(port, "POST", "/dev/resume")[0] == 200 and stub.device.paused is False
+    assert call(port, "POST", "/dev/nothing")[0] == 404
+    # The receiver's own routes still work through the stub's handler.
+    assert call(port, "POST", "/api/devices/x", {"machine_id": "m", "mode": "display", "at": "t", "wrong": False,
+                                                  "problems": []}) == (200, {"ok": True})
+
+
+def test_device_goes_quiet_when_paused():
+    s = dev_stub.Stub(host="127.0.0.1", port=0, quiet_after=0.3)
+    s.receiver.start()
+    try:
+        s.device.jump(1)
+        s.device.tick()
+        assert device_state(s.port)["wrong"] is True
+        time.sleep(1.0)
+        dev = device_state(s.port)
+        assert dev["connected"] is False and dev["problems"] == [] and dev["wrong"] is False
+    finally:
+        s.stop()
+
+
+def test_agent_runs(stub):
+    for _ in range(3 * stub.device.step_s):
+        stub.device.tick()
+    first = stub.device.run_agent()
+    steps = list(stub.device.agent_run_steps())
+    assert steps[0]["status"] == "running" and steps[0]["tool_calls"] == []
+    assert [len(x["tool_calls"]) for x in steps] == [0, 1, 2, 3, 3]
+    third = stub.device.run_agent()
+    for run in (first, third):
+        assert run["status"] == "done" and run["simulated"] is True
+    assert first["ok"] is True and set(first["report"]) == {
+        "summary", "priority", "cited_features", "recommended_action", "part_reference"}
+    assert first["report"]["cited_features"] and set(first["report"]["cited_features"]) <= set(dev_stub.sim_model.FEATURE_NAMES)
+    assert third["ok"] is False and third["report"] is None and third["reason"]
+    _, body = call(stub.port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/agent-runs?limit=2")
+    assert body["ok"] is True and len(body["runs"]) == 2
 
 
 def test_static_files_and_traversal(stub):
-    _, port = stub
-    status, body = call(port, "GET", "/")
+    status, body = call(stub.port, "GET", "/")
     assert status == 200 and b"dashboard.js" in body
-    status, _ = call(port, "GET", "/dashboard_logic.js")
-    assert status == 200
-    status, _ = call(port, "GET", "/../../AGENTS.md")
-    assert status == 404
-    status, _ = call(port, "GET", "/%2e%2e/%2e%2e/AGENTS.md")
-    assert status == 404
+    assert call(stub.port, "GET", "/dashboard_logic.js")[0] == 200
+    assert call(stub.port, "GET", "/../../AGENTS.md")[0] == 404
+    assert call(stub.port, "GET", "/%2e%2e/%2e%2e/AGENTS.md")[0] == 404
+
+
+def test_stop_removes_the_data_folder():
+    import os
+
+    s = dev_stub.Stub(host="127.0.0.1", port=0)
+    s.receiver.start()
+    path = s.data_dir
+    assert os.path.isdir(path)
+    s.stop()
+    assert not os.path.exists(path)

@@ -51,8 +51,9 @@ Create your folder if it does not exist yet. Do not edit another track's folder.
 ## Truthfulness
 
 - Do not invent measurements, accuracy numbers, or hardware dimensions. If you did not measure or run it, say so.
-- A feature may appear in the explanation table only if a switch-off test backs it. Do not add sentences without one.
-- The agent layer may cite only features in that table.
+- An explanation names only readings the device actually measured, with how far they moved. Do not add reasons the data does not show.
+- A fault type not yet checked on real faults is shown as "possible".
+- The agent fleet may cite only readings that moved in the records it read.
 - Mark anything unverified as unverified, in code comments and in docs.
 
 ## Working without waiting

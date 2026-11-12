@@ -149,6 +149,33 @@ SCREEN = dict(
     stop_w=4.0, stop_t=1.2,
 )
 
+# External power bank holder: a tray stuck to the outside of the right wall
+# with command strips, for an Anker Prime 12,000 mAh (A1335). Size from Anker's
+# spec page: 134.4 x 55 x 34.53 mm (not measured). The bank lies flat with its
+# display (on the 134 x 55 face, near the USB-C end) facing up, USB-C end at
+# the top of the device so the battery screen sits beside the device's OLED.
+# Covers flush with the device's front face hide the rest of the face (and the
+# Anker logo); a window shows only the screen. The bank slides in from the top
+# end and two snap latches in the floor click in behind it. A short, thin
+# USB-C cable runs from the bank's port, down under the tray floor, through a
+# window in the back plate and the existing side slot to the UNO Q.
+BANK = dict(
+    size=(134.4, 55.0, 34.53),             # length (Y), width (X), thickness (Z)
+    clear=0.4, wall=2.0, floor_t=2.0,
+    strip_gap=2.0,                         # command strip thickness (UNVERIFIED)
+    y0=6.0,                                # bank's far end (away from USB-C)
+    end_t=3.0,                             # end wall the bank rests against
+    lip=3.0, lip_t=2.0,                    # lips / covers, flush with the front face
+    # screen window, measured from the bank's USB-C end. UNVERIFIED: from a
+    # photo, the screen is about 13-61 mm from that end, the logo about 101-108
+    win=(8.0, 66.0),
+    tail=4.0,                              # floor beyond the USB-C end, for the latches
+    latch_w=6.0, latch_len=25.0, latch_gap=1.0, latch_x_in=8.0,
+    latch_bump=1.5, latch_bump_len=2.0,
+    slot_win=((17.0, 37.0), (3.0, 15.0)),  # back plate window at the side slot: Y, Z
+    vent_win=((86.0, 122.0), (13.0, 31.0)),  # back plate window over the vents: Y, Z
+)
+
 MM = 0.1  # Fusion API works in cm
 
 
@@ -594,6 +621,59 @@ def build_screen_tray(comp):
     return tray
 
 
+def bank_geo():
+    k, B = BANK, BODY
+    L, W, T = k['size']
+    c, w = k['clear'], k['wall']
+    xp0 = B['width'] + k['strip_gap']              # back plate, on the strips
+    xp1 = xp0 + w
+    xb0, xb1 = xp1 + c, xp1 + c + W                # bank, display up
+    zt = B['depth']                                # flush with the front face
+    zb1 = zt - k['lip_t']                          # bank top, just under the covers
+    zb0 = zb1 - T
+    yb0 = k['y0']
+    yb1 = yb0 + L                                  # USB-C end
+    return dict(xp0=xp0, xp1=xp1, xb0=xb0, xb1=xb1, xo=xb1 + c, xo2=xb1 + c + w,
+                yb0=yb0, yb1=yb1, zb0=zb0, zb1=zb1, zt=zt,
+                ys0=yb0 - c - k['end_t'], ytop=yb1 + c + k['tail'],
+                zf1=zb0 - c, zf0=zb0 - c - k['floor_t'],
+                win0=yb1 - k['win'][1], win1=yb1 - k['win'][0])
+
+
+def build_bank_holder(comp):
+    """Tray for the external power bank, display up, stuck on with command
+    strips. Slide the bank in from the top end until the latches click."""
+    b, k, g = Builder(comp), BANK, bank_geo()
+    c = k['clear']
+    ys0, ytop = g['ys0'], g['ytop']
+    # back plate on the strips, full height of the tray
+    holder = b.zbox(g['xp0'], ys0, g['xp1'], ytop, g['zf0'], g['zt'], 'new').bodies.item(0)
+    holder.name = 'Bank holder'
+    b.zbox(g['xp0'], ys0, g['xo2'], ytop, g['zf0'], g['zf1'], 'join', holder)     # floor
+    b.zbox(g['xo'], ys0, g['xo2'], ytop, g['zf0'], g['zt'], 'join', holder)       # outer wall
+    b.zbox(g['xp1'], ys0, g['xo'], g['yb0'] - c, g['zf1'], g['zt'], 'join', holder)  # end wall
+    # top covers, flush with the front face: solid except the screen window,
+    # where only the edge lips remain
+    b.zbox(g['xp1'], ys0, g['xo'], ytop, g['zb1'] + c, g['zt'], 'join', holder)
+    b.zbox(g['xp1'] + k['lip'], g['win0'], g['xo'] - k['lip'], g['win1'],
+           g['zb1'], g['zt'] + 0.5, 'cut', holder)
+    # snap latches: two tongues cut free in the floor at the USB-C end, each
+    # with a bump that springs up behind the bank once it is in. Press them
+    # down from below to slide the bank out.
+    lw, gap = k['latch_w'], k['latch_gap']
+    y_root = g['yb1'] + c + k['tail'] - k['latch_len']
+    for xm in (g['xb0'] + k['latch_x_in'], g['xb1'] - k['latch_x_in']):
+        for xa in (xm - lw / 2 - gap, xm + lw / 2):
+            b.zbox(xa, y_root, xa + gap, ytop + 0.5, g['zf0'] - 0.5, g['zf1'] + 0.5, 'cut', holder)
+        yb = g['yb1'] + c + 0.2
+        b.zbox(xm - lw / 2, yb, xm + lw / 2, yb + k['latch_bump_len'],
+               g['zf1'] - 0.01, g['zf1'] + k['latch_bump'], 'join', holder)
+    # windows in the back plate: the side slot (cable) and the vents
+    for (wy0, wy1), (wz0, wz1) in (k['slot_win'], k['vent_win']):
+        b.zbox(g['xp0'] - 0.5, wy0, g['xp1'] + 0.5, wy1, wz0, wz1, 'cut', holder)
+    return holder
+
+
 # ---------------------------------------------------------------- clash checks
 def tbox(x0, y0, z0, x1, y1, z1):
     tm = adsk.fusion.TemporaryBRepManager.get()
@@ -696,6 +776,24 @@ def run_checks(head_comp, body_comp):
             if not (name == 'imu' and pn == 'head lid'):
                 pairs.append((name, d[name], pn, pb))
     pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid)]
+    if 'Bank holder' in bb:
+        hold, g = bb['Bank holder'], bank_geo()
+        ext_bank = tbox(g['xb0'], g['yb0'], g['zb0'], g['xb1'], g['yb1'], g['zb1'])
+        # cable: out of the USB-C end, down past the tray end, back along under
+        # the floor, and in through the back plate window and the side slot
+        (sy0, sy1), _ = BANK['slot_win']
+        plug = tbox(g['xb0'] + 16.0, g['ytop'] + 0.5, 2.0, g['xb1'] - 16.0, g['ytop'] + 12.0,
+                    g['zb1'] - 2.0)
+        under = tbox(BODY['width'] + 0.3, sy0, 2.0, g['xb1'], g['ytop'] + 12.0, g['zf0'] - 1.0)
+        into = tbox(BODY['width'] + 0.3, sy0 + 1.0, 5.0, g['xp1'] + 0.4, sy1 - 1.0, 12.5)
+        pairs += [('bank holder', hold, 'back shell', shell),
+                  ('bank holder', hold, 'front lid', lid),
+                  ('external bank', ext_bank, 'bank holder', hold),
+                  ('external bank', ext_bank, 'back shell', shell),
+                  ('cable at plug', plug, 'bank holder', hold),
+                  ('cable under tray', under, 'bank holder', hold),
+                  ('cable into slot', into, 'bank holder', hold),
+                  ('cable into slot', into, 'back shell', shell)]
     bad = 0
     for an, a, bn, b2 in pairs:
         vol = overlap(a, b2)
@@ -724,6 +822,7 @@ def run(_context: str):
     body_occ.component.name = 'Handheld Body'
     build_body(body_occ.component)
     build_screen_tray(body_occ.component)
+    build_bank_holder(body_occ.component)
 
     m = adsk.core.Matrix3D.create()
     m.translation = adsk.core.Vector3D.create(4.0, -7.0, 0)

@@ -115,6 +115,12 @@ Other options:
 
 It is tested without hardware, against a local `DeviceApp` fed simulated conveyor data (`python3 -m device.intake.tests.test_fan_test`). **It hasn't been run on the board or a real fan yet.**
 
+## Send to the laptop platform
+
+Set `EFFENTE_PLATFORM_URL` in the app's environment to the laptop's address on the hotspot, for example `http://192.168.43.10:8000` (`python3 platform/run.py --no-sim` prints it). The app then sends its model, a record a second while in inference, and a check-in otherwise, as in [platform/CONTRACT.md](../../platform/CONTRACT.md). Unset, nothing is sent. The start-up line in the app's log says which. Details are in [device/intake/README.md](../intake/README.md#sending-to-the-laptop-platform).
+
+How App Lab passes environment variables to the Python side hasn't been tried yet, and neither has uploading from the board itself.
+
 ## Measured on this board (12 Nov 2026)
 
 | | |

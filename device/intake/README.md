@@ -120,6 +120,19 @@ Where the contract and the device still differ, and why: [CONTRACT_NOTES.md](CON
 - Events written before the stream attaches (`recording_started`) are only in `events.jsonl`. Without `--record` there are no events.
 - Not yet tried: a browser `EventSource`, other machines on a real network, and the UNO Q itself. The tests use urllib on one laptop.
 
+## Sending to the laptop platform
+
+[uploader.py](uploader.py) sends the device's data to the laptop platform, following [platform/CONTRACT.md](../../platform/CONTRACT.md) version 3.1. The device app ([device_app.py](device_app.py)) uses it when it is given one. Standard library only, and only outgoing requests.
+
+- **Where:** `EFFENTE_PLATFORM_URL`, for example `http://192.168.43.10:8000`. If it is unset or empty, nothing is sent.
+- **The model** (`POST /api/model`): at start, after each training, and whenever a reply says `need_model`. It carries the fault types with their text and group, the feature table and the spectrum's band edges. `model_version` is the machine, the model file's name and a hash of the file, so it changes whenever the file does. `library_entry` and `source` are sent only if the model file has them. The device's trainer writes neither yet.
+- **Records** (`POST /api/records`): while watching, one record a second of data. Each record has the diagnosis, `reason`, the safety checks' `problems` (with `kind` and `since`), `wrong`, `sensitivity` and `alarm_line`. A problem shows even while the diagnosis is `normal`.
+- **Check-ins** (`POST /api/devices/{id}`): while not watching, one a second, with `mode`, `wrong` and the problems.
+- **Settings:** when a reply carries a sensitivity that differs from the device's own, the device applies it the same way `POST /settings` does. It is saved in `data/settings.json`, so it survives a restart.
+- **Never slows the device:** the pipeline only puts a small dict on a queue; a thread of its own sends. If the platform can't be reached, it keeps the newest 900 records (15 minutes) and drops the oldest, counted. When the platform is back, they go out as JSON arrays of up to 120. A check-in that could not be sent is dropped, since the next one is newer. Failures are logged at most every 30 s, never raised.
+- **Check against a stand-in:** `python3 -m device.intake.tests.fake_platform 8000` prints what arrives and any contract errors.
+- Not yet tried on the UNO Q itself or over the hotspot. It has run against the real receiver on one laptop.
+
 ## Feeding the model
 
 Feature rows are for people and the agent to read; a model needs plain, bounded numbers. [effente/model_input.py](../../effente/model_input.py) prepares them the same way in training and on the device. It is a preparation step, not a model:
@@ -227,12 +240,15 @@ python3 -m device.intake.coverage_check data/fake/server-rack --sim server
 
 ## Tests
 
+The tests need numpy and scipy (`pip install -r device/requirements.txt`).
+
 ```bash
 python3 -m device.intake.tests.test_intake
 python3 -m device.intake.tests.test_conveyor
 python3 -m device.intake.tests.test_stream
 python3 -m device.intake.tests.test_contract
 python3 -m device.intake.tests.test_fan_test
+python3 -m device.intake.tests.test_uploader
 ```
 
 ## Not done yet

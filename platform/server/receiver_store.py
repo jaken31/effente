@@ -1,8 +1,9 @@
 """State and storage for the effente receiver.
 
 Holds everything in memory and appends each change to a JSON lines file in
-the data dir, so history survives a restart. Masks are never stored: they
-start empty each time the platform starts (platform/CONTRACT.md section 3).
+the data dir, so history survives a restart. Check-ins (platform/CONTRACT.md
+message 3) and each device's mode and problems are not stored: after a restart
+no device is connected, so they start empty until the device is heard from.
 
 Every public method takes the one lock, so the HTTP handler threads can call
 them freely. Events go out through `emit(name, data)`, which must not block.
@@ -17,6 +18,10 @@ import threading
 import time
 
 REQUIRED_RECORD_FIELDS = ("device_id", "machine_id", "model_version", "at", "diagnosis")
+REQUIRED_CHECK_IN_FIELDS = ("machine_id", "mode", "at")
+CHECK_IN_MODES = ("display", "calibrating", "recording", "training")
+WATCHING = "watching"  # the mode of a device that sends records
+QUIET_REASON = "device quiet"
 REQUIRED_RUN_FIELDS = ("run_id", "machine_id", "at", "status")
 RUN_STATUSES = ("running", "done")
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -40,6 +45,17 @@ def utc_now():
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
+def _slim(record, spectrum, frames):
+    """A history record without the bulky parts the caller did not ask for:
+    `spectrum`, and the images in `heat.frames` (contract 3.3)."""
+    out = record if spectrum else {k: v for k, v in record.items() if k != "spectrum"}
+    heat = out.get("heat")
+    if not frames and isinstance(heat, dict) and "frames" in heat:
+        out = dict(out)
+        out["heat"] = {k: v for k, v in heat.items() if k != "frames"}
+    return out
+
+
 def _parse_time(text):
     """ISO time to a sortable UTC timestamp. Unparseable times sort first."""
     if not isinstance(text, str):
@@ -58,6 +74,28 @@ def _require_strings(obj, names, what):
         value = obj.get(name)
         if not isinstance(value, str) or value == "":
             raise BadRequest(f"{what} is missing required field '{name}'")
+
+
+def _require_problems(obj, what):
+    """Check `wrong` and `problems` (contract messages 2 and 3).
+
+    Problem names are not checked against a list: the device's safety checks
+    own them. A name is needed, and must not repeat, because the platform
+    tells problems apart by name.
+    """
+    if not isinstance(obj.get("wrong"), bool):
+        raise BadRequest(f"{what} is missing required field 'wrong' (true or false)")
+    problems = obj.get("problems")
+    if not isinstance(problems, list):
+        raise BadRequest(f"{what} is missing required field 'problems' (a list, [] when nothing is wrong)")
+    seen = set()
+    for i, problem in enumerate(problems):
+        name = problem.get("name") if isinstance(problem, dict) else None
+        if not isinstance(name, str) or name == "":
+            raise BadRequest(f"{what} problem {i} needs a 'name' string")
+        if name in seen:
+            raise BadRequest(f"{what} lists problem '{name}' twice")
+        seen.add(name)
 
 
 class JsonLines:
@@ -111,8 +149,10 @@ class Device:
         self.last_seen_mono = None  # time.monotonic() of last contact, this run only
         self.model_version = None  # newest version seen in a record or announcement
         self.announced_version = None  # version of the last POST /api/model
-        self.mask = []
-        self.mask_version = 0
+        self.mode = None  # "watching" after a record, else the check-in's mode; None until either
+        self.machine_id = None  # from the newest record or check-in
+        self.wrong = False  # from the newest record or check-in, this run only
+        self.problems = []  # likewise; [] while not connected
         self.latest = None
 
 
@@ -161,6 +201,7 @@ class Store:
             self._index_record(record)
             device = self._device(record["device_id"])
             device.latest = record
+            device.machine_id = record["machine_id"]
             device.last_seen = record.get("received_at", device.last_seen)
             if isinstance(record.get("model_version"), str):
                 device.model_version = record["model_version"]
@@ -189,23 +230,69 @@ class Store:
 
     # ---- device contact -------------------------------------------------
 
-    def _touch(self, device_id):
-        """Note that a device was heard from. Caller holds the lock."""
+    def _touch(self, device_id, mode=None):
+        """Note that a device was heard from. Caller holds the lock.
+
+        `mode` is "watching" for a record and the check-in's mode for a
+        check-in. A model announcement passes None: it keeps a connected
+        device connected but does not connect one by itself, because the
+        `device` event must say the mode and an announcement does not.
+        """
         device = self._device(device_id)
         device.last_seen = utc_now()
+        if mode is None and not device.connected:
+            return device
         device.last_seen_mono = time.monotonic()
+        changed = False
+        if mode is not None and mode != device.mode:
+            device.mode = mode
+            changed = True
         if not device.connected:
             device.connected = True
-            self.log(f"device {device_id} connected")
+            changed = True
+            self.log(f"device {device_id} connected ({device.mode})")
+        if changed:
             self.emit("device", self._device_event(device))
         return device
 
     @staticmethod
     def _device_event(device):
-        return {"device_id": device.device_id, "connected": device.connected, "last_seen": device.last_seen}
+        return {
+            "device_id": device.device_id,
+            "connected": device.connected,
+            "last_seen": device.last_seen,
+            "mode": device.mode,
+        }
+
+    def _set_problems(self, device, message):
+        """Take `wrong` and `problems` from a record or check-in, and emit a
+        `problem` for each new name and a `problem_cleared` for each name that
+        went away. Caller holds the lock."""
+        before = {p["name"]: p for p in device.problems}
+        now = {p["name"]: p for p in message["problems"]}
+        device.wrong = message["wrong"]
+        device.problems = list(message["problems"])
+        device.machine_id = message["machine_id"]
+        for name in before:
+            if name not in now:
+                self.emit("problem_cleared", self._cleared_event(device, message["at"], name))
+        for name, problem in now.items():
+            if name not in before:
+                self.emit(
+                    "problem",
+                    {"device_id": device.device_id, "machine_id": device.machine_id, "at": message["at"], "problem": problem},
+                )
+
+    @staticmethod
+    def _cleared_event(device, at, name, reason=None):
+        event = {"device_id": device.device_id, "machine_id": device.machine_id, "at": at, "name": name}
+        if reason is not None:
+            event["reason"] = reason
+        return event
 
     def check_quiet(self):
-        """Mark devices not heard from in `quiet_after` seconds as disconnected."""
+        """Mark devices not heard from in `quiet_after` seconds as disconnected,
+        and clear their problems with the reason "device quiet"."""
         now = time.monotonic()
         with self.lock:
             for device in self.devices.values():
@@ -213,6 +300,12 @@ class Store:
                     device.connected = False
                     self.log(f"device {device.device_id} went quiet")
                     self.emit("device", self._device_event(device))
+                    # No message made this change, so `at` is the platform's time.
+                    at = utc_now()
+                    for problem in device.problems:
+                        self.emit("problem_cleared", self._cleared_event(device, at, problem["name"], QUIET_REASON))
+                    device.problems = []
+                    device.wrong = False
 
     # ---- message 1: model -------------------------------------------------
 
@@ -244,6 +337,7 @@ class Store:
             if not isinstance(record, dict):
                 raise BadRequest(f"{what} must be a JSON object")
             _require_strings(record, REQUIRED_RECORD_FIELDS, what)
+            _require_problems(record, what)
         with self.lock:
             received_at = utc_now()
             for record in batch:
@@ -253,59 +347,30 @@ class Store:
                 self.next_seq += 1
             self.records_file.append(batch)
             need_model = False
-            device = None
             for record in batch:
                 self._index_record(record)
-                device = self._touch(record["device_id"])
+                device = self._touch(record["device_id"], WATCHING)
                 device.latest = record
                 device.model_version = record["model_version"]
                 if record["model_version"] not in self.models:
                     need_model = True
                 self.emit("record", record)
-            reply = {"ok": True, "stored": len(batch), "mask": [], "mask_version": 0, "need_model": need_model}
-            if device is not None:
-                reply["mask"] = list(device.mask)
-                reply["mask_version"] = device.mask_version
-            return reply
+                self._set_problems(device, record)
+            return {"ok": True, "stored": len(batch), "need_model": need_model}
 
-    # ---- message 3: mask --------------------------------------------------
+    # ---- message 3: check-in ----------------------------------------------
 
-    def _mask_reply(self, device):
-        return {"ok": True, "device_id": device.device_id, "mask": list(device.mask), "mask_version": device.mask_version}
-
-    def set_mask(self, device_id, body):
-        if not isinstance(body, dict) or not isinstance(body.get("mask"), list):
-            raise BadRequest("body must be {\"mask\": [feature names]}")
-        names = body["mask"]
-        if not all(isinstance(n, str) for n in names):
-            raise BadRequest("mask must be a list of feature name strings")
-        mask = list(dict.fromkeys(names))  # drop repeats, keep order
+    def check_in(self, device_id, body):
+        """A device that is not watching says it is alive, its mode and its problems."""
+        if not isinstance(body, dict):
+            raise BadRequest("check-in must be a JSON object")
+        _require_strings(body, REQUIRED_CHECK_IN_FIELDS, "check-in")
+        if body["mode"] not in CHECK_IN_MODES:
+            raise BadRequest(f"check-in mode must be one of {', '.join(CHECK_IN_MODES)}")
+        _require_problems(body, "check-in")
         with self.lock:
-            device = self.devices.get(device_id)
-            if mask:
-                model = self.models.get(device.announced_version) if device else None
-                if model is None:
-                    raise BadRequest(f"device '{device_id}' has not announced a model, so it has no features to switch off")
-                known = {f["name"] for f in model.get("features", []) if isinstance(f, dict)}
-                unknown = [n for n in mask if n not in known]
-                if unknown:
-                    raise BadRequest(
-                        f"unknown feature(s) {', '.join(unknown)} for device '{device_id}' model '{model['model_version']}'"
-                    )
-            if device is None:  # clearing the mask of a device never seen: nothing to do
-                return {"ok": True, "device_id": device_id, "mask": [], "mask_version": 0}
-            if set(mask) != set(device.mask):
-                device.mask = mask
-                device.mask_version += 1
-                reply = self._mask_reply(device)
-                self.emit("mask", reply)
-                return reply
-            return self._mask_reply(device)
-
-    def get_mask(self, device_id):
-        """The device's poll when it is not scanning. Counts as contact."""
-        with self.lock:
-            return self._mask_reply(self._touch(device_id))
+            device = self._touch(device_id, body["mode"])
+            self._set_problems(device, body)
 
     # ---- message 4: agent runs --------------------------------------------
 
@@ -332,24 +397,25 @@ class Store:
 
     # ---- section 5: reads -------------------------------------------------
 
-    def machine_records(self, machine_id, limit, spectrum):
+    def machine_records(self, machine_id, limit, spectrum, frames=False):
         with self.lock:
             history = self.by_machine.get(machine_id, [])
             chosen = history[-limit:] if limit > 0 else []
-        if spectrum:
-            return list(chosen)
-        return [{k: v for k, v in r.items() if k != "spectrum"} for r in chosen]
+        return [_slim(r, spectrum, frames) for r in chosen]
 
     def state(self):
         with self.lock:
             devices = {}
             for device in self.devices.values():
+                connected = device.connected
                 devices[device.device_id] = {
-                    "connected": device.connected,
+                    "connected": connected,
                     "last_seen": device.last_seen,
+                    "mode": device.mode,
+                    "machine_id": device.machine_id,
                     "model_version": device.model_version,
-                    "mask": list(device.mask),
-                    "mask_version": device.mask_version,
+                    "wrong": device.wrong if connected else False,
+                    "problems": list(device.problems) if connected else [],
                     "latest": device.latest,
                 }
             return {

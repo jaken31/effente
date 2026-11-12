@@ -12,7 +12,9 @@
               diagnosis; pressing the button again starts a new recording, to relearn
 
 All the time, sensor data goes to the screen and to whoever connects to the live stream
-(device.intake.stream: results, feature rows, events, status). After a power cut it resumes what
+(device.intake.stream: results, feature rows, events, status). With an uploader
+(device.intake.uploader), it also goes to the laptop platform: the model, a record a second while
+watching, and a check-in otherwise; a sensitivity the platform sets is applied and saved. After a power cut it resumes what
 it was doing: still watching with the saved model, still recording into the same folder.
 Until the button is wired, creating a file named `press` in the data folder counts as a press.
 """
@@ -83,10 +85,10 @@ class DeviceApp:
     def __init__(self, data_dir, source, screen=None, stream=None, device_id: str = "effente-01",
                  machine_id: str = "machine-1", hop_s: float = 0.25, min_record_s: float = MIN_RECORD_S,
                  max_gb: float | None = None, min_free_gb: float = 0.5, clock=time.time,
-                 simulated: bool | None = None):
+                 simulated: bool | None = None, uploader=None):
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.source, self.screen, self.stream = source, screen, stream
+        self.source, self.screen, self.stream, self.uploader = source, screen, stream, uploader
         self.device_id, self.machine_id, self.hop_s = device_id, machine_id, hop_s
         self.min_record_s, self.max_gb, self.min_free_gb = min_record_s, max_gb, min_free_gb
         self.clock = clock
@@ -115,6 +117,10 @@ class DeviceApp:
         self._screen_text, self._screen_event = None, threading.Event()
         self._stop = threading.Event()
         self._resume()
+        if self.uploader is not None:
+            self.uploader.on_settings = self.platform_settings
+            if self.watcher is not None:
+                self.uploader.announce(self.model_path, self.watcher.m.d, self.sensitivity)
         if self.stream is not None:
             self.stream.status_provider = self.status
             self.stream.settings_handler = self.settings
@@ -229,6 +235,8 @@ class DeviceApp:
                 self.notes = list(baseline.get("warnings_screen", []))
                 self.notes_until = self.clock() + NOTES_SHOWN_S
                 self._save_state()
+            if self.uploader is not None:
+                self.uploader.announce(path, d, self.sensitivity)
             self._event("model_trained", {"file": path.name, **report})
             self._event("mode", {"mode": "watching"})
         except Exception as e:  # noqa: BLE001  e.g. too little recorded: keep learning
@@ -285,6 +293,9 @@ class DeviceApp:
                 self.stream.publish_result(log_record(t0, x, result, mode, missing, 0.0, self.device_id,
                                                       self.machine_id, model_version=self.model_version,
                                                       simulated=self.simulated), t0)
+        if self.uploader is not None:  # only queues: the sending is on the uploader's own thread
+            self.uploader.on_row(t0, x, mode, result, problems, self.sensitivity,
+                                 watcher.margin if watcher is not None else None)
         if self.screen is not None and (getattr(self, "_screen_t", None) is None
                                         or t0 - self._screen_t >= SCREEN_EVERY_S):
             self._screen_t = t0
@@ -321,6 +332,17 @@ class DeviceApp:
                 "default": SF.DEFAULT_SENSITIVITY,
                 "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
                         "counts as wrong; the universal limits never change"}
+
+    def platform_settings(self, settings: dict) -> None:
+        """Settings in a reply from the platform (CONTRACT.md section 7): a sensitivity that differs
+        from the device's own is applied and saved, so it survives a restart."""
+        v = settings.get("sensitivity")
+        if v is None or v == self.sensitivity:
+            return
+        try:
+            self.settings({"sensitivity": v})
+        except ValueError as e:
+            self.message = f"platform setting not used: {e}"[:80]
 
     def _set_sensitivity(self, v: float):
         with self.lock:

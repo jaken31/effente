@@ -6,6 +6,21 @@ A desk-size belt conveyor to act as the demo machine for effente. The handheld p
 
 A printed version sized for the team's TT gear motor (direct drive, printed pin bushings, no bearings or rods) is in [device/cad/](../../device/cad/README.md), with print-ready STL files.
 
+## Printed kit (device/cad): quick build
+
+This is what the team is building. It replaces steps 1 to 6 below; then carry on from step 7.
+
+1. Print the parts listed in the CAD README. Print the drive roller first and check it pushes snugly onto the TT motor's output shaft.
+2. Put a dab of grease on the roller pins.
+3. Fit the TT motor in the bracket with its output shaft pointing at the frame, and hold it with 2 zip ties through the bracket's tunnels.
+4. Bolt the bracket to the pad on the frame with 2 M3 bolts, nuts in the traps underneath. These bolts are the loose-mount fault.
+5. Push the drive roller onto the motor shaft through the slot in the wall; its far pin drops into the slot in the other wall.
+6. Loop the belt over both rollers, then drop the idle roller's pins into its slots.
+7. Glue a magnetic steel disc into the pocket on the outside of the wall opposite the motor. That is the probe point.
+8. Stand the frame on a rubber mat or tape it to the table.
+
+Sizes in the CAD for the TT motor are listing values, not measurements: measure the motor first.
+
 ## Colour key
 
 | Marker | Route |
@@ -160,7 +175,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 ![Step 7: conveyor power, separate from the probe](../../images/step-7.png)
 
 ⬜ **Both routes**
-1. Connect the motor to its own regulated supply (or buck converter) through the on/off switch.
+1. Connect the motor to its own regulated supply (or buck converter) through the on/off switch. For the TT motor in the printed kit: 5 V from a USB charger, or a TB6612FNG driver run by an Arduino Nano at one fixed PWM value.
 2. Set the voltage once and never change it during recordings.
 3. Keep the conveyor's motor **separate from the UNO Q**. The probe visits the machine; it does not power or control it.
 

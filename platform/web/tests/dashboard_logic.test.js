@@ -13,15 +13,19 @@ function rec(over) {
     {
       device_id: "effente-01",
       machine_id: "conveyor-07",
-      model_version: "fake-0.1",
+      model_version: "conveyor-07-20261114",
       at: "2026-11-14T16:02:11Z",
       diagnosis: "normal",
       confidence: 0.9,
-      unknown_score: 0.1,
+      unknown_score: 0.4,
       reason: "",
-      features: { once_per_turn: 0.05, rattle: 0.03 },
-      mask: [],
-      spectrum: new Array(64).fill(0.1),
+      features: { vib_1x: 0.8, snd_level_db: -0.6, th_max_c: 0.5 },
+      abnormal_minutes: 0,
+      out_of_range: 0,
+      note: "",
+      problems: [],
+      wrong: false,
+      spectrum: new Array(20).fill(-5),
       simulated: false,
     },
     over
@@ -30,70 +34,140 @@ function rec(over) {
 
 const MODEL = {
   device_id: "effente-01",
-  model_version: "fake-0.1",
-  spectrum_hz_max: 500,
-  features: [
-    { name: "once_per_turn", sentence: "once-per-turn vibration" },
-    { name: "rattle", sentence: "rattling pattern" },
+  machine_id: "conveyor-07",
+  model_version: "conveyor-07-20261114",
+  fault_types: [
+    { name: "unbalance_like", text: "once-per-turn vibration grown", group: "vibration", validated: false },
+    { name: "vibration_too_high", text: "overall vibration well above normal", group: "vibration", validated: true },
   ],
+  features: [
+    { name: "vib_1x", text: "vibration once per turn", unit: "log" },
+    { name: "snd_level_db", text: "sound level", unit: "db" },
+  ],
+  spectrum_edges_hz: Array.from({ length: 21 }, (_, i) => 5 * Math.pow(100, i / 20)),
   simulated: false,
 };
 
-test("display names follow the brief", () => {
+const TOO_HOT = { name: "too_hot", kind: "limit", text: "over 100 C", value: 104.5, since: "2026-11-14T16:01:50Z" };
+const ABOVE = { name: "vibration_above_normal", kind: "outside_normal", text: "vibrating well beyond its normal", value: 2.3, since: "2026-11-14T16:00:47Z" };
+
+function live(s) {
+  s.platformUp = true;
+  return s;
+}
+
+test("display names: runtime names read as words, unknown names as sent", () => {
   assert.equal(L.displayName("normal"), "Normal");
-  assert.equal(L.displayName("imbalance"), "Imbalance");
-  assert.equal(L.displayName("loose_mount"), "Loose mount");
-  assert.equal(L.displayName("unknown"), "Unknown, inspect");
-  assert.equal(L.displayName("bearing"), "bearing"); // shown as sent, not guessed
+  assert.equal(L.displayName("warming_up"), "Warming up");
+  assert.equal(L.displayName("stopped"), "Stopped");
+  assert.equal(L.displayName("unrecognised_pattern"), "Unrecognised pattern");
+  assert.equal(L.displayName("unbalance_like"), "Unbalance-like");
+  assert.equal(L.displayName("looseness_or_rattle"), "Looseness or rattle");
+  assert.equal(L.displayName("bearing"), "Bearing");
+  assert.equal(L.diagnosisKind("unbalance_like"), "fault");
+  assert.equal(L.diagnosisKind("unrecognised_pattern"), "unrecognised");
+  assert.equal(L.diagnosisKind("stopped"), "stopped");
+  assert.equal(L.diagnosisKind(undefined), "none");
 });
 
-test("toggleMask adds and removes, keeping order", () => {
-  assert.deepEqual(L.toggleMask([], "rattle"), ["rattle"]);
-  assert.deepEqual(L.toggleMask(["rattle"], "once_per_turn"), ["rattle", "once_per_turn"]);
-  assert.deepEqual(L.toggleMask(["rattle", "once_per_turn"], "rattle"), ["once_per_turn"]);
-  assert.deepEqual(L.toggleMask(undefined, "rattle"), ["rattle"]);
+test("problem kinds and values read as the contract says", () => {
+  assert.equal(L.kindLabel("limit"), "limit for any machine");
+  assert.equal(L.kindLabel("outside_normal"), "beyond this machine's normal");
+  assert.equal(L.kindLabel("new_kind"), "new kind"); // not in the contract: shown, not hidden
+  assert.equal(L.problemValueText(TOO_HOT), "104.5 °C");
+  assert.equal(L.problemValueText(ABOVE), "2.3× its normal");
+  assert.equal(L.problemValueText({ name: "hotter_than_normal", value: 18.2 }), "+18 °C over its normal");
+  assert.equal(L.problemValueText({ name: "smells_of_smoke", value: 3.14159 }), "3.14"); // unknown name: value as sent
+  assert.equal(L.problemValueText({ name: "too_hot", value: null }), "");
 });
 
-test("featureStatus: pending until a record acknowledges", () => {
-  assert.equal(L.featureStatus([], [], "rattle"), "on");
-  assert.equal(L.featureStatus(["rattle"], [], "rattle"), "pending_off");
-  assert.equal(L.featureStatus(["rattle"], ["rattle"], "rattle"), "off");
-  assert.equal(L.featureStatus([], ["rattle"], "rattle"), "pending_on");
-  assert.equal(L.featureStatusLabel("pending_off"), "Switching off…");
-});
-
-test("toggle flow: PUT reply, then a record confirms it", () => {
-  const s = L.createState();
-  L.applyEvent(s, "model", MODEL, T0);
-  L.applyEvent(s, "record", rec({ diagnosis: "imbalance", reason: "once-per-turn vibration" }), T0);
-  const d = s.devices["effente-01"];
-  const next = L.toggleMask(d.mask, "once_per_turn");
-  assert.deepEqual(next, ["once_per_turn"]);
-  L.applyMaskReply(s, { ok: true, device_id: "effente-01", mask: next, mask_version: 1 });
-  assert.equal(L.featureStatus(d.mask, d.latest.mask, "once_per_turn"), "pending_off");
-  // a window diagnosed before the device picked up the mask: still pending
-  L.applyEvent(s, "record", rec({ diagnosis: "imbalance", reason: "once-per-turn vibration" }), T0 + 1000);
-  assert.equal(L.featureStatus(d.mask, d.latest.mask, "once_per_turn"), "pending_off");
-  L.applyEvent(s, "record", rec({ diagnosis: "normal", mask: ["once_per_turn"], features: { once_per_turn: 0, rattle: 0.02 } }), T0 + 2000);
-  assert.equal(L.featureStatus(d.mask, d.latest.mask, "once_per_turn"), "off");
-  const so = L.switchOffSummary(s, "effente-01");
-  assert.deepEqual(so.features, [{ name: "once_per_turn", sentence: "once-per-turn vibration" }]);
-  assert.equal(so.before, "imbalance");
-  assert.equal(so.now, "normal");
-  assert.equal(so.changed, true);
-});
-
-test("switchOffSummary is null with an empty mask", () => {
-  const s = L.createState();
+test("headline follows wrong, in every mode", () => {
+  const s = live(L.createState());
+  assert.deepEqual(L.headline(s, null, T0), { state: "none", text: "Waiting for a device" });
   L.applyEvent(s, "record", rec(), T0);
-  assert.equal(L.switchOffSummary(s, "effente-01"), null);
+  assert.equal(L.headline(s, "effente-01", T0).state, "ok");
+  // a problem while the model says normal
+  L.applyEvent(s, "record", rec({ problems: [TOO_HOT], wrong: true }), T0 + 1000);
+  assert.deepEqual(L.headline(s, "effente-01", T0 + 1000), { state: "wrong", text: "Something is wrong" });
+  assert.equal(L.modelLine(s, "effente-01").label, "Model: nothing unusual yet");
+  // recording, with the limit still on
+  L.applyEvent(s, "device", { device_id: "effente-01", connected: true, last_seen: "x", mode: "recording" }, T0 + 2000);
+  assert.equal(L.deviceStatus(s, "effente-01", T0 + 60000), "checking_in"); // no records while recording is fine
+  assert.equal(L.headline(s, "effente-01", T0 + 60000).state, "wrong");
+  assert.equal(L.modelLine(s, "effente-01").label, "Model: not judging while recording");
+  L.applyEvent(s, "problem_cleared", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", name: "too_hot" }, T0 + 3000);
+  assert.equal(L.headline(s, "effente-01", T0 + 3000).state, "ok");
 });
 
-test("older mask reply does not overwrite a newer mask event", () => {
-  const s = L.createState();
-  L.applyEvent(s, "mask", { ok: true, device_id: "effente-01", mask: ["rattle"], mask_version: 3 }, T0);
-  L.applyMaskReply(s, { ok: true, device_id: "effente-01", mask: [], mask_version: 2 });
-  assert.deepEqual(s.devices["effente-01"].mask, ["rattle"]);
+test("not live never says nothing is wrong", () => {
+  const s = live(L.createState());
+  L.applyEvent(s, "record", rec(), T0);
+  assert.equal(L.headline(s, "effente-01", T0 + 6000).state, "not_live"); // no record for 5 s
+  L.applyEvent(s, "device", { device_id: "effente-01", connected: false, last_seen: "x", mode: "watching" }, T0 + 6000);
+  assert.equal(L.headline(s, "effente-01", T0 + 6000).state, "not_live");
+  const s2 = L.createState(); // platform not up
+  L.applyEvent(s2, "record", rec(), T0);
+  assert.equal(L.headline(s2, "effente-01", T0).state, "not_live");
+});
+
+test("model line: next to problems, never hidden; unvalidated fault types are possible", () => {
+  const s = live(L.createState());
+  L.applyEvent(s, "model", MODEL, T0);
+  L.applyEvent(s, "record", rec({ diagnosis: "stopped", unknown_score: null, note: "the machine is not running", problems: [TOO_HOT], wrong: true }), T0);
+  assert.deepEqual(L.modelLine(s, "effente-01"), { kind: "stopped", label: "Model: machine stopped", detail: "the machine is not running", note: "", possible: false });
+  assert.equal(L.headline(s, "effente-01", T0).state, "wrong");
+  L.applyEvent(s, "record", rec({ diagnosis: "warming_up", unknown_score: null, problems: [TOO_HOT], wrong: true }), T0);
+  assert.equal(L.modelLine(s, "effente-01").label, "Model: warming up");
+  L.applyEvent(s, "record", rec({ diagnosis: "unbalance_like", reason: "once-per-turn vibration grown", wrong: true }), T0);
+  assert.deepEqual(L.modelLine(s, "effente-01"), { kind: "fault", label: "Model: Unbalance-like", detail: "once-per-turn vibration grown", note: "", possible: true });
+  L.applyEvent(s, "record", rec({ diagnosis: "vibration_too_high", wrong: true }), T0);
+  assert.equal(L.modelLine(s, "effente-01").possible, false);
+  L.applyEvent(s, "record", rec({ diagnosis: "unrecognised_pattern", reason: "abnormal, no known fault type fits", wrong: true, note: "1 reading far out" }), T0);
+  const ml = L.modelLine(s, "effente-01");
+  assert.equal(ml.kind, "unrecognised");
+  assert.equal(ml.note, "1 reading far out");
+});
+
+test("problem events: added and removed by name; quiet clears everything", () => {
+  const s = live(L.createState());
+  L.applyEvent(s, "record", rec({ diagnosis: "unbalance_like", wrong: true }), T0);
+  const d = s.devices["effente-01"];
+  L.applyEvent(s, "problem", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", problem: TOO_HOT }, T0);
+  L.applyEvent(s, "problem", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", problem: ABOVE }, T0);
+  L.applyEvent(s, "problem", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", problem: Object.assign({}, TOO_HOT, { value: 110 }) }, T0);
+  assert.deepEqual(d.problems.map((p) => p.name), ["vibration_above_normal", "too_hot"]);
+  L.applyEvent(s, "problem_cleared", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", name: "vibration_above_normal" }, T0);
+  L.applyEvent(s, "problem_cleared", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", name: "too_hot" }, T0);
+  assert.deepEqual(d.problems, []);
+  assert.equal(d.wrong, true); // the fault type is still there
+  L.applyEvent(s, "problem", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", problem: TOO_HOT }, T0);
+  L.applyEvent(s, "device", { device_id: "effente-01", connected: false, last_seen: "x", mode: "watching" }, T0);
+  L.applyEvent(s, "problem_cleared", { device_id: "effente-01", machine_id: "conveyor-07", at: "x", name: "too_hot", reason: "device quiet" }, T0);
+  assert.deepEqual(d.problems, []);
+  assert.equal(d.wrong, false);
+});
+
+test("a record sets mode, wrong and problems", () => {
+  const s = live(L.createState());
+  L.applyEvent(s, "device", { device_id: "effente-01", connected: true, last_seen: "x", mode: "calibrating" }, T0);
+  L.applyEvent(s, "record", rec({ problems: [ABOVE], wrong: true }), T0);
+  const d = s.devices["effente-01"];
+  assert.equal(d.mode, "watching");
+  assert.equal(d.machine_id, "conveyor-07");
+  assert.deepEqual(d.problems, [ABOVE]);
+  assert.equal(d.wrong, true);
+});
+
+test("moved readings use the announced text, in record order", () => {
+  const s = live(L.createState());
+  L.applyEvent(s, "model", MODEL, T0);
+  L.applyEvent(s, "record", rec({ features: { snd_level_db: -0.6, vib_1x: 7.2, not_announced: 1.5, bad: "x" } }), T0);
+  assert.deepEqual(L.movedReadings(s, "effente-01"), [
+    { name: "snd_level_db", text: "sound level", value: -0.6 },
+    { name: "vib_1x", text: "vibration once per turn", value: 7.2 },
+    { name: "not_announced", text: "not_announced", value: 1.5 },
+  ]);
+  assert.deepEqual(L.featureTexts(s, "effente-01"), { vib_1x: "vibration once per turn", snd_level_db: "sound level" });
 });
 
 test("device status: live, quiet after 5 s, disconnected, none", () => {
@@ -102,7 +176,7 @@ test("device status: live, quiet after 5 s, disconnected, none", () => {
   L.applyEvent(s, "record", rec(), T0);
   assert.equal(L.deviceStatus(s, "effente-01", T0 + 4000), "live");
   assert.equal(L.deviceStatus(s, "effente-01", T0 + 5001), "no_readings");
-  L.applyEvent(s, "device", { device_id: "effente-01", connected: false, last_seen: "x" }, T0 + 6000);
+  L.applyEvent(s, "device", { device_id: "effente-01", connected: false, last_seen: "x", mode: "watching" }, T0 + 6000);
   assert.equal(L.deviceStatus(s, "effente-01", T0 + 6000), "disconnected");
 });
 
@@ -118,30 +192,49 @@ test("snapshot: uses the platform's now for ages, drops vanished devices", () =>
         "effente-01": {
           connected: true,
           last_seen: "2026-11-14T16:02:11Z",
-          model_version: "fake-0.1",
-          mask: ["rattle"],
-          mask_version: 4,
-          latest: rec({ received_at: "2026-11-14T16:02:11Z", mask: ["rattle"] }),
+          mode: "watching",
+          machine_id: "conveyor-07",
+          model_version: "conveyor-07-20261114",
+          wrong: true,
+          problems: [TOO_HOT],
+          latest: rec({ received_at: "2026-11-14T16:02:11Z", problems: [TOO_HOT], wrong: true }),
+        },
+        quiet: {
+          connected: false,
+          last_seen: "2026-11-14T16:00:00Z",
+          mode: "recording",
+          machine_id: "fan-02",
+          model_version: null,
+          wrong: true, // the platform says false while not connected; the page does not trust it either way
+          problems: [TOO_HOT],
+          latest: null,
         },
       },
-      models: { "fake-0.1": MODEL },
+      models: { "conveyor-07-20261114": MODEL },
       machines: ["conveyor-07"],
     },
     T0
   );
-  assert.deepEqual(Object.keys(s.devices), ["effente-01"]);
+  assert.deepEqual(Object.keys(s.devices).sort(), ["effente-01", "quiet"]);
   const d = s.devices["effente-01"];
   assert.equal(d.lastRecordLocalMs, T0 - 2000);
   assert.equal(L.deviceStatus(s, "effente-01", T0), "live");
   assert.equal(L.deviceStatus(s, "effente-01", T0 + 3500), "no_readings");
-  assert.equal(d.mask_version, 4);
+  assert.equal(d.mode, "watching");
+  assert.equal(d.wrong, true);
+  assert.deepEqual(d.problems, [TOO_HOT]);
+  const q = s.devices.quiet;
+  assert.equal(q.wrong, false);
+  assert.deepEqual(q.problems, []);
+  assert.equal(q.mode, "recording");
+  assert.equal(q.machine_id, "fan-02"); // known from its check-ins, with no record
   assert.equal(L.modelFor(s, "effente-01"), MODEL);
   assert.equal(s.snapshotLoaded, true);
 });
 
 test("snapshot with a device but no record", () => {
   const s = L.createState();
-  L.applySnapshot(s, { ok: true, now: "2026-11-14T16:02:13Z", devices: { a: { connected: true, last_seen: "2026-11-14T16:02:13Z", model_version: null, mask: [], mask_version: 0, latest: null } }, models: {}, machines: [] }, T0);
+  L.applySnapshot(s, { ok: true, now: "2026-11-14T16:02:13Z", devices: { a: { connected: true, last_seen: "2026-11-14T16:02:13Z", mode: "watching", machine_id: "m", model_version: null, wrong: false, problems: [], latest: null } }, models: {}, machines: [] }, T0);
   assert.equal(s.devices.a.latest, null);
   assert.equal(L.deviceStatus(s, "a", T0), "no_readings");
 });
@@ -213,7 +306,9 @@ test("bad events are ignored", () => {
   const s = L.createState();
   L.applyEvent(s, "record", null, T0);
   L.applyEvent(s, "record", { diagnosis: "normal" }, T0);
-  L.applyEvent(s, "mask", { mask: [] }, T0);
+  L.applyEvent(s, "problem", { device_id: "x" }, T0); // no problem in it
+  L.applyEvent(s, "problem_cleared", { name: "too_hot" }, T0); // no device
+  L.applyEvent(s, "mask", { device_id: "x", mask: [] }, T0); // contract version 1
   L.applyEvent(s, "nonsense", { device_id: "x" }, T0);
   assert.deepEqual(s.devices, {});
 });
@@ -221,4 +316,116 @@ test("bad events are ignored", () => {
 test("page never puts API text into innerHTML", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "dashboard.js"), "utf8");
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(src));
+});
+
+// ---------------- heat (contract 3.3) ----------------
+
+function frame(at, fill, minC, stepC) {
+  const bytes = Buffer.alloc(768, 0);
+  if (typeof fill === "function") for (let i = 0; i < 768; i++) bytes[i] = fill(i);
+  return { at, min_c: minC ?? 20, step_c: stepC ?? 0.25, data: bytes.toString("base64") };
+}
+
+function camHeat(over) {
+  return Object.assign(
+    {
+      source: "camera",
+      imu_temp_c: 42.6,
+      max_c: 61.2,
+      hot_row: 9,
+      hot_col: 21,
+      background_c: 25,
+      cells: new Array(48).fill(0.5),
+      spots: new Array(48).fill(1.5),
+      frozen: false,
+      scene_match: 0.93,
+      frames: [frame("2026-11-14T16:02:10.5Z", (i) => i % 256), frame("2026-11-14T16:02:11Z", () => 8)],
+    },
+    over
+  );
+}
+
+test("decodeFrame turns bytes into degC and rejects bad images", () => {
+  const f = L.decodeFrame(frame("2026-11-14T16:02:11Z", (i) => (i === 5 ? 255 : 4), 20, 0.25));
+  assert.equal(f.pixels.length, 768);
+  assert.equal(f.pixels[0], 21);
+  assert.equal(f.pixels[5], 20 + 255 * 0.25);
+  assert.equal(f.atMs, Date.parse("2026-11-14T16:02:11Z"));
+  assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0.25, data: Buffer.alloc(10).toString("base64") }), null);
+  assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0, data: Buffer.alloc(768).toString("base64") }), null);
+  assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0.1, data: "%%%not base64" }), null);
+  assert.equal(L.decodeFrame(null), null);
+});
+
+test("heatView reads each heat source", () => {
+  assert.equal(L.heatView(null).kind, "none");
+  assert.equal(L.heatView(rec({})).kind, "none");
+  assert.equal(L.heatView(rec({ heat: null })).kind, "none");
+  assert.deepEqual(L.heatView(rec({ heat: { source: "imu", imu_temp_c: 42.6 } })), { kind: "imu", imuTempC: 42.6 });
+  assert.deepEqual(L.heatView(rec({ heat: { source: "imu", imu_temp_c: null } })), { kind: "imu", imuTempC: null });
+  assert.equal(L.heatView(rec({ heat: { source: "laser" } })).kind, "bad");
+  assert.equal(L.heatView(rec({ heat: "hot" })).kind, "bad");
+
+  const v = L.heatView(rec({ heat: camHeat() }));
+  assert.equal(v.kind, "camera");
+  assert.equal(v.frames.length, 2);
+  assert.deepEqual([v.maxC, v.hotRow, v.hotCol, v.backgroundC, v.sceneMatch, v.frozen], [61.2, 9, 21, 25, 0.93, false]);
+
+  // History records have no images: the grid alone still draws.
+  const g = L.heatView(rec({ heat: camHeat({ frames: undefined }) }));
+  assert.equal(g.kind, "camera");
+  assert.equal(g.frames.length, 0);
+  // Neither images nor a grid: nothing to draw.
+  assert.equal(L.heatView(rec({ heat: camHeat({ frames: [], cells: [1, 2] }) })).kind, "bad");
+  // Out-of-range position is dropped, not drawn off the image.
+  assert.equal(L.heatView(rec({ heat: camHeat({ hot_row: 24 }) })).hotRow, null);
+});
+
+test("frameAt plays images at the spacing they were taken", () => {
+  const fs2 = L.heatView(rec({ heat: camHeat() })).frames;
+  assert.deepEqual(L.frameAt(fs2, 0), { index: 0, nextMs: 500 });
+  assert.deepEqual(L.frameAt(fs2, 499), { index: 0, nextMs: 1 });
+  assert.deepEqual(L.frameAt(fs2, 500), { index: 1, nextMs: null });
+  assert.deepEqual(L.frameAt([], 0), { index: -1, nextMs: null });
+  const odd = [{ atMs: 1000, pixels: [] }, { atMs: 0, pixels: [] }];
+  assert.deepEqual(L.frameAt(odd, 0), { index: 1, nextMs: null });
+});
+
+test("heatRange covers the images in whole degrees, at least 4 wide", () => {
+  const v = L.heatView(rec({ heat: camHeat() }));
+  assert.deepEqual(L.heatRange(v), { lo: 20, hi: Math.ceil(20 + 255 * 0.25) });
+  const flat = L.heatView(rec({ heat: camHeat({ frames: [frame("2026-11-14T16:02:11Z", () => 0, 30.3, 0.1)] }) }));
+  assert.deepEqual(L.heatRange(flat), { lo: 30, hi: 34 });
+  const grid = L.heatView(rec({ heat: camHeat({ frames: undefined }) }));
+  assert.deepEqual(L.heatRange(grid), { lo: 25, hi: 29 });
+});
+
+test("heatColor runs dark to pale and clamps", () => {
+  assert.deepEqual(L.heatColor(0), [20, 11, 52]);
+  assert.deepEqual(L.heatColor(1), [252, 255, 164]);
+  assert.deepEqual(L.heatColor(-3), L.heatColor(0));
+  assert.deepEqual(L.heatColor(7), L.heatColor(1));
+  const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  for (let t = 0.1; t <= 1; t += 0.1) assert.ok(lum(L.heatColor(t)) > lum(L.heatColor(t - 0.1)) - 1e-9, "brighter as it gets hotter");
+});
+
+test("imuTrend is the change over the last 2 minutes", () => {
+  const at = (s) => new Date(Date.parse("2026-11-14T16:00:00Z") + s * 1000).toISOString();
+  const r = (s, v) => rec({ at: at(s), heat: { source: "imu", imu_temp_c: v } });
+  const t = L.imuTrend([r(0, 40), r(60, 41), r(130, 42), r(180, 42.5)]);
+  assert.equal(t.spanMs, 120000);
+  assert.ok(Math.abs(t.deltaC - 1.5) < 1e-9);
+  assert.equal(L.imuTrend([r(0, 40)]), null);
+  assert.equal(L.imuTrend([r(0, 40), r(5, 41)]), null); // too short to call a trend
+  assert.equal(L.imuTrend([rec({}), rec({})]), null);
+});
+
+test("history keeps heat but drops its images", () => {
+  const s = L.createState();
+  L.setHistory(s, "conveyor-07", []);
+  L.applyEvent(s, "record", rec({ seq: 1, heat: camHeat() }), T0);
+  const kept = s.history["conveyor-07"][0];
+  assert.equal(kept.heat.max_c, 61.2);
+  assert.equal("frames" in kept.heat, false);
+  assert.equal(s.devices["effente-01"].latest.heat.frames.length, 2); // newest record keeps them
 });

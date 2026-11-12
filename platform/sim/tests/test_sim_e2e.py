@@ -22,54 +22,84 @@ def run_sim(*args, timeout=30, url=None):
     return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, env=env)
 
 
-def test_announces_then_acknowledges_mask_from_reply(tmp_path):
+def test_announces_then_sends_contract_records(tmp_path):
     with FakePlatform() as fp:
-        fp.set_mask(["once_per_turn"])  # in place before the first record
         log = tmp_path / "dev.jsonl"
         model_file = tmp_path / "model.json"
-        p = run_sim("--case", "imbalance", "--interval", "0.1", "--count", "4",
+        p = run_sim("--case", "unbalance", "--interval", "0.1", "--count", "4",
                     "--log", str(log), "--model-file", str(model_file), url=fp.url)
         assert p.returncode == 0, p.stderr
         assert fp.log[0] == ("model",), fp.log
         assert len(fp.models) == 1
         announced = fp.models[0]
         assert announced["simulated"] is True and announced["device_id"] == "effente-sim-01"
-        assert announced["model_version"] == "sim-1" and announced["spectrum_hz_max"] == 500
+        assert announced["model_version"] == "sim-3" and len(announced["spectrum_edges_hz"]) == 21
         recs = fp.records
-        assert len(recs) == 4
-        assert all(r["simulated"] is True for r in recs)
+        assert len(recs) == 4 and fp.check_ins == []
         assert all(record_problems(r) == [] for r in recs)
-        assert record_problems({"diagnosis": "normal", "reason": "x", "spectrum": [2.0]})  # the check can fail
-        # First window was diagnosed before any mask arrived.
-        assert recs[0]["mask"] == [] and recs[0]["diagnosis"] == "imbalance"
-        # The reply carried the mask; every later window acknowledges and obeys it.
-        for r in recs[1:]:
-            assert r["mask"] == ["once_per_turn"]
-            assert r["diagnosis"] == "normal" and r["reason"] == ""
-            assert r["features"]["once_per_turn"] == 0
+        assert all(r["diagnosis"] == "unbalance_like" and r["wrong"] is True and r["problems"] == [] for r in recs)
         logged = [json.loads(line) for line in log.read_text().splitlines()]
         assert logged == recs
         mf = json.loads(model_file.read_text())
-        assert mf["simulated"] is True and [f["name"] for f in mf["features"]] == ["once_per_turn", "rattle"]
+        assert mf["simulated"] is True and mf["features"][0]["sentence"] == "vibration once per turn"
 
 
-def test_mask_switched_off_again_restores_diagnosis():
+def test_records_carry_heat_by_source(tmp_path):
     with FakePlatform() as fp:
-        fp.set_mask(["rattle"])
-        proc = subprocess.Popen([sys.executable, MAIN, "--url", fp.url, "--case", "loose_mount",
-                                 "--interval", "0.1", "--count", "30"],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        deadline = time.time() + 10
-        while len(fp.records) < 5 and time.time() < deadline:
-            time.sleep(0.05)
-        fp.set_mask([])
-        proc.wait(timeout=20)
-        assert proc.returncode == 0
-        diags = [(tuple(r["mask"]), r["diagnosis"]) for r in fp.records]
-        assert (("rattle",), "normal") in diags
-        assert diags[-1] == ((), "loose_mount")
-        for mask, diag in diags:
-            assert diag == ("normal" if mask == ("rattle",) else "loose_mount")
+        p = run_sim("--interval", "0.1", "--count", "2", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        cam = [r["heat"] for r in fp.records]
+    assert all(h["source"] == "camera" and len(h["frames"]) == 2 for h in cam)
+    assert all(record_problems(r) == [] for r in fp.records)
+    assert record_problems({"heat": {"source": "camera", "imu_temp_c": 40, "cells": [0] * 47}})  # the check can fail
+
+    with FakePlatform() as fp:
+        assert run_sim("--interval", "0.1", "--count", "2", "--heat", "imu", url=fp.url).returncode == 0
+        assert [set(r["heat"]) for r in fp.records] == [{"source", "imu_temp_c"}] * 2
+    with FakePlatform() as fp:
+        assert run_sim("--interval", "0.1", "--count", "2", "--heat", "none", url=fp.url).returncode == 0
+        assert all("heat" not in r for r in fp.records)
+
+
+def test_problem_while_the_model_says_normal():
+    with FakePlatform() as fp:
+        p = run_sim("--problem", "too_hot", "--hold", "0", "--interval", "0.1", "--count", "3", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        assert len(fp.records) == 3
+        for r in fp.records:
+            assert record_problems(r) == []
+            assert r["diagnosis"] == "normal" and r["wrong"] is True
+            assert [x["name"] for x in r["problems"]] == ["too_hot"] and r["problems"][0]["kind"] == "limit"
+        assert len({r["problems"][0]["since"] for r in fp.records}) == 1  # one problem, one start
+
+
+def test_problem_waits_for_the_hold():
+    with FakePlatform() as fp:
+        p = run_sim("--problem", "too_hot", "--hold", "0.5", "--interval", "0.1", "--count", "12", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        on = [bool(r["problems"]) for r in fp.records]
+        assert on[0] is False and on[-1] is True
+        assert on == sorted(on)  # off until it has held, then on
+
+
+def test_checks_in_while_not_watching_with_limits_only():
+    with FakePlatform() as fp:
+        p = run_sim("--mode", "recording", "--problem", "too_hot", "--problem", "vibration_above_normal",
+                    "--hold", "0", "--interval", "0.1", "--count", "3", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        assert fp.records == []
+        assert fp.log[0] == ("model",) and fp.log[1:] == [("check_in", "recording")] * 3
+        for device_id, body in fp.check_ins:
+            assert device_id == "effente-sim-01"
+            assert body["mode"] == "recording" and body["machine_id"] == "demo-fan-1"
+            assert body["wrong"] is True and [x["name"] for x in body["problems"]] == ["too_hot"]
+        assert "check-in recording + too_hot" in p.stdout
+        assert "vibration_above_normal (watching only)" in p.stdout
+
+
+def test_interval_over_two_seconds_refused():
+    p = run_sim("--interval", "2.5", "--count", "1", url="http://127.0.0.1:9")
+    assert p.returncode == 2 and "at most 2" in p.stderr
 
 
 def test_need_model_triggers_new_announcement():
@@ -79,14 +109,6 @@ def test_need_model_triggers_new_announcement():
         assert p.returncode == 0
         assert len(fp.models) == 2
         assert fp.log[:3] == [("model",), ("records", 1), ("model",)]
-
-
-def test_polls_mask_while_idle_between_slow_records():
-    with FakePlatform() as fp:
-        p = run_sim("--interval", "2.5", "--count", "2", url=fp.url)
-        assert p.returncode == 0
-        assert len(fp.records) == 2
-        assert len(fp.mask_gets) >= 1 and set(fp.mask_gets) == {"effente-sim-01"}
 
 
 def test_survives_platform_absent(tmp_path):
@@ -103,7 +125,7 @@ def test_survives_platform_absent(tmp_path):
 
 def test_carries_on_when_platform_comes_back():
     port = free_port()
-    proc = subprocess.Popen([sys.executable, MAIN, "--url", f"http://127.0.0.1:{port}", "--case", "imbalance",
+    proc = subprocess.Popen([sys.executable, MAIN, "--url", f"http://127.0.0.1:{port}", "--case", "unbalance",
                              "--interval", "0.1", "--count", "40"],
                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
@@ -124,14 +146,14 @@ def test_carries_on_when_platform_comes_back():
 
 def test_replay_sends_sample_file():
     with FakePlatform() as fp:
-        fp.set_mask(["once_per_turn"])
         p = run_sim("--replay", SAMPLE, "--interval", "0.05", url=fp.url)
         assert p.returncode == 0, p.stderr
-        assert len(fp.records) == 8
+        assert len(fp.records) == 10
         diags = [r["diagnosis"] for r in fp.records]
-        # First record goes out before the mask arrives; imbalance ones after it read normal.
-        assert diags == ["normal", "normal", "normal", "normal", "loose_mount", "loose_mount", "unknown", "unknown"]
+        assert diags == ["normal"] * 4 + ["unbalance_like"] * 2 + ["stopped"] * 2 + ["unrecognised_pattern"] * 2
+        assert [bool(r["problems"]) for r in fp.records] == [False, False] + [True] * 6 + [False, False]
         assert all(r["simulated"] is True and r["device_id"] == "effente-sim-01" for r in fp.records)
+        assert all(record_problems(r) == [] for r in fp.records)
 
 
 needs_pty = pytest.mark.skipif(not sys.platform.startswith(("linux", "darwin")), reason="needs a pty")
@@ -182,6 +204,10 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             out += _pump(master, 0.8)
             os.write(master, b"2")
             out += _pump(master, 0.8)
+            os.write(master, b"t")
+            out += _pump(master, 0.8)
+            os.write(master, b"m")  # watching -> display: check-ins instead of records
+            out += _pump(master, 0.8)
             os.write(master, b"q")
             proc.wait(timeout=5)
             out += _pump(master, 0.2)
@@ -194,9 +220,13 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             os.close(master)
             os.close(slave)
         text = out.decode(errors="ignore")
-        assert "case unknown" in text and "case imbalance" in text
+        assert "case unrecognised" in text and "case unbalance" in text and "[SIM] display" in text
+        assert "heat camera" in text and "heat imu" in text
+        recs = fp.records
+        assert recs[0]["heat"]["source"] == "camera" and recs[-1]["heat"]["source"] == "imu"
         diags = [r["diagnosis"] for r in fp.records]
-        assert "unknown" in diags and "imbalance" in diags
+        assert "unrecognised_pattern" in diags and "unbalance_like" in diags
+        assert fp.check_ins and fp.check_ins[-1][1]["mode"] == "display"
 
 
 @needs_pty
