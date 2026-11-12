@@ -1,0 +1,6 @@
+# effente: condition monitoring on the UNO Q. Sensors in through the sketch; features, recording,
+# training and checking for faults in Python; status on the OLED and a live stream on port 8765.
+name: effente
+icon: 📈
+ports: [8765]
+bricks: []

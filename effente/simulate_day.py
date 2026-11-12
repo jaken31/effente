@@ -16,8 +16,9 @@ Simulated sensors:
   MPU6050   accelerometer + gyroscope, 1 kHz, raw int16 counts
   INMP441   I2S microphone, 16 kHz, int16
   MLX90640  thermal camera (55 deg lens), 32x24 pixels, 4 frames/s, deg C
-The mic and thermal camera are extra inputs beyond the current TRD; files
-can be used for vibration alone.
+  BME280    room temperature and humidity, 1 reading/s
+The mic, thermal camera and BME280 are extra inputs beyond the current TRD;
+files can be used for vibration alone.
 
 Output (in --out), about 5.6 GB for a full day:
   hour_00.npz ... hour_23.npz   raw sensor data. Holds the agreed TRD
@@ -25,7 +26,8 @@ Output (in --out), about 5.6 GB for a full day:
                                 counts, sample_rate_hz, label, session_id,
                                 mount_id, fan_rpm, recorded_at) plus extra
                                 fields: accel_t_us, gyro, audio, audio_t_us,
-                                thermal, thermal_t_us and their scales.
+                                thermal, thermal_t_us, room_c, humidity_pct,
+                                room_t_us and their scales.
   truth.csv                     1 Hz ground truth (state, load, speed, temperatures, events)
   events.csv                    every background event with its time
   meta.json                     machine, sensor and thermal-view description
@@ -90,6 +92,9 @@ THERMAL_NOMINAL_HZ = 4
 THERMAL_TRUE_HZ = 4 * (1 - 0.0045)
 THERMAL_PHASE_S = 0.11
 THERMAL_SHAPE = (24, 32)
+
+ROOM_RATE_HZ = 1.0  # BME280 polled once a second by the microcontroller
+ROOM_PHASE_S = 0.37
 
 WARMUP_S = 5.0  # extra signal generated before each hour so filters are settled
 
@@ -737,6 +742,17 @@ def render_hour(task):
         th_parts.append(fr); tt_parts.append(tu)
         k = e
 
+    # room temperature and humidity: BME280 on the device body, read once a second
+    rk0 = math.ceil((lo - ROOM_PHASE_S) * ROOM_RATE_HZ)
+    rk1 = math.ceil((hi - ROOM_PHASE_S) * ROOM_RATE_HZ)
+    rt = np.arange(rk0, rk1) / ROOM_RATE_HZ + ROOM_PHASE_S
+    ci, cf = ctrl_index(rt)
+    amb, rise = at(d.ambient, ci, cf), at(d.motor_rise, ci, cf)
+    rng_room = np.random.default_rng([d.seed, 6, hour])
+    # Beside the machine, the device picks up a little of the motor's heat.
+    room_c = amb + 0.6 + 0.04 * rise + rng_room.normal(0, 0.03, len(rt))
+    humidity = 45.0 - 1.6 * (amb - 21.0) + rng_room.normal(0, 0.3, len(rt))
+
     full_hour = lo == hour * 3600.0 and hi == (hour + 1) * 3600.0
     name = f"hour_{hour:02d}.npz" if full_hour else f"clip_{hms(lo).replace(':', '')}.npz"
     path = Path(out_dir) / name
@@ -754,6 +770,8 @@ def render_hour(task):
         audio_block_len=AUDIO_BLOCK, audio_rate_hz=AUDIO_NOMINAL_HZ, audio_gain_db=AUDIO_GAIN_DB,
         thermal=np.concatenate(th_parts), thermal_t_us=np.concatenate(tt_parts),
         thermal_rate_hz=THERMAL_NOMINAL_HZ,
+        room_c=room_c.astype(np.float32), humidity_pct=humidity.astype(np.float32),
+        room_t_us=np.round(rt * 1e6).astype(np.int64), room_rate_hz=ROOM_RATE_HZ,
         device_id="effente-sim", machine="cooling-water pump (simulated)",
     )
     return name, round(time.time() - started, 1), path.stat().st_size
@@ -834,12 +852,15 @@ def write_meta(day: Day, out: Path, seed: int):
                         "nominal_rate_hz": THERMAL_NOMINAL_HZ, "true_rate_hz": round(THERMAL_TRUE_HZ, 4),
                         "units": "deg C (apparent, emissivity not corrected)",
                         "labels": THERMAL_LABELS, "label_map": thermal_layout().tolist()},
+            "room": {"part": "BME280", "rate_hz": ROOM_RATE_HZ, "fields": "room_c (deg C), humidity_pct",
+                     "placement": "on the device body beside the machine; reads about 0.6 degC above the room "
+                                  "plus a little motor heat"},
         },
         "timestamps": "microcontroller clock, microseconds since 00:00:00 local; "
                       "sensor clocks differ slightly from nominal, so align by timestamp",
         "not_modelled": [
             "MLX90640 chess-pattern subpage artefacts", "I2C read gaps or dropped samples",
-            "room humidity", "people standing in front of the machine other than the technician checks",
+            "people standing in front of the machine other than the technician checks",
         ],
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
