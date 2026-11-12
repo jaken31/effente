@@ -143,6 +143,7 @@ class Watcher:
         self.scores: deque = deque(maxlen=model.smooth)
         self.abnormal_minutes = 0
         self.episode: Counter = Counter()  # fault types named during the current abnormal stretch
+        self.said: Counter = Counter()  # what was going on (symptoms), the same stretch
         self.rows = 0
         self.state = {"diagnosis": "warming_up", "confidence": 0.0, "unknown_score": None,
                       "note": "the first minute is still being summarised"}
@@ -168,6 +169,7 @@ class Watcher:
             self.scores.clear()
             self.abnormal_minutes = 0
             self.episode.clear()
+            self.said.clear()
             self.state = {"diagnosis": "stopped", "confidence": 1.0, "unknown_score": None, "minute": minute_t,
                           "note": "the machine is not running; nothing is judged while it is stopped"}
             return
@@ -187,9 +189,17 @@ class Watcher:
             state.update(diagnosis=lead, diagnosis_this_minute=d.diagnosis,
                          confidence=round(d.confidence * votes / sum(self.episode.values()) ** 0.5 / votes ** 0.5, 2),
                          features=d.evidence, fault_types=d.types, abnormal_minutes=self.abnormal_minutes, note=d.note)
+            # What people are told: straight from which readings moved (effente.fault_types.describe), the
+            # symptom said most often this stretch first, so it doesn't flip; the cause above stays in the data.
+            now = FT.describe(dev)
+            self.said[now[0][0]] += 1
+            first = self.said.most_common(1)[0][0]
+            state["symptoms"] = [first] + [s for s, _ in now if s != first][:FT.SAY_AT_MOST - 1]
+            state["symptom"] = first
         else:
             self.abnormal_minutes = 0
             self.episode.clear()
+            self.said.clear()
             top = dict(sorted(dev.items(), key=lambda kv: -abs(kv[1]))[:3])
             state.update(diagnosis="normal", confidence=round(float(np.clip(1.0 - level / self.margin, 0.0, 1.0)), 2),
                          features={k: round(v, 2) for k, v in top.items()}, note="")

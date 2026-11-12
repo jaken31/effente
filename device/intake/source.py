@@ -52,6 +52,7 @@ class SourceInfo:
     audio_block_len: int = 256
     audio_bits: int = 16  # microphone sample depth (the INMP441 gives 24 bits)
     week_offset_s: float | None = None  # add to t to get local seconds since a Monday 00:00
+    accel_measures_gravity: bool = True  # an MPU does; industrial piezo sensors read 0 g (effente.safety)
 
 
 class FileSource:
