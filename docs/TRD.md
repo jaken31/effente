@@ -28,7 +28,6 @@ Detection, explanation and the unknown alarm run with no network. The agent need
 - 2.4" OLED screen
 - Microphone (after vibration works end to end)
 - Small fan or motor as the demo machine, run at one fixed speed
-- Tang Nano 20K FPGA (stretch track only)
 
 ## Signal pipeline
 
@@ -49,7 +48,7 @@ One implementation of this pipeline, in Python, is used for recording, training 
 - Small fully connected network, one or two hidden layers, over the FFT bins.
 - Outputs: normal, imbalance, loose mount.
 - Trains in seconds on a laptop.
-- Exported as a file of whole-number weights. The device loads it, and the FPGA track builds from the same file.
+- Exported as a file of whole-number weights, which the device loads.
 
 ## Unknown alarm
 
@@ -135,7 +134,6 @@ effente/     Shared Python: signal pipeline, model, formats, fake data
 training/    Recording tools, training, validation
 interp/      Unit analysis, switch-off tests, sparse autoencoders
 platform/    Log ingestion and dashboard
-fpga/        Tang Nano 20K design (stretch)
 docs/        PRD, TRD
 ```
 
@@ -145,7 +143,7 @@ docs/        PRD, TRD
 |-------|------------------|---------|
 | 1. Device | Sampling, bridge, screen, inference service, WiFi upload | Local language model |
 | 2. Data and signal | Protocol, multi-session recordings, sensitivity sweep, IMS dataset | Microphone, variable speed |
-| 3. Model and FPGA | Training, unknown alarm, model file | Trimmed classifier as a circuit on the Tang Nano 20K |
+| 3. Model | Training, unknown alarm, model file | More fault types |
 | 4. Mech interp | Unit analysis, switch-off tests, feature table, mask | Sparse autoencoders on the cluster |
 | 5. Platform, agent and business | Dashboard, toggle, agent, validation slides, pitch | Fleet view |
 
@@ -168,7 +166,6 @@ The university cluster is used only for stretch work. Nothing in the demo depend
 | On-device inference | Run inference on the laptop with the UNO Q as the sensor |
 | WiFi upload | Send the log over USB |
 | Agent or network | Demo detection and explanation alone |
-| FPGA track | Drop it. Nothing depends on it. |
 
 ## Risks
 

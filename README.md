@@ -47,7 +47,6 @@ The device is an Arduino UNO Q. Its microcontroller samples an accelerometer and
 - 2.4" OLED screen
 - Microphone (second input, added after vibration works)
 - Small fan or motor as the demo machine
-- Tang Nano 20K FPGA (stretch: the trimmed model as a circuit)
 
 ## Competitors
 
@@ -57,7 +56,7 @@ Tractian, Augury, SKF and ABB sell predictive maintenance sensors. effente expla
 
 1. **Device:** sampling, screen, on-device inference, WiFi upload.
 2. **Data and signal:** recordings, sensitivity sweep, public run-to-failure dataset.
-3. **Model and FPGA:** training, unknown alarm, circuit version.
+3. **Model:** training, unknown alarm, model file.
 4. **Mech interp:** feature analysis, switch-off tests, explanation table.
 5. **Platform, agent and business:** dashboard, agent, validation, pitch.
 

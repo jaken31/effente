@@ -31,7 +31,7 @@ Machines usually show early signs, such as small vibration changes, well before 
 
 - Variable motor speed. The demo runs at one fixed speed and we say so.
 - Thermal camera and voltage sensing. These appear on the roadmap only.
-- A language model running on a microcontroller or FPGA.
+- A language model running on a microcontroller.
 - Any price claim.
 
 ## Requirements
@@ -61,10 +61,9 @@ Machines usually show early signs, such as small vibration changes, well before 
 
 | ID | Requirement |
 |----|-------------|
-| P12 | The trimmed classifier built as a circuit on a Tang Nano 20K FPGA. |
-| P13 | A small language model running locally on the device, so the agent works offline. |
-| P14 | Variable motor speed. |
-| P15 | More fault types. |
+| P12 | A small language model running locally on the device, so the agent works offline. |
+| P13 | Variable motor speed. |
+| P14 | More fault types. |
 
 ## Demo script
 
