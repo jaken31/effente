@@ -67,8 +67,11 @@ class FileSource:
         self.info = SourceInfo()
         self.labels: list[tuple[float, float, str]] = []  # (start, end, label) of each file read
         with np.load(self.files[0]) as first:
+            has = lambda k: k in first.files and np.asarray(first[k]).size > 0  # noqa: E731
             self.sensors = (("accel",) + (("gyro",) if "gyro" in first.files else ())
-                            + ("audio", "thermal") + (("room",) if "room_t_us" in first.files else ()))
+                            + (("audio",) if has("audio") else ()) + (("thermal",) if has("thermal") else ())
+                            + (("room",) if "room_t_us" in first.files else ())
+                            + (("imu_temp",) if "imu_temp_t_us" in first.files else ()))
 
     def label_at(self, t: float) -> str:
         for a, b, lab in self.labels:
@@ -120,6 +123,9 @@ class FileSource:
             if has_room:
                 room_t = r["room_t_us"] / 1e6
                 room = np.stack([r["room_c"], r["humidity_pct"]], 1)
+            has_imu_temp = "imu_temp_t_us" in r.files
+            if has_imu_temp:
+                it_t, it_v = r["imu_temp_t_us"] / 1e6, np.asarray(r["imu_temp_c"], np.float32)[:, None]
 
             lo = max(self.start_s, acc_t[0] if len(acc_t) else self.start_s)
             hi = min(self.end_s, acc_t[-1] + 1e-3 if len(acc_t) else self.end_s)
@@ -143,17 +149,135 @@ class FileSource:
                     r0, r1 = np.searchsorted(room_t, [max(c, self.start_s), e])
                     if r1 > r0:
                         yield Packet("room", room_t[r0:r1], room[r0:r1])
+                if has_imu_temp:
+                    i0, i1 = np.searchsorted(it_t, [max(c, self.start_s), e])
+                    if i1 > i0:
+                        yield Packet("imu_temp", it_t[i0:i1], it_v[i0:i1])
                 c = e
 
 
 class UnoQSource:
-    """Real sensor data from the UNO Q's microcontroller. Not written yet.
+    """Live sensor packets from the UNO Q's microcontroller over the Bridge.
 
-    Plan: the microcontroller sends packets of [sensor id, sequence number,
-    first-sample timestamp, samples] over the Arduino Bridge; this class
-    checks sequence numbers for drops, converts microcontroller time to wall
-    time (so history survives reboots), and yields `Packet`s like FileSource.
+    The sketch (device/app/effente/sketch) sends a notification "imu" about 40 times a second:
+    (first sample number, micros() when read, samples, accelerometer bytes, gyroscope bytes,
+    FIFO overflows, IMU temperature raw). The app wires it here with
+    Bridge.provide("imu", source.on_imu); `packets()` then yields, per batch:
+
+      accel      (n, 3) g at 1 kHz          (big-endian int16 counts / 4096, the +-8 g range)
+      gyro       (n/10, 3) deg/s at 100 Hz  (every 10th sample; the Bridge line cannot carry more)
+      imu_temp   (1, 1) deg C               (the IMU's temperature sensor: raw / 340 + 36.53)
+
+    Times are the microcontroller's micros() (unwrapped past its 71-minute wrap), mapped onto
+    wall-clock time by the offset seen when batches arrive, tracked slowly, and re-anchored if the
+    two drift more than a second apart (for example when NTP corrects the board's clock). Lost
+    samples are counted from the sample numbers; the timestamps simply skip them.
     """
 
-    def __init__(self, *_, **__):
-        raise NotImplementedError("UnoQSource needs the hardware; use FileSource for now")
+    sensors = ("accel", "gyro", "imu_temp")
+
+    def __init__(self, rate_hz: float = 1000.0, gyro_every: int = 10, accel_lsb_per_g: float = 4096.0,
+                 gyro_lsb_per_dps: float = 131.0, max_packets: int = 3000, clock=None):
+        import queue
+        import time as _time
+        self.rate, self.nominal, self.gyro_every = rate_hz, rate_hz, gyro_every
+        self.lsb_g, self.lsb_dps = accel_lsb_per_g, gyro_lsb_per_dps
+        self.clock = clock or _time.time
+        self.q = queue.Queue(maxsize=max_packets)
+        lt = _time.localtime(self.clock())
+        now = self.clock()
+        week_t = lt.tm_wday * 86400 + lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
+        self.info = SourceInfo(accel_lsb_per_g=accel_lsb_per_g, accel_range_g=32768.0 / accel_lsb_per_g,
+                               gyro_lsb_per_dps=gyro_lsb_per_dps, week_offset_s=week_t - now)
+        self.offset: float | None = None  # wall time minus microcontroller time
+        self.wraps, self.last_us = 0, None
+        self.anchor: tuple[int, float] | None = None  # (sample number, microcontroller seconds) for the rate
+        self.expected: int | None = None
+        self.last_t = {s: -math.inf for s in self.sensors}
+        self.stats = {"batches": 0, "samples": 0, "lost": 0, "gaps": 0, "overflows": 0, "dropped_packets": 0,
+                      "reanchors": 0, "rate_hz": rate_hz, "imu_temp_c": None}
+        self._closed = False
+
+    # ------------------------------------------------------------ from the Bridge thread
+    def on_imu(self, first, t_us, n, acc, gyr, overflows=0, temp_raw=None) -> None:
+        first, t_us, n = int(first), int(t_us), int(n)
+        if self.last_us is not None and t_us < self.last_us and self.last_us - t_us > 2 ** 31:
+            self.wraps += 1  # micros() wrapped round (every 71.6 minutes)
+        self.last_us = t_us
+        mcu_s = (t_us + self.wraps * 2 ** 32) / 1e6
+        seen = self.clock() - mcu_s
+        if self.offset is None or abs(seen - self.offset) > 1.0:
+            if self.offset is not None:
+                self.stats["reanchors"] += 1
+            self.offset = seen
+        else:
+            self.offset += 0.01 * (seen - self.offset)  # follows slow drift, not each batch's delay
+        if self.anchor is None or first < self.anchor[0]:
+            self.anchor = (first, mcu_s)
+        elif mcu_s - self.anchor[1] > 10:
+            self.rate = float(np.clip((first + n - self.anchor[0]) / (mcu_s - self.anchor[1]),
+                                      0.9 * self.nominal, 1.1 * self.nominal))
+        if self.expected is not None and first != self.expected:
+            self.stats["gaps"] += 1
+            self.stats["lost"] += max(0, first - self.expected)
+        self.expected = first + n
+        a = np.frombuffer(bytes(acc), ">i2").reshape(-1, 3).astype(np.float32) / self.lsb_g
+        n = len(a)
+        t_last = self.offset + mcu_s  # the FIFO was read just after its newest sample
+        t = t_last - (n - 1 - np.arange(n)) / self.rate
+        self._put("accel", t, a)
+        if gyr is not None and len(gyr):
+            g = np.frombuffer(bytes(gyr), ">i2").reshape(-1, 3).astype(np.float32) / self.lsb_dps
+            idx = np.nonzero((first + np.arange(n)) % self.gyro_every == 0)[0][:len(g)]
+            if len(idx) == len(g):
+                self._put("gyro", t[idx], g)
+        if temp_raw is not None:
+            temp = float(temp_raw) / 340.0 + 36.53
+            self.stats["imu_temp_c"] = round(temp, 2)
+            self._put("imu_temp", np.array([t_last]), np.array([[temp]], np.float32))
+        self.stats["batches"] += 1
+        self.stats["samples"] += n
+        self.stats["overflows"] = int(overflows)
+        self.stats["rate_hz"] = round(self.rate, 2)
+
+    def _put(self, sensor, t, v) -> None:
+        import queue
+        lo = self.last_t[sensor]
+        if t[0] <= lo:  # tracking the clock offset must never move a sensor's time backwards
+            t = t + (lo - t[0]) + 1e-6
+        self.last_t[sensor] = float(t[-1])
+        p = Packet(sensor, t, v)
+        while True:
+            try:
+                self.q.put_nowait(p)
+                return
+            except queue.Full:  # the pipeline is behind: drop the oldest data, never block the Bridge
+                try:
+                    self.q.get_nowait()
+                    self.stats["dropped_packets"] += 1
+                except queue.Empty:
+                    pass
+
+    # ------------------------------------------------------------ for the pipeline
+    def packets(self) -> Iterator[Packet]:
+        import queue
+        while True:
+            try:
+                p = self.q.get(timeout=1.0)
+            except queue.Empty:
+                if self._closed:
+                    return
+                continue
+            if p is None:  # close(): everything queued before it has been delivered
+                return
+            yield p
+
+    def close(self) -> None:
+        self._closed = True
+        try:
+            self.q.put_nowait(None)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def label_at(self, t: float) -> str:
+        return ""

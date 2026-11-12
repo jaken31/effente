@@ -74,6 +74,7 @@ class Window:
     accel_t: np.ndarray | None = None  # (n,) sample times, used for history
     accel_rate_hz: float = 1000.0  # measured from timestamps where possible
     accel_range_g: float = 2.0  # the accelerometer's full scale, for clipping
+    imu_temp_c: float | None = None  # the IMU's temperature sensor (MPU6050/6500 TEMP_OUT)
     gyro_dps: np.ndarray | None = None  # (n, 3) in degrees per second
     audio: np.ndarray | None = None  # (m,) microphone counts
     audio_full_scale: float = 32767.0  # largest count: 32767 for 16-bit samples, 8388607 for 24-bit
@@ -124,6 +125,7 @@ def _build_names():
     add("vib_freefall_frac", "share of samples near 0 g (device falling)", "ratio", V)
     for ax in "xyz":
         add(f"vib_gravity_{ax}", f"device tilt (gravity on {ax})", "g", V)
+    add("imu_temp_c", "temperature from the IMU's own sensor: on a machine it follows the surface the IMU is fixed to, with a lag (a heat reading when there is no thermal camera)", "c", V)
     add("gyr_rms", "rocking and twisting, average", "log", G)
     add("gyr_peak", "rocking and twisting, biggest", "log", G)
 
@@ -237,6 +239,14 @@ def _build_names():
     add("trend_cell_fall_7d_vs_4w_at", "which image cell (0-47) dropped most, last 7 days vs 4 weeks", "index", H)
     add("trend_running", "1 while the machine counts as running, 0 while stopped (judged each minute from "
         "vibration; a machine never seen stopping counts as running)", "ratio", V)
+    # Swing: how much a reading goes up and down (cycling, hunting, intermittent faults), as the range
+    # between its 10th and 90th percentiles, so one spike (a dropped tool) does not count.
+    for what, label, unit, src in (("heat", "hottest point above room", "c", H), ("vib", "vibration level", "log", V),
+                                   ("snd", "sound level", "db", S)):
+        add(f"trend_{what}_swing_10m", f"how much the {label} swings over 10 min, second to second "
+            "(10th to 90th percentile range)", unit, src)
+        add(f"trend_{what}_swing_1h", f"how much the {label} swings over 1 h, minute to minute "
+            "(10th to 90th percentile range)", unit, src)
     return names, desc, kind, sensor, n_base
 
 
@@ -263,6 +273,34 @@ SLICES = {s: _slice(p) for p, s in (("vib", "vibration"), ("gyr", "rotation"), (
 
 
 # ----------------------------------------------------------------- helpers
+
+def _smooth(m: int) -> bool:
+    for p in (2, 3, 5):
+        while m % p == 0:
+            m //= p
+    return m == 1
+
+
+def fast_len(n: int) -> int:
+    """The length nearest n made only of factors 2, 3 and 5 (ties go up).
+
+    A window's sample count varies by a sample or two (15,999 or 16,000 sound samples, 1,002 or
+    1,003 vibration samples), and an FFT of an awkward length (15,999 = 3 x 5,333) ran 30 times
+    slower on the UNO Q: 33 ms against 1.1 ms. Spectra use this length, trimming or padding a
+    sample or two, so every window also lands on the same frequency grid."""
+    n = max(int(n), 1)
+    for d in range(n):
+        if _smooth(n + d):
+            return n + d
+        if d and n - d >= 1 and _smooth(n - d):
+            return n - d
+    return n
+
+
+def _fit(x: np.ndarray, m: int, axis: int = 0) -> np.ndarray:
+    """x trimmed to at most m samples along axis (an FFT of length m pads anything shorter)."""
+    return np.take(x, np.arange(m), axis=axis) if x.shape[axis] > m else x
+
 
 def band_powers(power: np.ndarray, f: np.ndarray, edges: np.ndarray) -> list[float]:
     """log10 power per band. A band too narrow to hold a frequency bin takes the nearest bin."""
@@ -306,18 +344,21 @@ def envelope_peak(x: np.ndarray, rate: float, band: tuple[float, float], search:
     Returns (frequency, prominence as a ratio over the median). A bearing or gear
     defect shows up as a carrier band whose loudness pulses at the defect rate.
     """
+    nf = fast_len(x.shape[axis])
+    x = _fit(x, nf, axis)
     n = x.shape[axis]
-    X = np.fft.fft(x, axis=axis)
-    f = np.fft.fftfreq(n, 1.0 / rate)
+    X = np.fft.fft(x, nf, axis=axis)
+    f = np.fft.fftfreq(nf, 1.0 / rate)
     keep = (f >= band[0]) & (f <= band[1])  # positive band only: the inverse is the analytic signal
     shape = [1] * x.ndim
-    shape[axis] = n
-    env = np.abs(np.fft.ifft(X * (2.0 * keep).reshape(shape), axis=axis))
+    shape[axis] = nf
+    env = np.take(np.abs(np.fft.ifft(X * (2.0 * keep).reshape(shape), axis=axis)), np.arange(n), axis=axis)
     if env.ndim > 1:
         env = env.sum(axis=1 - axis)
     env = env - env.mean()
-    spec = np.abs(np.fft.rfft(env * np.hanning(len(env))))
-    fe = np.fft.rfftfreq(len(env), 1.0 / rate)
+    ne = fast_len(len(env))
+    spec = np.abs(np.fft.rfft(env * np.hanning(len(env)), ne))
+    fe = np.fft.rfftfreq(ne, 1.0 / rate)
     sel = (fe >= search[0]) & (fe <= search[1])
     if sel.sum() < 4:
         return 0.0, 1.0
@@ -332,11 +373,13 @@ def _vibration(a_g: np.ndarray, rate: float, range_g: float) -> list[float]:
     gravity = a_g.mean(0)
     dyn = a_g - gravity
     rms = dyn.std(0)
-    w = np.hanning(n)
-    amp = np.abs(np.fft.rfft(dyn * w[:, None], axis=0)) * (2.0 / w.sum())  # peak g per axis
+    nf = fast_len(n)
+    seg = _fit(dyn, nf)
+    w = np.hanning(len(seg))
+    amp = np.abs(np.fft.rfft(seg * w[:, None], nf, axis=0)) * (2.0 / w.sum())  # peak g per axis
     power = (amp ** 2).sum(1)
     total = np.sqrt(power)
-    f = np.fft.rfftfreq(n, 1.0 / rate)
+    f = np.fft.rfftfreq(nf, 1.0 / rate)
     df = f[1] - f[0]
     bands = band_powers(power, f, VIB_EDGES_HZ)
 
@@ -376,7 +419,7 @@ def _vibration(a_g: np.ndarray, rate: float, range_g: float) -> list[float]:
     lg = lambda v: math.log10(v + LOG_EPS)
     return ([lg(v) for v in rms] + bands
             + [speed, lg(one), lg(two), lg(three), lg(harm), lg(half), p2_hz, lg(p2), crest, kurt,
-               lg(peak), lg(jerk), float(axis), env_hz, math.log10(env_prom), env_order, vel, lg(line),
+               lg(peak), lg(jerk), float(axis), env_hz, math.log10(max(env_prom, 1e-12)), env_order, vel, lg(line),
                clip, freefall]
             + [float(v) for v in gravity])
 
@@ -398,10 +441,12 @@ def _sound(x: np.ndarray, rate: float, gain_db: float, full_scale: float = 32767
     to_db = lambda r: 20 * math.log10(r / full_rms + 1e-12) + 120.0 - gain_db
     level = to_db(rms)
     n = len(x)
-    w = np.hanning(n)
-    Xw = np.fft.rfft(x * w)
+    n_fft = fast_len(n)
+    xs = _fit(x, n_fft)
+    w = np.hanning(len(xs))
+    Xw = np.fft.rfft(xs * w, n_fft)
     p = np.abs(Xw) ** 2
-    f = np.fft.rfftfreq(n, 1.0 / rate)
+    f = np.fft.rfftfreq(n_fft, 1.0 / rate)
     bands = [math.log10(10 ** b - LOG_EPS ** 2 + 1.0) for b in band_powers(p, f, SND_EDGES_HZ)]
     sel = (f >= SND_EDGES_HZ[0]) & (f < SND_EDGES_HZ[-1])
     centroid = float((f[sel] * p[sel]).sum() / (p[sel].sum() + 1e-12))
@@ -445,16 +490,17 @@ def _sound(x: np.ndarray, rate: float, gain_db: float, full_scale: float = 32767
     # Envelope of the 2-7 kHz band, cheaply: band-pass the (unwindowed) spectrum, rectify,
     # and average down to 1 kHz. Its spectrum shows the rate the band pulses at. Unwindowed,
     # because a window's own rise and fall would show up as a slow pulse.
-    band = np.fft.rfft(x) * ((f >= SND_ENV_BAND_HZ[0]) & (f <= SND_ENV_BAND_HZ[1]))
-    sig = np.fft.irfft(band, n)
+    band = np.fft.rfft(xs, n_fft) * ((f >= SND_ENV_BAND_HZ[0]) & (f <= SND_ENV_BAND_HZ[1]))
+    sig = np.fft.irfft(band, n_fft)[:len(xs)]
     s2 = float((sig ** 2).mean()) + 1e-24
     kurt_hf = float((sig ** 4).mean() / s2 ** 2 - 3.0)
     xb = np.abs(sig)
     step = max(1, int(round(rate / 1000)))
-    env = xb[:(n // step) * step].reshape(-1, step).mean(1)
+    env = xb[:(len(xb) // step) * step].reshape(-1, step).mean(1)
     env = env - env.mean()
-    es = np.abs(np.fft.rfft(env * np.hanning(len(env))))
-    fe = np.fft.rfftfreq(len(env), step / rate)
+    ne = fast_len(len(env))
+    es = np.abs(np.fft.rfft(env * np.hanning(len(env)), ne))
+    fe = np.fft.rfftfreq(ne, step / rate)
     es_sel = (fe >= ENV_SEARCH_HZ[0]) & (fe <= ENV_SEARCH_HZ[1])
     if es_sel.sum() >= 4:
         ke = int(np.argmax(np.where(es_sel, es, 0)))
@@ -464,7 +510,7 @@ def _sound(x: np.ndarray, rate: float, gain_db: float, full_scale: float = 32767
     clip = float((np.abs(raw.astype(np.float64)) >= CLIP_FRACTION * full_scale).mean())
     # snd_env_order needs the running speed from vibration; extract() fills it in.
     return [level] + bands + [centroid, click, tone_hz, tone_db, flatness, peak_db, mains_db, tone_mod,
-                              env_hz, 10 * math.log10(env_prom), np.nan, kurt_hf, clip]
+                              env_hz, 10 * math.log10(max(env_prom, 1e-12)), np.nan, kurt_hf, clip]
 
 
 # ----------------------------------------------------------------- heat
@@ -508,6 +554,8 @@ def extract(win: Window) -> np.ndarray:
         out[SLICES["sound"]] = _sound(win.audio, win.audio_rate_hz, win.audio_gain_db, win.audio_full_scale)
     if win.thermal_c is not None and len(win.thermal_c) > 0:
         out[SLICES["heat"]] = _heat(np.asarray(win.thermal_c, float))
+    if win.imu_temp_c is not None and np.isfinite(win.imu_temp_c):
+        out[INDEX["imu_temp_c"]] = float(win.imu_temp_c)
     if not np.isnan(out[INDEX["snd_env_peak_hz"]]) and not np.isnan(out[INDEX["vib_speed_hz"]]):
         speed = out[INDEX["vib_speed_hz"]]
         out[INDEX["snd_env_order"]] = out[INDEX["snd_env_peak_hz"]] / speed if speed > 0 else 0.0

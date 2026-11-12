@@ -34,7 +34,6 @@ import math
 import os
 import sys
 import time
-import warnings
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +43,7 @@ import numpy as np
 
 from effente import features as F
 from effente.history import History
+from effente.model_input import STATS, MinuteSummary
 from device.intake.extract import add_source_args, feature_stream, features_version, make_source
 from device.intake.source import FileSource, Packet, SourceInfo
 from device.intake.storage import StorageManager
@@ -110,10 +110,11 @@ class Recorder:
         self.rows: list[np.ndarray] = []
         self.t0s: list[float] = []
         self.minute: int | None = None
-        self.minute_buf: list[np.ndarray] = []
+        self.minute_sum = MinuteSummary()  # the same per-minute summaries a minute-level model computes live
         self.min_t0: list[float] = []
-        self.min_stats: dict[str, list[np.ndarray]] = {"min": [], "mean": [], "max": []}
+        self.min_stats: dict[str, list[np.ndarray]] = {k: [] for k in STATS}
         self.last_kept = -math.inf
+        self.first_t0: float | None = None
         self.last_checkpoint: float | None = None
         self.prev_t0: float | None = None
         self.prev_missing: set | None = None
@@ -210,6 +211,7 @@ class Recorder:
         tb, vb = cat("audio")
         tt, vt = cat("thermal")
         tr, vr = cat("room")
+        ti, vi = cat("imu_temp")
         if va is None or len(va) < 2:
             return  # nothing useful to keep
         bl = info.audio_block_len
@@ -233,6 +235,8 @@ class Recorder:
         if vr is not None:
             arrays.update(room_c=vr[:, 0].astype(np.float32), humidity_pct=vr[:, 1].astype(np.float32),
                           room_t_us=np.round(tr * 1e6).astype(np.int64), room_rate_hz=1.0)
+        if vi is not None:  # the IMU's temperature sensor, so a replay gives the same features
+            arrays.update(imu_temp_c=vi[:, 0].astype(np.float32), imu_temp_t_us=np.round(ti * 1e6).astype(np.int64))
         _save_atomic(self.out / "raw" / f"clip_{int(s):09d}.npz", **arrays)
         self.counts["snippets"] += 1
 
@@ -247,11 +251,20 @@ class Recorder:
         if hour != self.hour:
             self._start_hour(hour, t0)
         self.minute, self.hour = m, hour
-        self.minute_buf.append(x)
+        self.minute_sum.add(t0, x)
         if self.storage is not None:
             self.storage.maybe_check(t0)
         paused = self.storage is not None and self.storage.paused
-        if not paused and t0 - self.last_kept >= self.keep_every_s - 1e-9:
+        # Kept rows sit on whole multiples of keep_every_s (whole seconds), whatever quarter-second the
+        # first window started on, so they match the per-minute summaries and the trainer's periods.
+        k = t0 / self.keep_every_s
+        aligned = abs(k - round(k)) < 1e-6
+        if self.first_t0 is None:
+            self.first_t0 = t0
+        since = t0 - (self.last_kept if self.last_kept > -math.inf else self.first_t0)
+        keep = ((aligned and t0 - self.last_kept >= self.keep_every_s - self.hop_s + 1e-9)
+                or since >= 2 * self.keep_every_s - 1e-9)  # windows that never land on the grid: still keep some
+        if not paused and keep:
             self.rows.append(x.astype(np.float32))
             self.t0s.append(t0)
             self.last_kept = t0
@@ -369,16 +382,12 @@ class Recorder:
                 self.event(t0, key[0] + "_cleared", sensor=key[1])
 
     def _close_minute(self):
-        if not self.minute_buf:
+        stats = self.minute_sum.take()
+        if stats is None:
             return
-        a = np.vstack(self.minute_buf)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            self.min_stats["min"].append(np.nanmin(a, 0))
-            self.min_stats["mean"].append(np.nanmean(a, 0))
-            self.min_stats["max"].append(np.nanmax(a, 0))
+        for k in STATS:
+            self.min_stats[k].append(stats[k])
         self.min_t0.append(self.minute * 60.0)
-        self.minute_buf = []
 
     def _save(self, partial: bool):
         if self.hour is None:
@@ -389,8 +398,8 @@ class Recorder:
         _save_atomic(
             self.out / "features" / name,
             X=np.array(self.rows, np.float32).reshape(-1, n), t0=np.array(self.t0s),
-            minute_t0=np.array(self.min_t0), minute_min=stack("min"), minute_mean=stack("mean"),
-            minute_max=stack("max"), feature_names=np.array(F.FEATURE_NAMES),
+            minute_t0=np.array(self.min_t0), **{f"minute_{k}": stack(k) for k in STATS},
+            feature_names=np.array(F.FEATURE_NAMES),
             features_version=features_version(), window_s=self.window_s, hop_s=self.hop_s,
             keep_every_s=self.keep_every_s, hour_index=self.hour, label=self.label, saved_at=_now(),
         )
@@ -406,7 +415,8 @@ class Recorder:
                 keep, mkeep = d["t0"] < t0, d["minute_t0"] < (t0 // 60) * 60
                 self.rows, self.t0s = list(d["X"][keep]), list(d["t0"][keep])
                 self.min_t0 = list(d["minute_t0"][mkeep])
-                self.min_stats = {k: list(d[f"minute_{k}"][mkeep]) for k in ("min", "mean", "max")}
+                self.min_stats = {k: list(d[f"minute_{k}" if f"minute_{k}" in d.files else "minute_mean"][mkeep])
+                                  for k in STATS}
                 if self.t0s:
                     self.last_kept = float(self.t0s[-1])
         if not same:  # made with other features: keep it aside rather than mix columns
@@ -421,7 +431,7 @@ class Recorder:
         partial.unlink(missing_ok=True)
         self.counts["hours"] += 1
         self.rows, self.t0s, self.min_t0 = [], [], []
-        self.min_stats = {"min": [], "mean": [], "max": []}
+        self.min_stats = {k: [] for k in STATS}
         self.last_checkpoint = None
 
     def _snippet_span(self, s: float) -> float:

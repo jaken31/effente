@@ -176,7 +176,8 @@ def test_clip_to_feature_file():
         assert list(r["feature_names"]) == F.FEATURE_NAMES
         assert str(r["features_version"]) == E.features_version()
         assert np.allclose(np.diff(t0), 0.25)
-        assert not np.isnan(X[:, F.BASE_SLICE]).any()  # all four sensors present in the fake data
+        base = [i for i in range(F.N_BASE) if F.FEATURE_NAMES[i] != "imu_temp_c"]  # no IMU temperature in these files
+        assert not np.isnan(X[:, base]).any()  # all four sensors present in the fake data
         assert np.isnan(X[0, F.HISTORY_SLICE]).all()  # no history yet at the very start
         assert not np.isnan(X[-1, F.INDEX["trend_heat_1m"]])  # a minute of history by the end
         assert set(r["label"]) == {"normal"}
@@ -217,7 +218,8 @@ def test_recorder_writes_hours_minutes_snippets_and_events():
         assert list(a["minute_t0"] / 60) == [358, 359] and list(b["minute_t0"] / 60) == [360, 361]
         mn, mean, mx = a["minute_min"], a["minute_mean"], a["minute_max"]
         ok = np.isnan(mean) | ((mn <= mean + 1e-6) & (mean <= mx + 1e-6))  # history features may be empty
-        assert ok.all() and not np.isnan(mean[:, F.BASE_SLICE]).any()
+        base = [i for i in range(F.N_BASE) if F.FEATURE_NAMES[i] != "imu_temp_c"]
+        assert ok.all() and not np.isnan(mean[:, base]).any()
 
         snippets = sorted((out / "raw").glob("clip_*.npz"))
         assert len(snippets) == 4
@@ -419,6 +421,37 @@ def test_24_bit_audio_gives_the_same_level_and_is_not_wrapped_when_stored():
     assert a24[F.INDEX["snd_clip_frac"]] == 0
     stored = _audio_ints(np.array([9e6, -9e6, 1000.0]), 24)
     assert stored.dtype == np.int32 and stored[0] == 8388607 and stored[1] == -8388608
+
+
+def test_minute_summaries_use_whole_seconds_and_the_median_ignores_a_spike():
+    from effente.model_input import MinuteSummary
+    a, b = MinuteSummary(), MinuteSummary()
+    for k in range(240):  # one minute at 4 rows a second ...
+        t = k * 0.25
+        x = np.full(3, 99.0 if t % 1 else (50.0 if t == 30 else 1.0))  # odd rows wild, one spike at 30 s
+        a.add(t, x)
+        if t % 1 == 0:
+            b.add(t, x)  # ... and the same minute at 1 row a second
+    sa, sb = a.take(), b.take()
+    assert all(np.array_equal(sa[k], sb[k]) for k in sa)  # identical: only whole seconds count
+    assert sa["median"][0] == 1.0 and sa["max"][0] == 50.0 and a.take() is None
+
+
+def test_imu_temperature_survives_a_recording_and_its_replay():
+    from device.intake.recorder import Recorder
+    from device.intake.source import FileSource, Packet, SourceInfo
+    with tempfile.TemporaryDirectory() as out:
+        rec = Recorder(out, SourceInfo, ("accel", "imu_temp"), snippet_every_s=5, snippet_len_s=4)
+        for k in range(8):
+            t = k + np.arange(1000) / 1000
+            rec.on_packet(Packet("accel", t, np.tile([0.0, 0.0, 1.0], (1000, 1)).astype(np.float32)))
+            rec.on_packet(Packet("imu_temp", np.array([k + 0.999]), np.array([[41.0 + k / 10]], np.float32)))
+        rec.close()
+        clip = sorted((Path(out) / "raw").glob("clip_*.npz"))[0]
+        src = FileSource(clip.parent)
+        assert "imu_temp" in src.sensors and "audio" not in src.sensors  # only what the clip has
+        rows = list(E.feature_stream(src, hop_s=1.0))
+        assert rows and all(40.9 < x[F.INDEX["imu_temp_c"]] < 42 for _, x in rows)
 
 
 if __name__ == "__main__":

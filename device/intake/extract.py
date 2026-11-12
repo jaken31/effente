@@ -68,6 +68,8 @@ def to_window(t0: float, parts: dict, info: SourceInfo) -> F.Window:
         w.thermal_c = parts["thermal"][1]
     if parts.get("room") is not None:
         w.room = parts["room"][1]
+    if parts.get("imu_temp") is not None:
+        w.imu_temp_c = float(np.mean(parts["imu_temp"][1]))
     return w
 
 
@@ -132,19 +134,47 @@ def add_source_args(ap) -> None:
     ap.add_argument("--sim-days", type=int, default=7, help="length of the simulated week")
     ap.add_argument("--from", dest="t_from", default="00:00", help="HH:MM, or D:HH:MM for day D of a simulation")
     ap.add_argument("--to", dest="t_to", default=None, help="HH:MM or D:HH:MM (default: the end)")
+    ap.add_argument("--site", choices=["none", "factory", "datacenter"], default="none",
+                    help="add real-site disturbances (people, drops, forklifts, doors, sun, sensor dropouts)")
+    ap.add_argument("--site-seed", type=int, default=0, help="seed for the site disturbances")
+    ap.add_argument("--no-faults", action="store_true", help="simulate the machine with no faults (for training data)")
+    ap.add_argument("--sim-week", type=int, default=0, help="another week of the same simulated machine (0 = the original)")
+    ap.add_argument("--fault-shift-days", type=int, default=0,
+                    help="move every simulated fault this many days later (7: a clean learning week, then the faults)")
 
 
 def make_source(args):
+    src = _base_source(args)
+    site = getattr(args, "site", "none")
+    if site and site != "none":
+        from effente.site_noise import SiteNoise
+        src = SiteNoise(src, profile=site, seed=getattr(args, "site_seed", 0))
+    return src
+
+
+def _shifted(faults, days: int):
+    from dataclasses import replace
+    return [replace(f, start_s=f.start_s + days * 86400, end_s=f.end_s + days * 86400) for f in faults]
+
+
+def _base_source(args):
     t_from = parse_time(args.t_from)
+    shift = getattr(args, "fault_shift_days", 0)
+    faults = [] if getattr(args, "no_faults", False) else None
     if args.sim == "conveyor":
-        from effente.simulate_conveyor import DAY, ConveyorSim
+        from effente.simulate_conveyor import DAY, ConveyorSim, default_faults
+        if faults is None and shift:
+            faults = _shifted(default_faults(), shift)
         t_to = parse_time(args.t_to) if args.t_to else args.sim_days * DAY
-        return ConveyorSim(days=args.sim_days, start_s=t_from, end_s=t_to)
+        return ConveyorSim(days=args.sim_days, start_s=t_from, end_s=t_to, faults=faults,
+                           week=getattr(args, "sim_week", 0))
     if args.sim == "server":
-        from effente.simulate_server import DAY, ServerRackSim
-        days = min(args.sim_days, 3)
+        from effente.simulate_server import DAY, ServerRackSim, default_faults
+        if faults is None and shift:
+            faults = _shifted(default_faults(), shift)
+        days = args.sim_days if faults == [] else min(args.sim_days, 3 + shift)  # its faults fill 3 days
         t_to = parse_time(args.t_to) if args.t_to else days * DAY
-        return ServerRackSim(days=days, start_s=t_from, end_s=t_to)
+        return ServerRackSim(days=days, start_s=t_from, end_s=t_to, faults=faults, week=getattr(args, "sim_week", 0))
     if not args.data:
         raise SystemExit("give --data FOLDER or --sim conveyor")
     return FileSource(args.data, t_from, parse_time(args.t_to) if args.t_to else 86400.0)

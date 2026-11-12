@@ -453,6 +453,34 @@ def test_server_connector_heat_shows_in_the_hottest_point_of_its_cell():
     assert rise_spot > 6 and rise_spot > 3 * rise_cell  # the average of the cell dilutes a small part
 
 
+def test_swing_sees_a_cycling_temperature_but_not_a_single_spike():
+    """Heat cycles 2 degC either way every 5 minutes; separately, steady heat with one 30 degC spike."""
+    def run(heat_at):
+        h = History()
+        for t in range(int(1.2 * 3600)):
+            out = h.update(F.Window(t0=float(t)), row(heat_at(t), -1.5))
+        return out
+    cycling = run(lambda t: 10 + 2 * math.sin(2 * math.pi * t / 300))
+    spike = run(lambda t: 40.0 if t == 4000 else 10.0)
+    assert abs(H(cycling, "trend_heat_swing_10m") - 2 * 2 * math.sin(0.4 * math.pi)) < 0.2  # 10th-90th of a sine
+    assert H(spike, "trend_heat_swing_10m") < 0.01 and H(spike, "trend_heat_swing_1h") < 0.01
+
+
+def test_site_noise_is_reproducible_and_labels_what_is_going_on():
+    from effente.site_noise import SiteNoise
+    a = SiteNoise(ConveyorSim(days=7, start_s=8 * 3600, end_s=8 * 3600 + 20), "factory", seed=4)
+    b = SiteNoise(ConveyorSim(days=7, start_s=8 * 3600, end_s=8 * 3600 + 20), "factory", seed=4)
+    assert [(e.kind, e.start) for e in a.events] == [(e.kind, e.start) for e in b.events] and len(a.events) > 100
+    pa = [p.values for p in a.packets()]
+    pb = [p.values for p in b.packets()]
+    assert len(pa) == len(pb) and all(np.array_equal(x, y) for x, y in zip(pa, pb))
+    e = next(e for e in a.events if e.kind == "people_talking")
+    assert "people_talking" in a.nuisance_at(e.start + 1) and a.label_at(8 * 3600) == "normal"
+    quiet = [ev for ev in a.events if ev.kind == "dropped_object" and a.activity(ev.start) < 1]
+    busy = [ev for ev in a.events if ev.kind == "dropped_object" and a.activity(ev.start) == 1]
+    assert len(busy) > len(quiet)  # people drop things during working hours
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):

@@ -118,6 +118,8 @@ def _vib_level(x: np.ndarray) -> float:
 def _vector(x: np.ndarray) -> np.ndarray:
     v = np.full(_M, np.nan)
     v[_HEAT] = x[F.INDEX["env_hot_above_room_c"]]
+    if np.isnan(v[_HEAT]):  # no thermal camera or room sensor: the IMU's temperature sensor
+        v[_HEAT] = x[F.INDEX["imu_temp_c"]]
     v[_VIB] = _vib_level(x)
     v[_SND] = x[F.INDEX["snd_level_db"]]
     v[_SPEED] = x[F.INDEX["vib_speed_hz"]]
@@ -140,6 +142,15 @@ def _slope(t: np.ndarray, y: np.ndarray, need: int = 3) -> float:
     if ok.sum() < need:
         return float("nan")
     return float(np.polyfit(t[ok], y[ok], 1)[0])
+
+
+def _swing(v: np.ndarray, need: int) -> float:
+    """Range between the 10th and 90th percentiles: how much a reading goes up and down."""
+    v = v[~np.isnan(v)]
+    if len(v) < need:
+        return float("nan")
+    p10, p90 = np.percentile(v, [10, 90])
+    return float(p90 - p10)
 
 
 def running_mask(vib: np.ndarray) -> np.ndarray:
@@ -332,6 +343,9 @@ class History:
             o[H[name]] = float(np.nanmean(sel)) if np.count_nonzero(~np.isnan(sel)) >= 0.8 * span else np.nan
         last2 = t > now - 120
         o[H["trend_heat_rise_per_min"]] = _slope(t[last2], secs[last2, _SEC["heat"]], need=96) * 60
+        last10 = t > now - 600
+        for key in ("heat", "vib", "snd"):  # fluctuation, ignoring single spikes
+            o[H[f"trend_{key}_swing_10m"]] = _swing(secs[last10, _SEC[key]], need=480)
         for events, count, since in ((self.shocks, "trend_shocks_10m", "trend_since_shock_s"),
                                      (self.bangs, "trend_bangs_10m", "trend_since_bang_s")):
             o[H[count]] = float(sum(1 for e in events if e > now - 600)) if len(self.secs) >= 60 else np.nan
@@ -379,10 +393,12 @@ class History:
         t, a = self.acc_t[sel], self.acc[sel]
         rate = (len(t) - 1) / (t[-1] - t[0])
         dyn = a - a.mean(0)
+        nf = F.fast_len(len(dyn))  # about 8,192 samples, often 8,191: a prime, very slow to transform
+        dyn = dyn[:nf]
         w = np.hanning(len(dyn))
-        amp = np.abs(np.fft.rfft(dyn * w[:, None], axis=0)) * (2.0 / w.sum())
+        amp = np.abs(np.fft.rfft(dyn * w[:, None], nf, axis=0)) * (2.0 / w.sum())
         power = (amp ** 2).sum(1)
-        f = np.fft.rfftfreq(len(dyn), 1.0 / rate)
+        f = np.fft.rfftfreq(nf, 1.0 / rate)
         for n, v in zip(names, F.band_powers(power, f, F.SLOW_EDGES_HZ)):
             o[H[n]] = v
         (f1, l1), (f2, l2) = F.strongest_peaks(np.sqrt(power), f, 0.4, 20.0, n=2, guard_bins=3)
@@ -424,6 +440,8 @@ class History:
         put("trend_humidity_1h", h1, _HUMID)
         last60 = t > now - 60
         o[H["trend_heat_rise_per_h"]] = _slope(t[last60], V[last60, _HEAT], need=48) * 60
+        for key, col in (("heat", _HEAT), ("vib", _VIB), ("snd", _SND)):
+            o[H[f"trend_{key}_swing_1h"]] = _swing(V[last60 & rows_ok, col], need=48)
         o[H["trend_room_rise_per_h"]] = _slope(t[last60], V[last60, _ROOM], need=48) * 60
 
         d24 = window(1440, 60, running_only=True, need_span=0.83 * 1440)

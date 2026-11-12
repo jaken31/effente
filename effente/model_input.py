@@ -173,6 +173,58 @@ def _version(names) -> str:
     return hashlib.sha1("|".join(names).encode()).hexdigest()[:12]
 
 
+# ----------------------------------------------------------------- per-minute summaries
+
+STATS = ("min", "mean", "median", "max")
+
+
+class MinuteSummary:
+    """Per-minute min, mean, median and max of every feature, the same in learn and watch mode.
+
+    Only whole-second rows count (the window starting on each second), so 4 rows a second live
+    and 1 a second recorded give identical summaries. The median ignores a one-second spike (a
+    dropped tool); the max keeps it. The recorder stores these; a minute-level model computes them
+    live with this same class."""
+
+    def __init__(self):
+        self.rows: list[np.ndarray] = []
+
+    def add(self, t0: float, x) -> None:
+        if abs(t0 - round(t0)) < 1e-6:
+            self.rows.append(np.asarray(x, float))
+
+    def take(self) -> dict | None:
+        """Summaries of the rows added since the last take (None if there were none)."""
+        if not self.rows:
+            return None
+        a = np.vstack(self.rows)
+        self.rows = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return {"min": np.nanmin(a, 0), "mean": np.nanmean(a, 0), "median": np.nanmedian(a, 0),
+                    "max": np.nanmax(a, 0)}
+
+
+def load_minutes(folder):
+    """Every per-minute summary of a learn-mode folder: (minute_t0, {stat: (minutes, features)}, names)."""
+    files = sorted(((int(m.group(1)), p) for p in (Path(folder) / "features").glob("features_*.npz")
+                    if (m := _HOUR_FILE.fullmatch(p.name))))
+    ts, parts, names, version = [], {k: [] for k in STATS}, None, None
+    for _, p in files:
+        with np.load(p) as d:
+            v = str(d["features_version"])
+            if version is None:
+                version, names = v, [str(n) for n in d["feature_names"]]
+            elif v != version:
+                raise ValueError(f"{p.name} was made with features {v}, earlier hours with {version}")
+            ts.append(d["minute_t0"])
+            for k in STATS:
+                parts[k].append(d[f"minute_{k}"] if f"minute_{k}" in d.files else d["minute_mean"])
+    if not ts:
+        raise FileNotFoundError(f"no hour files in {Path(folder) / 'features'}")
+    return np.concatenate(ts), {k: np.concatenate(v) for k, v in parts.items()}, names
+
+
 # ----------------------------------------------------------------- training data
 
 def load_recording(folder, every_s: float = 1.0):
