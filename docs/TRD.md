@@ -24,15 +24,15 @@ Detection, explanation and the unknown alarm run with no network. The agent need
 ## Hardware
 
 - Arduino UNO Q, 4 GB
-- Accelerometer: MPU6050 (GY-521). Its built-in filter passes vibration up to about 260 Hz (datasheet figure, not re-checked), so the usable spectrum ends there. A BNO085 is on hand as a spare only
+- Accelerometer: MPU-6500, on an MPU-9250/6500 breakout. It replaces the MPU6050 (GY-521) planned earlier: record all training data with this sensor and never mix data from the two. Its usable bandwidth depends on its low-pass filter setting (not yet checked against the datasheet). A BNO085 is on hand as a spare only
 - 2.4" OLED screen
 - Sensor head: printed puck with a magnet in the base, on a short cable
 - Steel discs glued to each machine as probe points
 - USB power bank
 - Microphone (after vibration works end to end)
-- Small fan or motor as the demo machine, run at one fixed speed
+- Mini belt conveyor as the demo machine: printed frame and rollers driven by a TT gear motor, run at one fixed speed. Build guide: [conveyor-build-guide.md](research/conveyor-build-guide.md)
 
-The device is handheld. Only the small sensor head touches the machine, held by its magnet, so nobody presses or holds it during a reading. Research and drawing: [physical-design.md](research/physical-design.md), [mockup.svg](mockup.svg).
+The device is handheld. Only the small sensor head touches the machine, held by its magnet, so nobody presses or holds it during a reading. Research and drawing: [physical-design.md](research/physical-design.md), [mockup.svg](mockup.svg). CAD and print files: `device/cad/`.
 
 ## Signal pipeline
 
@@ -44,7 +44,7 @@ The device is handheld. Only the small sensor head touches the machine, held by 
 | Transform | FFT magnitude per axis |
 | Normalisation | Log magnitude, scaled with statistics from the training set |
 
-A fan at 1,000 to 3,000 RPM turns 17 to 50 times a second, so the once-per-turn peak sits well inside the measurable range.
+Open question: this pipeline was sized for a fan turning 17 to 50 times a second. The conveyor's drive roller turns only a few times a second (TT motor through 1:48 gearing; not yet measured, see step 9 of the build guide). With 1024 samples at 1 kHz each FFT bin is about 1 Hz wide, so the once-per-turn peak falls in the lowest bins. Tracks 2 and 3 to confirm the window length and fault setup still work at this speed.
 
 One implementation of this pipeline, in Python, is used for recording, training and on-device inference. That is the guard against training on one transform and running another.
 
@@ -158,6 +158,7 @@ A fake-data generator produces recordings in this format (a sine at the rotation
 ```
 firmware/    Arduino sketch for the UNO Q microcontroller
 device/      Python for the UNO Q Linux side: inference service, agent
+device/cad/  Enclosure, sensor head and demo conveyor CAD and STL files
 effente/     Shared Python: signal pipeline, model, formats, fake data
 training/    Recording tools, training, validation
 interp/      Unit analysis, switch-off tests, sparse autoencoders
@@ -201,7 +202,7 @@ The university cluster is used only for stretch work. Nothing in the demo depend
 | Risk | Mitigation |
 |------|------------|
 | Model memorises one sensor placement | Multi-session protocol, test on unseen sessions |
-| Model learns fan speed, not the fault | Fixed speed, stated openly |
+| Model learns machine speed, not the fault | Fixed speed, stated openly |
 | Hidden units do not map cleanly to faults | Sparse autoencoder fallback |
 | Uneven sample timing distorts the spectrum | Sampling on the microcontroller, not Linux |
 | Venue WiFi | Own phone hotspot |
