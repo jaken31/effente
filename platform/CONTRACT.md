@@ -1,8 +1,16 @@
 # Device and platform contract
 
-Version 2. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 2.2, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
 It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds four fields to it: `model_version`, `reason`, `simulated`, and (set by the platform) `seq`.
+
+## Changes in version 2.2
+
+Additions only. A version 2 device keeps working; the dashboard shows its sensitivity as not reported.
+
+- `unknown_score` is compared with `alarm_line`, not with 1. They are equal only at the default sensitivity, 0.5.
+- Records, message 1 and the check-in say the sensitivity the device is running at.
+- The dashboard can set a device's sensitivity. The device picks it up from the replies it already gets (section 7). Section 6 is kept for alarms, which version 2.1 adds.
 
 ## Changes from version 1
 
@@ -47,6 +55,7 @@ Sent once at start, again after every calibration or training, and whenever the 
   "library_entry": "conveyor",
   "source": "calibrated",
   "threshold": 1.0,
+  "sensitivity": 0.5,
   "fault_types": [
     {"name": "unbalance_like", "text": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)", "group": "vibration", "validated": false},
     {"name": "device_moved", "text": "the device has been moved or knocked (its tilt changed)", "group": "sensing", "validated": false}
@@ -64,6 +73,7 @@ Sent once at start, again after every calibration or training, and whenever the 
 |-------|------|
 | `library_entry` | The library entry the model started from, for example `conveyor` or `generic_rotating`. |
 | `source` | `calibrated` (a library entry fitted to this machine) or `trained` (a model trained on this machine alone after a long stay). |
+| `sensitivity` | 0 to 1, the device's sensitivity when it sent this message (section 7). Missing means not reported. |
 | `fault_types` | Every type the device can name. `group` is `sensing` for a problem with the device or its view, otherwise the first sensor the type relies on. `validated` is `true` only once the type has caught that fault on the test rig or a pilot; the dashboard shows unvalidated types as "possible". |
 | `features` | Every reading in the model's feature table. |
 | `spectrum_edges_hz` | 21 band edges for the 20 `spectrum` values. (The example above is shortened.) |
@@ -86,6 +96,8 @@ While watching, one record a second. The diagnosis changes once per summary peri
   "diagnosis_this_minute": "unbalance_like",
   "confidence": 0.71,
   "unknown_score": 2.4,
+  "sensitivity": 0.5,
+  "alarm_line": 1.0,
   "reason": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)",
   "features": {"vib_1x": 7.2, "vib_velocity_mm_s": 3.1},
   "fault_types": {"unbalance_like": 9.1, "vibration_too_high": 4.2},
@@ -103,7 +115,9 @@ While watching, one record a second. The diagnosis changes once per summary peri
 | `diagnosis` | During an abnormal stretch, the type named most often so far, so it does not flip. |
 | `diagnosis_this_minute` | This period's own diagnosis. Present only while abnormal. |
 | `confidence` | 0 to 1. |
-| `unknown_score` | The smoothed score divided by the threshold. Above 1 is abnormal. `null` while `warming_up` or `stopped`. |
+| `unknown_score` | The smoothed score divided by the threshold. Above `alarm_line` is abnormal. `null` while `warming_up` or `stopped`. Sensitivity does not change it, only the line it is compared with. |
+| `sensitivity` | 0 (least sensitive) to 1 (most), the value this record was judged at (section 7). Missing means not reported: the dashboard then says so and draws no line. |
+| `alarm_line` | The `unknown_score` above which this record counts as abnormal: `4 ** (1 - 2 * sensitivity)`, so 4 at 0, 1 at the default 0.5, and 0.25 at 1. Sent with `sensitivity`. |
 | `reason` | The one line the device screen shows: the fault type's `text`, "abnormal, no known fault type fits" for `unrecognised_pattern`, empty otherwise. |
 | `features` | The readings that moved most, each in spreads of its normal variation, signed. While normal, the top 3. |
 | `fault_types` | Every type with evidence, strongest first. Present only while abnormal. |
@@ -121,6 +135,8 @@ Reply:
 
 `need_model` is `true` when the platform has not seen this `model_version`; the device then repeats message 1.
 
+Once the dashboard has set a sensitivity for this device, the reply also carries `"settings": {"sensitivity": 0.7}` (section 7).
+
 The platform adds two fields before storing or showing a record: `seq` (a whole number that only goes up, across all devices) and `received_at`.
 
 ## 3. Device check-in
@@ -129,7 +145,9 @@ When the device is not watching (display, calibrating, recording or training), i
 
 `GET /api/devices/effente-01?mode=recording&machine_id=conveyor-07`
 
-`mode` is `display`, `calibrating`, `recording` or `training`. Reply: `{"ok": true}`
+`mode` is `display`, `calibrating`, `recording` or `training`. Add `&sensitivity=0.5` to say the device's sensitivity; missing means not reported.
+
+Reply: `{"ok": true}`, with `settings` as in message 2 once the dashboard has set a sensitivity.
 
 ## 4. Agent sends its report
 
@@ -196,6 +214,8 @@ Device authors can skip this section.
       "mode": "watching",
       "machine_id": "conveyor-07",
       "model_version": "conveyor-07-20261114",
+      "sensitivity": 0.5,
+      "settings": {"sensitivity": 0.7},
       "latest": {"...": "the newest record from this device, with spectrum, or null"}
     }
   },
@@ -203,6 +223,8 @@ Device authors can skip this section.
   "machines": ["conveyor-07"]
 }
 ```
+
+Per device, `sensitivity` is the value the device last reported (in a record, message 1 or a check-in), or `null` if it never has. `settings` is what the dashboard set, or `null` if nothing is set. The two differ while a change is on its way, or when the device is offline.
 
 `GET /api/stream` is a server-sent event stream. Each event has a name and one JSON object as data:
 
@@ -212,6 +234,7 @@ Device authors can skip this section.
 | `model` | message 1 | a device announces a model |
 | `agent_run` | message 4 | a run is created or updated |
 | `device` | `{"device_id": "effente-01", "connected": false, "last_seen": "...", "mode": "..."}` | a device connects, goes quiet, or changes mode |
+| `settings` | `{"device_id": "effente-01", "sensitivity": 0.5, "settings": {"sensitivity": 0.7}}`, the two values above | the dashboard sets or clears a sensitivity, or the device reports a different one |
 
 A comment line is sent every 5 seconds to keep the connection open. After a reconnect the dashboard calls `GET /api/state` again.
 
@@ -221,7 +244,19 @@ A comment line is sent every 5 seconds to keep the connection open. After a reco
 
 Everything else under `/` is the dashboard's own files, served from `platform/web/`, with `index.html` at `/`.
 
-## Not in version 2
+## 7. Settings
+
+The device owns its sensitivity and always reports the value it is using. The platform keeps only the value the dashboard wants. If the two differ, the device's value is what happened.
+
+Sensitivity goes from 0 (least sensitive) to 1 (most), default 0.5. It moves how far outside normal counts as wrong: the model's `alarm_line`, and the vibration, temperature and sound checks against this machine's normal. It never changes the universal limits (over 11 mm/s, over 100 °C, and the rest in `effente/safety.py`).
+
+`PUT /api/devices/effente-01/settings` with `{"sensitivity": 0.7}` sets the wanted value. `{"sensitivity": null}` clears it. A value that is not a number from 0 to 1 is rejected with 400. A device the platform has not heard from yet can still have a value set; it gets it on first contact. Reply: `{"ok": true, "settings": {"sensitivity": 0.7}}`, or `"settings": null` after clearing.
+
+While a value is set, every reply to message 2 and message 3 carries it. When it differs from the device's own value, the device applies it at once and keeps it across a restart. The next record or check-in shows the new value. Expect up to 2 seconds for the reply, then up to one summary period (up to a minute) before a diagnosis is judged at the new line. The outside-normal checks still need 10 seconds of holding before they show.
+
+The device's own `/settings` on port 8765 and `data/settings.json` stay for bench use. While the dashboard has a value set, the next reply overwrites a local change. Clear the dashboard's value to tune on the device.
+
+## Not in version 2.2
 
 - The dashboard cannot start an agent. A person starts it.
 - Machine profiles, model delivery to the device, and alarm feedback. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
