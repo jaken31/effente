@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>effente - live diagnosis</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="no-device">
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>effente</div>
+  <div class="shown">
+    <span class="shown-k">Device</span> <span class="shown-v" id="shown-device">none</span>
+    <span class="shown-k">Machine</span> <span class="shown-v" id="shown-machine">none</span>
+    <select id="device-select" class="device-select" hidden aria-label="Device shown"></select>
+  </div>
+  <div class="pills">
+    <span class="pill" id="device-pill"></span>
+    <span class="pill" id="platform-pill"></span>
+  </div>
+</header>
+
+<div class="sim-banner" id="sim-banner" hidden>
+  <span class="sim-word">SIMULATED DATA</span>
+  <span class="sim-detail" id="sim-detail"></span>
+</div>
+<div class="lost-banner" id="lost-banner" hidden>
+  <span class="lost-word">PLATFORM CONNECTION LOST</span>
+  <span>Reconnecting. Nothing on this page is live until it returns.</span>
+</div>
+
+<main class="grid">
+  <section class="hero" id="hero" aria-live="polite">
+    <div class="hero-stripe" aria-hidden="true"></div>
+    <div class="hero-body">
+      <div class="hero-label">
+        <span>Diagnosis</span>
+        <span class="stale-tag" id="stale-tag" hidden></span>
+      </div>
+      <div class="diag-row">
+        <svg class="diag-glyph" id="diag-glyph" viewBox="0 0 100 100" aria-hidden="true"></svg>
+        <div class="diag-name" id="diag-name">Waiting for a device</div>
+      </div>
+      <div class="reason" id="reason">No device has connected to the platform yet.</div>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div class="switchoff" id="switchoff" hidden>
+      <div class="switchoff-head">
+        <span class="switchoff-icon" aria-hidden="true"></span>
+        <span class="switchoff-title" id="switchoff-title"></span>
+      </div>
+      <div class="switchoff-change" id="switchoff-change"></div>
+    </div>
+  </section>
+
+  <section class="panel features">
+    <h2>Verified features <span class="h2-note">switch one off to test it</span></h2>
+    <div class="feature-list" id="feature-list"></div>
+    <div class="panel-note" id="feature-note"></div>
+  </section>
+
+  <section class="panel spectrum">
+    <h2>Vibration spectrum <span class="h2-note" id="spectrum-note"></span></h2>
+    <div class="canvas-wrap"><canvas id="spectrum-canvas"></canvas></div>
+  </section>
+
+  <section class="panel agent">
+    <h2>Agent report <span class="h2-tags" id="agent-tags"></span></h2>
+    <div class="agent-body" id="agent-body"></div>
+  </section>
+
+  <section class="panel history">
+    <h2>History <span class="h2-note" id="history-note"></span></h2>
+    <div class="history-legend" id="history-legend"></div>
+    <div class="canvas-wrap"><canvas id="history-canvas"></canvas></div>
+  </section>
+</main>
+
+<script src="dashboard_logic.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
