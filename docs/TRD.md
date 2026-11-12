@@ -125,6 +125,7 @@ Agreed in the first hour so the tracks do not wait on each other. Values below a
 | Field | Example |
 |-------|---------|
 | `device_id` | `effente-01` |
+| `machine_id` | `conveyor-07` (which machine was probed) |
 | `at` | `2026-11-14T16:02:11Z` |
 | `diagnosis` | `imbalance` |
 | `confidence` | 0.94 |
