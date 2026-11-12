@@ -121,8 +121,13 @@ class ModelSlot:
             return True
         return False
 
-    def predict(self, x):
-        return None if self.model is None else self.model.predict(x)
+    def predict(self, x, t0: float | None = None):
+        """The model's result for one row. A model with predict_at(t0, x) also gets the row's time."""
+        if self.model is None:
+            return None
+        if t0 is not None and hasattr(self.model, "predict_at"):
+            return self.model.predict_at(t0, x)
+        return self.model.predict(x)
 
 
 def throttle(packets, speed: float):
@@ -304,7 +309,7 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
             stream.publish_features(t0, x, missing)  # copies the row, so the model cannot change it
         t = time.perf_counter()
         try:
-            result = slot.predict(x)
+            result = slot.predict(x, t0)
         except Exception as e:  # noqa: BLE001
             result = {"error": f"{type(e).__name__}: {e}"}
             stats.model_errors += 1
