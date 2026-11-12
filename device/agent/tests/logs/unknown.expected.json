@@ -1,0 +1,22 @@
+{
+  "note": "Unknown pattern. The correct report cites no feature, even though rattle peaks above the threshold in some unknown windows: the contract says unknown cites nothing.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "unknown": 16
+      },
+      "may_cite": [],
+      "must_cite": [],
+      "priority": [
+        "medium",
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}

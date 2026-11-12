@@ -1,0 +1,25 @@
+{
+  "note": "Imbalance, then normal after the blades were rebalanced. Citing once_per_turn is allowed (it was active before the fix); priority should be low or none because the latest windows are normal.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "imbalance": 10,
+        "normal": 10
+      },
+      "may_cite": [
+        "once_per_turn"
+      ],
+      "must_cite": [],
+      "priority": [
+        "none",
+        "low"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}

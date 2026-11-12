@@ -1,0 +1,46 @@
+{
+  "note": "Two machines in one file. Each run sees only its own machine.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "imbalance": 12
+      },
+      "may_cite": [
+        "once_per_turn"
+      ],
+      "must_cite": [
+        "once_per_turn"
+      ],
+      "priority": [
+        "medium",
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    },
+    {
+      "machine_id": "fan-2",
+      "diagnoses": {
+        "loose_mount": 12
+      },
+      "may_cite": [
+        "rattle"
+      ],
+      "must_cite": [
+        "rattle"
+      ],
+      "priority": [
+        "medium",
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}

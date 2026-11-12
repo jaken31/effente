@@ -1,0 +1,21 @@
+{
+  "note": "Healthy fan. Cites nothing, priority none.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "normal": 20
+      },
+      "may_cite": [],
+      "must_cite": [],
+      "priority": [
+        "none"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}

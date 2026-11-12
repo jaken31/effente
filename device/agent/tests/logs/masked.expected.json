@@ -1,0 +1,22 @@
+{
+  "note": "once_per_turn was switched off from the dashboard, so it reads 0 and the imbalance diagnosis went away. once_per_turn must not be cited.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "normal": 15
+      },
+      "may_cite": [],
+      "must_cite": [],
+      "priority": [
+        "none",
+        "low"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}
