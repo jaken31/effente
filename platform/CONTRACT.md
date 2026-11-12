@@ -179,6 +179,8 @@ Reply: `{"ok": true}`
 
 If the platform's HTTP endpoint cannot be reached the agent still writes its own log and carries on.
 
+The desktop app starts at most one run per machine at a time: its button is disabled while that machine's latest run is `running`. The live Claude call is opt-in; the default is the stand-in.
+
 ## 5. What the dashboard reads
 
 Device authors can skip this section.
@@ -223,6 +225,6 @@ Everything else under `/` is the dashboard's own files, served from `platform/we
 
 ## Not in version 2
 
-- The dashboard cannot start an agent. A person starts it.
+- No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The API key comes from the laptop's environment and is never sent to or through the platform.
 - Machine profiles, model delivery to the device, and alarm feedback. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
 - More than one platform, or any security.
