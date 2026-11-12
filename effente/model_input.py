@@ -205,11 +205,12 @@ class MinuteSummary:
                     "max": np.nanmax(a, 0)}
 
 
-def load_minutes(folder):
-    """Every per-minute summary of a learn-mode folder: (minute_t0, {stat: (minutes, features)}, names)."""
+def load_minutes(folder, stats=STATS):
+    """Every per-minute summary of a learn-mode folder: (minute_t0, {stat: (minutes, features)}, names).
+    `stats` picks which of min, mean, median and max to load (training needs only the median)."""
     files = sorted(((int(m.group(1)), p) for p in (Path(folder) / "features").glob("features_*.npz")
                     if (m := _HOUR_FILE.fullmatch(p.name))))
-    ts, parts, names, version = [], {k: [] for k in STATS}, None, None
+    ts, parts, names, version = [], {k: [] for k in stats}, None, None
     for _, p in files:
         with np.load(p) as d:
             v = str(d["features_version"])
@@ -218,7 +219,7 @@ def load_minutes(folder):
             elif v != version:
                 raise ValueError(f"{p.name} was made with features {v}, earlier hours with {version}")
             ts.append(d["minute_t0"])
-            for k in STATS:
+            for k in stats:
                 parts[k].append(d[f"minute_{k}"] if f"minute_{k}" in d.files else d["minute_mean"])
     if not ts:
         raise FileNotFoundError(f"no hour files in {Path(folder) / 'features'}")

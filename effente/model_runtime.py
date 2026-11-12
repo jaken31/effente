@@ -135,8 +135,9 @@ def _version() -> str:
 class Watcher:
     """One machine's live judgement. predict_at(t0, x) for every row; the result changes once a minute."""
 
-    def __init__(self, model: Model):
+    def __init__(self, model: Model, margin: float = 1.0):
         self.m = model
+        self.margin = margin  # how far over the learned line counts as wrong (effente.safety.margins)
         self.summary = MinuteSummary()
         self.minute: int | None = None
         self.scores: deque = deque(maxlen=model.smooth)
@@ -176,7 +177,7 @@ class Watcher:
         oor = int(self.m.prep.out_of_range(row[None])[0])
         dev = self.m.deviations(r, Z)
         state = {"unknown_score": round(level, 3), "minute": minute_t, "out_of_range": oor}
-        if level > 1.0:
+        if level > self.margin:
             self.abnormal_minutes += 1
             d = FT.diagnose(dev, self.abnormal_minutes, self.m.learned_types(r, Z))
             self.episode[d.diagnosis] += 1
@@ -190,7 +191,7 @@ class Watcher:
             self.abnormal_minutes = 0
             self.episode.clear()
             top = dict(sorted(dev.items(), key=lambda kv: -abs(kv[1]))[:3])
-            state.update(diagnosis="normal", confidence=round(float(np.clip(1.0 - level, 0.0, 1.0)), 2),
+            state.update(diagnosis="normal", confidence=round(float(np.clip(1.0 - level / self.margin, 0.0, 1.0)), 2),
                          features={k: round(v, 2) for k, v in top.items()}, note="")
         if oor:
             state["note"] = (state["note"] + "; " if state["note"] else "") + \

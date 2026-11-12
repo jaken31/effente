@@ -33,8 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from effente.model_input import load_recording
-from effente.trainer import train_model
+from effente.trainer import load_for_training, train_model
 
 
 def train(t, X, names, smooth=5, calib_share=0.15, rows_per_week=None, seed=0, source="", period=None):
@@ -45,7 +44,8 @@ def train(t, X, names, smooth=5, calib_share=0.15, rows_per_week=None, seed=0, s
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
-    src.add_argument("--run", help="learn-mode recording folder (its one-a-second rows are used)")
+    src.add_argument("--run", help="learn-mode recording folder (its per-minute medians if a day or more, "
+                                   "else its one-a-second rows)")
     src.add_argument("--rows", help="a rows file with t, X and feature_names (any cadence)")
     ap.add_argument("--learn-days", type=float, help="use only the first N days of --run")
     ap.add_argument("--learn-hours", type=float, help="use only the first N hours of --rows")
@@ -53,8 +53,9 @@ def main(argv=None) -> int:
     ap.add_argument("--calib-share", type=float, default=0.15)
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
+    period = None
     if args.run:
-        X, t, names = load_recording(args.run)
+        t, X, names, period = load_for_training(args.run)
         if args.learn_days:
             keep = t < t.min() + args.learn_days * 86400
             t, X = t[keep], X[keep]
@@ -64,7 +65,6 @@ def main(argv=None) -> int:
         if args.learn_hours:
             keep = t < t.min() + args.learn_hours * 3600
             t, X = t[keep], X[keep]
-    period = None
     if args.rows:  # rows at their own cadence (one every 10 minutes for the NASA bearing): keep it
         period = max(1, int(round(float(np.median(np.diff(np.sort(t)))))))
     d, report = train(t, X, names, args.smooth, args.calib_share, source=args.run or args.rows, period=period)

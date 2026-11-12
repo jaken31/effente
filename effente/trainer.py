@@ -15,6 +15,8 @@ so a model is trained the same way wherever it is trained:
      scores (method of moments, Wilson-Hilferty quantile), never below the highest held-out score.
   6. Fault-type classifier from fault patterns injected into this machine's own normal
      deviations (effente.fault_types signatures); no real labelled faults yet.
+  7. Baseline (effente.safety.learn_baseline): this machine's normal levels for the outside-normal
+     checks, and warnings if it didn't run, went past a universal limit, or was still changing.
 Starting values throughout (unverified on real machines).
 """
 
@@ -29,7 +31,8 @@ import numpy as np
 from effente import fault_types as FT
 from effente import features as F
 from effente import model_runtime as RT
-from effente.model_input import Prep
+from effente import safety as SF
+from effente.model_input import Prep, load_minutes, load_recording
 
 PERIODS = (1, 2, 5, 10, 15, 30, 60)
 ROWS_WANTED = 1500
@@ -40,6 +43,20 @@ def choose_period(duration_s: float) -> int:
     """The longest summary period that still gives about ROWS_WANTED rows (1 s for short recordings)."""
     ok = [p for p in PERIODS if duration_s / p >= ROWS_WANTED]
     return max(ok) if ok else 1
+
+
+def load_for_training(folder):
+    """A learn-mode folder's rows for train_model: (t, X, names, period).
+
+    A recording long enough for one-minute rows (about a day or more) trains from the per-minute
+    medians the recorder kept: the same rows train_model would make from the one-a-second rows,
+    and a week takes about 11 MB instead of about 640 MB, so a week or a month fits in the board's
+    memory. Shorter recordings train from the one-a-second rows (period None: train_model picks it)."""
+    mt, stats, names = load_minutes(folder, stats=("median",))
+    if len(mt) and choose_period(float(mt.max() - mt.min()) + 60.0) >= 60:
+        return mt.astype(float), stats["median"], names, 60
+    X, t, names = load_recording(folder)
+    return t, X, names, None
 
 
 def summarise(t, X, period: int):
@@ -254,12 +271,14 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     names = list(F.FEATURE_NAMES)
     t = np.asarray(t, float)
     run = running_rows(X, names)
+    ran = run.copy()
     t, X = t[run], X[run]
     if len(t) < 2:
         raise ValueError("no running data recorded")
     if period is None:
         period = choose_period(float(t.max() - t.min()))
     t, X = summarise(t, X, period)
+    baseline = SF.learn_baseline(X, names, running=ran)  # this machine's normal, and anything odd about it
     if len(t) < MIN_ROWS:
         raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
                          f"{MIN_ROWS * period // 60} minutes of the machine running")
@@ -282,6 +301,7 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     d = {"format": RT.FORMAT, "features_version": RT._version(),
          "created": datetime.now(timezone.utc).isoformat(timespec="seconds"), "trained_on": source,
          "prep": prep.to_dict(), "period_s": int(period), "smooth_minutes": smooth, "threshold": 1.0,
+         "baseline": baseline,
          "autoencoder": [RT.quantize(W, b, a) for (W, b), a in zip(ae, acts)]}
     model = RT.Model(d)
     h = Z.astype(np.float32)
@@ -313,7 +333,8 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
               "inputs": prep.n_out, "features_kept": len(prep.columns), "fit_seconds": round(fit_s, 1),
               "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, s_int)[0, 1]), 5),
               "threshold": round(d["threshold"], 4), "fault_classes": len(classes),
-              "classifier_exact_match": round(acc, 3)}
+              "classifier_exact_match": round(acc, 3), "dropped_limits": baseline["dropped"],
+              "warnings": baseline["warnings"]}
     d["training_report"] = report
     say("done", 1.0)
     return d, report
