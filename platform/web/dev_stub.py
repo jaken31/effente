@@ -369,10 +369,12 @@ def make_handler(platform):
             self.end_headers()
             self.wfile.write(data)
 
-        def read_json(self):
+        def read_body(self):
+            # Read the whole body before replying, even when it is not needed:
+            # on a keep-alive connection, unread bytes would be taken as the
+            # start of the next request.
             n = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(n) if n else b""
-            return json.loads(raw.decode() or "null")
+            return self.rfile.read(n) if n > 0 else b""
 
         def parts(self):
             u = urlparse(self.path)
@@ -405,11 +407,12 @@ def make_handler(platform):
 
         def do_PUT(self):
             _, p, _ = self.parts()
+            raw = self.read_body()
             if len(p) == 4 and p[:2] == ["api", "devices"] and p[3] == "mask":
                 if p[2] != DEVICE_ID:
                     return self.send_json(400, {"ok": False, "error": "unknown device"})
                 try:
-                    body = self.read_json()
+                    body = json.loads(raw.decode() or "null")
                 except (ValueError, UnicodeDecodeError):
                     return self.send_json(400, {"ok": False, "error": "body is not JSON"})
                 if not isinstance(body, dict) or "mask" not in body:
@@ -419,6 +422,7 @@ def make_handler(platform):
 
         def do_POST(self):
             _, p, q = self.parts()
+            self.read_body()  # none of the /dev controls take a body
             if p == ["dev", "pause"]:
                 platform.paused = True
             elif p == ["dev", "resume"]:

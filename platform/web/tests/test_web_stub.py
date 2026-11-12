@@ -153,6 +153,24 @@ def test_mask_unknown_device(stub):
     assert status == 400 and reply["ok"] is False
 
 
+@pytest.mark.parametrize("method,path", [
+    ("PUT", "/api/devices/other/mask"),  # refused before the body was needed
+    ("PUT", "/api/nowhere"),
+    ("POST", "/dev/pause"),
+])
+def test_unread_body_does_not_spoil_the_next_request(stub, method, path):
+    _, port = stub
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request(method, path, body=b'{"mask": []}', headers={"Content-Type": "application/json"})
+        conn.getresponse().read()
+        conn.request("GET", "/api/state")  # same keep-alive connection
+        res = conn.getresponse()
+        assert res.status == 200 and json.loads(res.read())["ok"] is True
+    finally:
+        conn.close()
+
+
 def test_history_records(stub):
     platform, port = stub
     for _ in range(10):
