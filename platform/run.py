@@ -69,6 +69,8 @@ def main() -> int:
             print(f"Dashboard: {url}")
             print("Report:    python3 platform/report.py   (in a second terminal)")
             if args.no_sim:
+                # The receiver's first line gives the address a device should use.
+                print(server_log.read_text(encoding="utf-8").splitlines()[0])
                 print("Receiver only. Waiting for a real device. Ctrl-C to stop.")
                 server.wait()
                 return 0
