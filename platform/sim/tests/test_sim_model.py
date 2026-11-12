@@ -1,121 +1,84 @@
-import itertools
 import random
-from datetime import datetime
 
 import pytest
 
 import sim_model as m
+from sim_fake_platform import check_in_problems, record_problems
 
 EXPECTED = {
     "normal": ("normal", ""),
-    "imbalance": ("imbalance", "once-per-turn vibration"),
-    "loose_mount": ("loose_mount", "rattling pattern"),
-    "unknown": ("unknown", ""),
+    "unbalance": ("unbalance_like", "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)"),
+    "looseness": ("looseness_or_rattle",
+                  "many harmonics, half-order and rattling (looseness, a soft foot, a cracked mount)"),
+    "unrecognised": ("unrecognised_pattern", "abnormal, no known fault type fits"),
+    "stopped": ("stopped", ""),
+    "warming_up": ("warming_up", ""),
 }
-ALL_MASKS = [list(c) for n in range(3) for c in itertools.combinations(m.FEATURE_NAMES, n)]
-WINDOWS = 200  # windows checked per case
-
-
-def assert_contract_record(r):
-    for k in ("device_id", "machine_id", "model_version", "at", "diagnosis"):
-        assert isinstance(r[k], str) and r[k]
-    assert r["diagnosis"] in ("normal", "imbalance", "loose_mount", "unknown")
-    assert 0 <= r["confidence"] <= 1
-    assert r["unknown_score"] >= 0
-    assert (r["diagnosis"] == "unknown") == (r["unknown_score"] > m.UNKNOWN_THRESHOLD)
-    assert isinstance(r["reason"], str)
-    if r["diagnosis"] in ("normal", "unknown"):
-        assert r["reason"] == ""
-    assert set(r["features"]) == set(m.FEATURE_NAMES)
-    assert all(0 <= v <= 1 for v in r["features"].values())
-    assert isinstance(r["mask"], list)
-    for name in r["mask"]:
-        if name in r["features"]:
-            assert r["features"][name] == 0
-    assert len(r["spectrum"]) == 64
-    assert all(isinstance(x, float) and 0 <= x <= 1 for x in r["spectrum"])
-    assert r["simulated"] is True
-    datetime.fromisoformat(r["at"].replace("Z", "+00:00"))
-    assert r["at"].endswith("Z")
+WINDOWS = 200  # records checked per case
 
 
 @pytest.mark.parametrize("case", m.CASES)
-def test_case_gives_expected_diagnosis_and_valid_record(case):
+@pytest.mark.parametrize("with_problem", [False, True], ids=["no-problem", "too-hot"])
+def test_case_gives_expected_diagnosis_and_valid_record(case, with_problem):
     rng = random.Random(1)
     for _ in range(WINDOWS):
-        r = m.make_record(case, rng, [])
+        problems = [m.make_problem("too_hot", rng, "2026-11-14T16:00:00Z")] if with_problem else []
+        r = m.make_record(case, rng, problems)
         assert (r["diagnosis"], r["reason"]) == EXPECTED[case]
-        assert r["mask"] == []
-        assert r["model_version"] == "sim-1"
+        assert r["model_version"] == "sim-3" and r["simulated"] is True
         assert r["device_id"] == "effente-sim-01" and r["machine_id"] == "demo-fan-1"
-        assert_contract_record(r)
+        assert record_problems(r) == []
+        assert set(r["features"]) <= set(m.FEATURE_NAMES)
+        assert set(r.get("fault_types", {})) <= {t["name"] for t in m.FAULT_TYPES}
+        assert r["wrong"] is (with_problem or case in m.ABNORMAL_CASES)
+        assert r["at"].endswith("Z")
 
 
-def test_spectrum_peaks_where_described():
+def test_contract_check_can_fail():
+    good = m.make_record("normal", random.Random(1))
+    assert record_problems(dict(good, wrong=True))  # normal with no problems is not wrong
+    assert record_problems(dict(good, spectrum=[0.0] * 64))
+    assert record_problems(dict(good, problems=[{"name": "too_hot"}]))
+    assert record_problems({k: v for k, v in good.items() if k != "problems"})
+    assert record_problems(dict(good, reason="something"))
+
+
+def test_problem_while_normal_keeps_the_diagnosis():
+    rng_a, rng_b = random.Random(5), random.Random(5)
+    plain = m.make_record("normal", rng_a, [], at="t")
+    hot = [m.make_problem("too_hot", random.Random(0), "2026-11-14T16:00:00Z")]
+    with_problem = m.make_record("normal", rng_b, hot, at="t")
+    assert with_problem["diagnosis"] == "normal" and with_problem["wrong"] is True
+    assert with_problem["problems"] == hot
+    assert {**with_problem, "problems": [], "wrong": False} == plain
+
+
+def test_problems_follow_the_names_table():
+    assert m.PROBLEM_NAMES == [
+        "vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts",
+        "vibration_above_normal", "hotter_than_normal", "louder_than_normal",
+    ]
+    assert not set(m.PROBLEM_NAMES) & {t["name"] for t in m.FAULT_TYPES}  # never a fault type name
+    for name in m.PROBLEM_NAMES:
+        p = m.make_problem(name, random.Random(1), "2026-11-14T16:00:00Z")
+        assert set(p) == {"name", "kind", "text", "value", "since"}
+        assert p["kind"] == ("limit" if m.PROBLEM_NAMES.index(name) < 5 else "outside_normal")
+        assert p["text"] and isinstance(p["value"], (int, float))
+
+
+def test_spectrum_shapes():
     rng = random.Random(2)
-    turn_bin = round(m.TURN_HZ / m.BIN_HZ)
-    imb = m.make_spectrum("imbalance", rng)
-    assert imb.index(max(imb)) == turn_bin
-    unk = m.make_spectrum("unknown", rng)
-    assert abs(m.bin_hz(unk.index(max(unk))) - m.UNKNOWN_HZ) <= m.BIN_HZ
+    turn = m._band_of(m.TURN_HZ)
+    unb = m.make_spectrum("unbalance", rng)
+    assert len(unb) == 20 and unb.index(max(unb)) == turn
+    unk = m.make_spectrum("unrecognised", rng)
+    assert unk.index(max(unk)) == m._band_of(m.UNKNOWN_HZ)
     normal = m.make_spectrum("normal", rng)
-    assert max(normal) < 0.2
-    loose = m.make_spectrum("loose_mount", rng)
-    assert sum(loose) / 64 > 2 * sum(normal) / 64  # raised broadband
-
-
-def test_loose_mount_harmonics_vary_between_windows():
-    rng = random.Random(3)
-    a, b = m.make_spectrum("loose_mount", rng), m.make_spectrum("loose_mount", rng)
-    diff = max(abs(x - y) for x, y in zip(a, b))
-    assert diff > 0.1
-
-
-def _expected_under_mask(case, mask):
-    if case == "imbalance" and "once_per_turn" in mask:
-        return "normal", ""
-    if case == "loose_mount" and "rattle" in mask:
-        return "normal", ""
-    return EXPECTED[case]
-
-
-@pytest.mark.parametrize("case", m.CASES)
-@pytest.mark.parametrize("mask", ALL_MASKS, ids=lambda x: "+".join(x) or "none")
-def test_every_mask_combination(case, mask):
-    rng = random.Random(4)
-    for _ in range(WINDOWS):
-        spectrum = m.make_spectrum(case, rng)
-        raw = m.feature_activity(spectrum)
-        u = m.unknown_score(spectrum)
-        base = m.diagnose_window(spectrum, raw, u, [], "d", "mc")
-        r = m.diagnose_window(spectrum, raw, u, mask, "d", "mc")
-        assert_contract_record(r)
-        assert r["mask"] == mask
-        assert (r["diagnosis"], r["reason"]) == _expected_under_mask(case, mask)
-        # The spectrum does not change with the mask; only the model's use of it.
-        assert r["spectrum"] == base["spectrum"]
-        assert r["unknown_score"] == base["unknown_score"]
-        for name in m.FEATURE_NAMES:
-            assert r["features"][name] == (0 if name in mask else base["features"][name])
-        # Switching off a feature the diagnosis does not use changes nothing.
-        if case in ("imbalance", "loose_mount") and _expected_under_mask(case, mask) == EXPECTED[case]:
-            assert {**r, "mask": [], "at": ""} == {**base, "at": ""}
-
-
-def test_imbalance_with_once_per_turn_off_reads_normal():
-    r = m.make_record("imbalance", random.Random(5), ["once_per_turn"])
-    assert r["diagnosis"] == "normal"
-    assert r["reason"] == ""
-    assert r["features"]["once_per_turn"] == 0
-    assert r["mask"] == ["once_per_turn"]
-
-
-def test_mask_names_not_in_table_are_echoed_but_ignored():
-    rng_a, rng_b = random.Random(6), random.Random(6)
-    a = m.make_record("imbalance", rng_a, [])
-    b = m.make_record("imbalance", rng_b, ["no_such_feature"])
-    assert b["mask"] == ["no_such_feature"]
-    assert (b["diagnosis"], b["features"]) == (a["diagnosis"], a["features"])
+    loose = m.make_spectrum("looseness", rng)
+    assert sum(loose) / 20 > sum(normal) / 20 + 0.3  # raised broadband
+    stopped = m.make_spectrum("stopped", rng)
+    assert max(stopped) < min(normal)
+    assert len(m.SPECTRUM_EDGES_HZ) == 21 and m.SPECTRUM_EDGES_HZ[0] == 5.0 and m.SPECTRUM_EDGES_HZ[-1] == 500.0
 
 
 def test_seed_is_repeatable_and_seeds_differ():
@@ -127,20 +90,64 @@ def test_seed_is_repeatable_and_seeds_differ():
     assert run(42) != run(43)
 
 
+def test_check_in_keeps_only_limits():
+    rng = random.Random(1)
+    problems = [m.make_problem("too_hot", rng, "s"), m.make_problem("vibration_above_normal", rng, "s")]
+    c = m.make_check_in("recording", problems, at="2026-11-14T15:40:02Z")
+    assert check_in_problems(c) == []
+    assert c["mode"] == "recording" and c["wrong"] is True
+    assert [p["name"] for p in c["problems"]] == ["too_hot"]
+    quiet = m.make_check_in("display")
+    assert quiet["wrong"] is False and quiet["problems"] == [] and check_in_problems(quiet) == []
+    with pytest.raises(ValueError):
+        m.make_check_in("watching")
+
+
+def test_problem_checks_hold_then_clear():
+    checks = m.ProblemChecks(hold_s=10)
+    rng = random.Random(1)
+    checks.start("too_hot", 100.0, "2026-11-14T16:00:00Z")
+    assert checks.status("too_hot", 105.0) == "starting"
+    assert checks.current(m.WATCHING, rng, 105.0) == []
+    on = checks.current(m.WATCHING, rng, 110.0)
+    assert [p["name"] for p in on] == ["too_hot"] and on[0]["since"] == "2026-11-14T16:00:00Z"
+    checks.stop("too_hot", 120.0)
+    assert checks.status("too_hot", 125.0) == "clearing"
+    assert [p["name"] for p in checks.current(m.WATCHING, rng, 125.0)] == ["too_hot"]  # mostly stopped takes 8 s
+    assert checks.current(m.WATCHING, rng, 128.0) == []
+    assert checks.status("too_hot", 128.0) == ""
+
+
+def test_problem_checks_stopped_before_showing_never_show():
+    checks = m.ProblemChecks(hold_s=10)
+    checks.toggle("too_hot", 0.0, "t")
+    checks.toggle("too_hot", 3.0, "t")
+    assert checks.status("too_hot", 3.0) == "" and checks.current(m.WATCHING, random.Random(1), 50.0) == []
+
+
+def test_outside_normal_problems_only_while_watching():
+    checks = m.ProblemChecks(hold_s=0)
+    checks.start("vibration_above_normal", 0.0, "t")
+    checks.start("too_hot", 0.0, "t")
+    rng = random.Random(1)
+    assert [p["name"] for p in checks.current(m.WATCHING, rng, 1.0)] == ["too_hot", "vibration_above_normal"]
+    assert [p["name"] for p in checks.current("recording", rng, 1.0)] == ["too_hot"]
+
+
+def test_unknown_problem_refused():
+    with pytest.raises(ValueError):
+        m.ProblemChecks().start("smoke", 0.0, "t")
+
+
 def test_announcement_and_model_file():
-    a = m.model_announcement("dev-x")
-    assert a == {
-        "device_id": "dev-x",
-        "model_version": "sim-1",
-        "class_names": ["normal", "imbalance", "loose_mount"],
-        "unknown_threshold": 0.5,
-        "spectrum_hz_max": 500.0,
-        "features": [
-            {"name": "once_per_turn", "sentence": "once-per-turn vibration"},
-            {"name": "rattle", "sentence": "rattling pattern"},
-        ],
-        "simulated": True,
-    }
+    a = m.model_announcement("dev-x", "fan-x")
+    assert a["device_id"] == "dev-x" and a["machine_id"] == "fan-x"
+    assert a["model_version"] == "sim-3" and a["simulated"] is True
+    assert a["source"] == "calibrated" and a["library_entry"] == "generic_rotating"
+    assert [t["name"] for t in a["fault_types"]] == ["vibration_too_high", "unbalance_like", "looseness_or_rattle"]
+    assert all(t["validated"] is False and t["text"] and t["group"] == "vibration" for t in a["fault_types"])
+    assert all(set(f) == {"name", "text", "unit"} for f in a["features"])
+    assert a["spectrum_edges_hz"] == m.SPECTRUM_EDGES_HZ
     f = m.model_file()
-    assert f["simulated"] is True and f["model_version"] == "sim-1"
-    assert f["features"][0] == {"name": "once_per_turn", "unit_indices": [], "sentence": "once-per-turn vibration"}
+    assert f["simulated"] is True and f["model_version"] == "sim-3"
+    assert f["features"][0] == {"name": "vib_1x", "unit_indices": [], "sentence": "vibration once per turn"}

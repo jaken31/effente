@@ -1,6 +1,6 @@
 """Start the whole laptop platform with one command: receiver, then the simulated device.
 
-    python3 platform/run.py            # receiver + simulated device, keys 1-4 switch case
+    python3 platform/run.py            # receiver + simulated device, keys 1-6 switch case
     python3 platform/run.py --no-sim   # receiver only, for a real device
 
 The simulated device takes over this terminal for its keys. The receiver's output
@@ -40,7 +40,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-sim", action="store_true", help="receiver only, for a real device")
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
-    parser.add_argument("--case", default="normal", help="case the simulator starts in")
+    parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     args = parser.parse_args()
 
     # Without this, a kill or a closed terminal would skip the cleanup below
@@ -74,7 +74,7 @@ def main() -> int:
                 print("Receiver only. Waiting for a real device. Ctrl-C to stop.")
                 server.wait()
                 return 0
-            print("Simulated device: 1 normal, 2 imbalance, 3 loose mount, 4 unknown, q quit\n")
+            print("Simulated device: keys are listed below; q quits both.\n")
             return subprocess.call(
                 [sys.executable, str(HERE / "sim" / "main.py"), "--url", url,
                  "--case", args.case,
