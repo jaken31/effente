@@ -108,12 +108,12 @@ class ReceiverHTTPServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, store, hub, web_dir, keepalive=KEEPALIVE_S):
+    def __init__(self, address, store, hub, web_dir, keepalive=KEEPALIVE_S, handler=None):
         self.store = store
         self.hub = hub
         self.web_dir = os.path.realpath(web_dir)
         self.keepalive = keepalive
-        super().__init__(address, Handler)
+        super().__init__(address, handler or Handler)
 
     def handle_error(self, request, client_address):
         # A client vanishing mid-request is normal; anything else gets a traceback.
@@ -208,7 +208,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         routes = [
             (("model",), {"POST": self.post_model}),
             (("records",), {"POST": self.post_records}),
-            (("devices", None, "mask"), {"GET": self.get_mask, "PUT": self.put_mask}),
+            (("devices", None), {"POST": self.post_check_in}),
             (("agent", "runs", None), {"PUT": self.put_run}),
             (("state",), {"GET": self.get_state}),
             (("stream",), {"GET": self.get_stream}),
@@ -255,11 +255,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def post_records(self, query):
         self._json(200, self.server.store.add_records(self._body()))
 
-    def put_mask(self, query, device_id):
-        self._json(200, self.server.store.set_mask(device_id, self._body()))
-
-    def get_mask(self, query, device_id):
-        self._json(200, self.server.store.get_mask(device_id))
+    def post_check_in(self, query, device_id):
+        self.server.store.check_in(device_id, self._body())
+        self._json(200, {"ok": True})
 
     def put_run(self, query, run_id):
         self.server.store.put_run(run_id, self._body())
@@ -357,14 +355,19 @@ def _html_escape(text):
 
 class Receiver:
     """The whole running receiver: store, event hub, HTTP server and the
-    watcher that marks quiet devices. Used by main.py and by the tests."""
+    watcher that marks quiet devices. Used by main.py, the tests and
+    platform/web/dev_stub.py (which passes its own `handler` subclass)."""
 
-    def __init__(self, host, port, data_dir, web_dir, quiet_after=QUIET_AFTER_S, keepalive=KEEPALIVE_S, log=None):
+    def __init__(
+        self, host, port, data_dir, web_dir, quiet_after=QUIET_AFTER_S, keepalive=KEEPALIVE_S, log=None, handler=None
+    ):
         log = log or (lambda message: print(message, flush=True))
         self.hub = Hub()
         self.log = log
         self.store = Store(data_dir, emit=self.hub.publish, quiet_after=quiet_after, log=log)
-        self.httpd = ReceiverHTTPServer((host, port), self.store, self.hub, web_dir, keepalive=keepalive)
+        self.httpd = ReceiverHTTPServer(
+            (host, port), self.store, self.hub, web_dir, keepalive=keepalive, handler=handler
+        )
         self.port = self.httpd.server_address[1]
         self._stop = threading.Event()
         self._watcher = threading.Thread(target=self._watch, name="quiet-watcher", daemon=True)

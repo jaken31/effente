@@ -14,26 +14,29 @@ python3 platform/run.py
 
 Then open http://localhost:8000.
 
-That starts the receiver and the simulated device. The simulated device takes over the terminal: press `1` normal, `2` imbalance, `3` loose mount, `4` unknown, `p` pause, `q` quit. Quitting stops the receiver too.
+That starts the receiver and the simulated device. The simulated device takes over the terminal: `1` normal, `2` unbalance, `3` looseness, `4` unrecognised pattern, `5` stopped, `6` warming up, `h` too hot (a limit), `v` vibration above normal, `m` next mode, `t` heat source (camera, IMU only, none), `p` pause (send nothing), `q` quit. Quitting stops the receiver too. [sim/README.md](sim/README.md) has the details.
 
-Options: `--fresh` deletes stored history first, `--port N`, `--case imbalance` to start in a case, `--no-sim` for a real device.
+Options: `--fresh` deletes stored history first, `--port N`, `--case unbalance` to start in a case, `--no-sim` for a real device.
 
 **Everything the simulated device sends is made up.** The dashboard shows a SIMULATED DATA banner the whole time it is in use. The spectra are illustrative shapes, not measurements.
 
 ## Demo script
 
-This follows the demo script in [docs/PRD.md](../docs/PRD.md). Use two terminals and one browser window, full screen on the projector.
+The dashboard side of the demo in [docs/PRD.md](../docs/PRD.md), played with the simulated device. Use two terminals and one browser window, full screen on the projector.
 
 | Step | Do | The dashboard shows |
 |------|----|---------------------|
-| 0 | Terminal 1: `python3 platform/run.py --fresh`. Open http://localhost:8000. | "Normal", device live, SIMULATED DATA banner |
-| 1 | Press `1` | **Normal** |
-| 2 | Press `2` | **Imbalance**, reason "once-per-turn vibration", a tall peak at 30 Hz |
-| 3 | Press `3` | **Loose mount**, reason "rattling pattern", raised broadband spectrum |
-| 4 | Press `4` | **Unknown, inspect**, no reason given |
-| 5 | Press `2`, wait for Imbalance, then click the switch next to "once-per-turn vibration" | The switch reads "Switching off..." for about a second, then "Switched off". The diagnosis changes to **Normal** with a black banner: "With all features on: Imbalance → now: Normal". The 30 Hz peak is still in the spectrum: the vibration has not changed, only the model's use of it. |
-| 5b | Optional. Switch it back on, then switch off "rattling pattern" instead | Still **Imbalance**, marked "(unchanged)". Only the matching feature removes the diagnosis. |
-| 6 | Switch every feature back on. Terminal 2: `python3 platform/report.py` | The agent panel lists the tool calls, then the report: summary, priority, cited features, recommended action |
+| 0 | Terminal 1: `python3 platform/run.py --fresh`. Open http://localhost:8000. | "Nothing is wrong", "Model: nothing unusual yet", device live, SIMULATED DATA banner |
+| 1 | Press `2` | **Something is wrong**, "Model: Unbalance-like" marked possible, its reason, vibration once per turn at the top of the readings that moved, a tall bar at 25-32 Hz |
+| 2 | Press `3` | "Model: Looseness or rattle", a raised spectrum with harmonics |
+| 3 | Press `4` | "Model: Unrecognised pattern", "abnormal, no known fault type fits", a tall bar at 251-315 Hz |
+| 4 | Press `1`, then `h`. Wait about 10 seconds. | Still "Model: nothing unusual yet", but **Something is wrong**: "Over 100 C", about 104.5 °C, "limit for any machine". The safety checks found it apart from the model. |
+| 5 | Press `5` | "Model: machine stopped", and the problem stays listed under it |
+| 6 | Press `m` three times (watching, display, calibrating, recording) | Mode RECORDING, "Model: not judging while recording", the problem still listed: the limits still run |
+| 7 | Press `h`, wait about 8 seconds, then `m` twice and `1` | The problem clears: "Nothing is wrong". Back to watching. |
+| 8 | Terminal 2: `python3 platform/report.py` | The agent panel lists the tool calls, then the report |
+
+Before step 8, see "Known gaps" below: the agent still reads version 1 records.
 
 Before going on stage, run the whole script once and leave the page open.
 
@@ -70,7 +73,7 @@ The simulated device and a real one can run at the same time. The dashboard show
 | "The receiver did not start" | Port 8000 is taken, usually by an earlier run | Close the other terminal, or use `--port 8001` and open that port instead |
 | DEVICE DISCONNECTED, readings greyed out | Nothing heard from the device for 5 seconds | Check the simulator terminal is still running, or the device's WiFi and `EFFENTE_PLATFORM_URL` |
 | PLATFORM CONNECTION LOST | The receiver stopped | Start `run.py` again. The page reconnects by itself and history is kept. |
-| A switch stays on "Switching off..." | The device is not sending records, so it cannot confirm | Same as device disconnected |
+| "Not live" and "Problems: not known while the device is not live" | Nothing heard from the device for 5 seconds. Its problems were cleared with the reason "device quiet". | As for DEVICE DISCONNECTED. Problems still on come back as new when it returns. |
 | "No device log yet" from `report.py` | `run.py` was not started first, or was started with `--no-sim` | With a real device, run the agent on the device: see `device/agent/README.md` |
 | Old readings in history | Stored from an earlier run | Start with `--fresh` |
 
@@ -80,7 +83,7 @@ The simulated device and a real one can run at the same time. The dashboard show
 |------|------|
 | [CONTRACT.md](CONTRACT.md) | Every message between device, platform, dashboard and agent. Owned by track 5. |
 | `run.py`, `report.py` | The two commands above |
-| [server/](server/README.md) | Receiver: stores records, serves the dashboard, passes the feature mask to the device |
+| [server/](server/README.md) | Receiver: stores records, takes check-ins, tracks each device's mode and problems, serves the dashboard |
 | [web/](web/README.md) | Dashboard files. `web/dev_stub.py` is a development aid only. |
 | [sim/](sim/README.md) | Simulated device, and the reference for the real device's side |
 | `server/data/` | Stored records, agent runs, the simulator's device log. Not committed. |
@@ -94,12 +97,17 @@ python3 -m pytest platform device
 
 Needs pytest. The dashboard's logic tests also need `node` and are skipped without it.
 
+## Known gaps
+
+- Contract sections 6 (alarms and answers) and 7 (settings, `PUT /api/devices/{id}/settings`, `settings` in replies and `/api/state`) are not built. The receiver stores `sensitivity` and `alarm_line` when sent, as it stores any field, and requires neither.
+- The maintenance agent (`device/agent`) still reads contract version 1 records. `report.py` crashes if the log holds a record with `unknown_score: null` (any `stopped` or `warming_up` record, steps 5 and 6 above), and its stand-in report reads fault names like "unbalance like" and cites nothing. Problems are not read by it at all.
+
 ## Checked and not checked
 
-Checked on one laptop (Linux, Chromium) with the receiver, simulated device, dashboard and stand-in agent running together:
+Checked on one laptop (Linux, headless Chromium) with `run.py`, the simulated device driven through its keys, and the dashboard:
 
-- All four cases, both switches in the imbalance and loose mount cases, the report panel, and the disconnected state.
-- The page fits one screen with no scrolling at 1920x1080 and 1280x720.
+- A problem while the model says normal, next to stopped, and while recording (check-ins), then clearing; two problems of both kinds at once; the device going quiet.
+- The page fits one screen with no scrolling at 1920x1080 and 1280x720, with no console errors.
 - The page loaded nothing from outside `localhost`.
 
 Not checked:

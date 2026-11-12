@@ -1,7 +1,7 @@
 """effente simulated device: main loop, keyboard, options. Started by main.py.
 
-Every record and the model announcement carry "simulated": true. Nothing this
-program sends is a measurement.
+Every message it sends carries "simulated": true. Nothing this program sends
+is a measurement.
 """
 
 from __future__ import annotations
@@ -17,11 +17,16 @@ import time
 
 import sim_heat
 import sim_model as model
-from sim_link import Link, mask_from
+from sim_link import Link
 
-POLL_S = 1.0  # contact the platform at least this often when not uploading (contract: 2 s)
+MAX_INTERVAL_S = 2.0  # contract: a request at least every 2 s, or the device counts as gone
 MAX_PENDING = 30  # records kept for catch-up while the platform is down
-KEYS = {"1": "normal", "2": "imbalance", "3": "loose_mount", "4": "unknown"}
+CASE_KEYS = {str(i + 1): case for i, case in enumerate(model.CASES)}
+PROBLEM_KEYS = {"h": "too_hot", "v": "vibration_above_normal"}
+KEY_HELP = (
+    "keys: 1 normal  2 unbalance  3 looseness  4 unrecognised  5 stopped  6 warming up\n"
+    "      h too hot (limit)  v vibration above normal  m next mode  t heat source  p pause (send nothing)  q quit\n"
+)
 
 
 class Keys:
@@ -78,38 +83,66 @@ class Sim:
         self.link = Link(args.url, args.device)
         self.rng = random.Random(args.seed)
         self.case = args.case
+        self.mode = args.mode
+        self.checks = model.ProblemChecks(hold_s=args.hold)
+        now = time.monotonic()
+        for name in args.problem or []:
+            self.checks.start(name, now, model.now_iso())
+        self.stretch_start = now if self.case in model.ABNORMAL_CASES else None
         self.heat = sim_heat.HeatSim(args.heat, args.seed)
-        self.mask: list[str] = []
-        self.mask_version = None
         self.reachable = None  # None until the first attempt
         self.need_announce = True
         self.paused = False
         self.pending: list[dict] = []
         self.produced = 0
-        self.last_record = None
+        self.last_sent = ""
         self.last_error = ""
-        self.last_contact = 0.0
         self.replay = load_replay(args.replay) if args.replay else None
         self.replay_index = 0
+        self.replayer = model.Replayer(args.device, args.machine)
+
+    # --- controls ---------------------------------------------------------
+    def set_case(self, case: str) -> None:
+        if case != self.case:
+            self.case = case
+            self.stretch_start = time.monotonic() if case in model.ABNORMAL_CASES else None
+
+    def next_mode(self) -> None:
+        self.mode = model.MODES[(model.MODES.index(self.mode) + 1) % len(model.MODES)]
+
+    def toggle_problem(self, name: str) -> None:
+        self.checks.toggle(name, time.monotonic(), model.now_iso())
+
+    def key(self, key: str) -> bool:
+        """Act on one key. Returns False for quit."""
+        k = key.lower()
+        if k == "q":
+            return False
+        if key in CASE_KEYS:
+            self.set_case(CASE_KEYS[key])
+        elif k in PROBLEM_KEYS:
+            self.toggle_problem(PROBLEM_KEYS[k])
+        elif k == "m":
+            self.next_mode()
+        elif k == "t":
+            modes = sim_heat.MODES
+            self.heat.mode = modes[(modes.index(self.heat.mode) + 1) % len(modes)]
+        elif k in ("p", " "):
+            self.paused = not self.paused
+        return True
 
     # --- platform contact -------------------------------------------------
     def _note(self, result):
         self.reachable = result.reachable
-        self.last_contact = time.monotonic()
         if result.reachable and not result.ok and result.error and result.error != self.last_error:
             self.err.write(f"\nplatform refused request: {result.error}\n")
         self.last_error = result.error if result.reachable and not result.ok else ""
-
-    def _take_mask(self, body):
-        got = mask_from(body)
-        if got is not None:
-            self.mask, self.mask_version = got
 
     def announce_if_needed(self) -> bool:
         """Send message 1 when due. Returns False if the platform is unreachable."""
         if not self.need_announce:
             return True
-        r = self.link.announce(model.model_announcement(self.args.device))
+        r = self.link.announce(model.model_announcement(self.args.device, self.args.machine))
         self._note(r)
         if r.ok:
             self.need_announce = False
@@ -126,49 +159,63 @@ class Sim:
             self._queue([record])
             return
         self.pending = []  # sent, or refused (resending would be refused again)
-        if r.ok:
-            self._take_mask(r.body)
-            if r.body.get("need_model") is True:
-                self.need_announce = True
-                self.announce_if_needed()
+        if r.ok and r.body.get("need_model") is True:
+            self.need_announce = True
+            self.announce_if_needed()
 
     def _queue(self, records):
         self.pending = (self.pending + records)[-MAX_PENDING:]
 
-    def poll(self):
+    def check_in(self, body):
+        """Message 3. A check-in is not queued: only the newest one matters."""
         if not self.announce_if_needed():
             return
-        r = self.link.get_mask()
-        self._note(r)
-        if r.ok:
-            self._take_mask(r.body)
+        self._note(self.link.check_in(body))
 
-    # --- records ----------------------------------------------------------
+    # --- messages ---------------------------------------------------------
+    def abnormal_minutes(self) -> int:
+        if self.stretch_start is None:
+            return 0
+        return 1 + int((time.monotonic() - self.stretch_start) // 60)
+
     def next_record(self):
+        problems = self.checks.current(model.WATCHING, self.rng, time.monotonic())
         if self.replay is not None:
             if self.replay_index >= len(self.replay):
                 return None
             src = self.replay[self.replay_index]
             self.replay_index += 1
-            return model.replay_record(src, self.mask, self.args.device, self.args.machine)
-        record = model.make_record(self.case, self.rng, self.mask, self.args.device, self.args.machine)
+            return self.replayer.record(src)
+        record = model.make_record(self.case, self.rng, problems, self.args.device, self.args.machine,
+                                   abnormal_minutes=self.abnormal_minutes())
         heat = self.heat.heat(record["at"], self.args.interval)
         if heat is not None:
             record["heat"] = heat
         return record
 
     def step(self) -> bool:
-        """Diagnose and send one window. Returns False when there is nothing more to send."""
+        """Send one record (watching) or check-in (any other mode). False when there is nothing more to send."""
+        if self.mode != model.WATCHING:
+            problems = self.checks.current(self.mode, self.rng, time.monotonic())
+            body = model.make_check_in(self.mode, problems, self.args.machine)
+            self.last_sent = self._describe("check-in " + self.mode, body["problems"])
+            self.produced += 1
+            self.check_in(body)
+            return True
         record = self.next_record()
         if record is None:
             return False
-        self.last_record = record
+        self.last_sent = self._describe(record["diagnosis"], record["problems"])
         self.produced += 1
         if self.args.log:
             with open(self.args.log, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
         self.upload(record)
         return True
+
+    @staticmethod
+    def _describe(what, problems):
+        return what + (" + " + ",".join(p["name"] for p in problems) if problems else "")
 
     # --- status -----------------------------------------------------------
     def status(self) -> str:
@@ -177,13 +224,18 @@ class Sim:
         else:
             source = self.case
         if self.paused:
-            source += " (paused)"
-        r = self.last_record
-        if r is None:
-            sent = "nothing yet"
-        else:
-            sent = r["diagnosis"] + (f' "{r["reason"]}"' if r.get("reason") else "") + f' {r.get("confidence", 0):.2f}'
-        mask = ",".join(self.mask) if self.mask else "none"
+            source += " (paused: sending nothing)"
+        now = time.monotonic()
+        checks = []
+        for name in model.PROBLEM_NAMES:
+            st = self.checks.status(name, now)
+            if st == "starting":
+                left = self.checks.hold_s - (now - self.checks.started[name][0])
+                checks.append(f"{name} in {max(0, left):.0f}s")
+            elif st == "on" and model.PROBLEMS[name][0] != "limit" and self.mode != model.WATCHING:
+                checks.append(f"{name} (watching only)")
+            elif st:
+                checks.append(f"{name} {st}")
         if self.reachable is None:
             plat = "platform ..."
         elif not self.reachable:
@@ -194,7 +246,8 @@ class Sim:
             plat = "platform ok"
         if self.pending:
             plat += f" ({len(self.pending)} queued)"
-        return f"[SIM] case {source} | heat {self.heat.mode} | sent {sent} | mask {mask} | {plat}"
+        return (f"[SIM] {self.mode} | case {source} | problems {', '.join(checks) or 'none'} | heat {self.heat.mode} | "
+                f"sent {self.last_sent or 'nothing yet'} | {plat}")
 
     # --- main loop --------------------------------------------------------
     def run(self, keys: Keys) -> int:
@@ -204,20 +257,13 @@ class Sim:
                 f.write("\n")
         tty = keys.active
         if tty:
-            self.out.write("keys: 1 normal  2 imbalance  3 loose mount  4 unknown  t heat source  p pause  q quit\n")
+            self.out.write(KEY_HELP)
         self.announce_if_needed()
         next_at = time.monotonic()
         while True:
             key = keys.read(0.05)
-            if key in ("q", "Q"):
+            if key and not self.key(key):
                 break
-            if key in KEYS:
-                self.case = KEYS[key]
-            elif key in ("t", "T"):
-                modes = sim_heat.MODES
-                self.heat.mode = modes[(modes.index(self.heat.mode) + 1) % len(modes)]
-            elif key in ("p", "P", " "):
-                self.paused = not self.paused
             now = time.monotonic()
             if not self.paused and now >= next_at:
                 if not self.step():
@@ -228,8 +274,6 @@ class Sim:
                     self.out.flush()
                 if self.args.count and self.produced >= self.args.count:
                     break
-            elif now - self.last_contact >= POLL_S:
-                self.poll()
             if tty:
                 self.out.write("\r" + self.status() + "\x1b[K")
                 self.out.flush()
@@ -262,18 +306,29 @@ def parse_args(argv=None):
     p.add_argument("--url", default=os.environ.get("EFFENTE_PLATFORM_URL", "http://localhost:8000"))
     p.add_argument("--device", default=model.DEVICE_ID)
     p.add_argument("--machine", default=model.MACHINE_ID)
-    p.add_argument("--case", default="normal", choices=model.CASES)
+    p.add_argument("--case", default="normal", choices=model.CASES, help="what the model says (default normal)")
+    p.add_argument("--mode", default=model.WATCHING, choices=model.MODES,
+                   help="watching sends records; any other mode sends check-ins (default watching)")
+    p.add_argument("--problem", action="append", choices=model.PROBLEM_NAMES, metavar="NAME",
+                   help="a problem on from the start (repeatable): " + ", ".join(model.PROBLEM_NAMES))
+    p.add_argument("--hold", type=float, default=model.HOLD_S,
+                   help=f"seconds a problem must hold before it shows (default {model.HOLD_S:g}, as on the device)")
+    p.add_argument("--interval", type=float, default=1.0, help="seconds between records or check-ins (at most 2)")
     p.add_argument("--heat", default="camera", choices=sim_heat.MODES,
                    help="camera: thermal summary and images; imu: IMU temperature only; none: no heat field")
-    p.add_argument("--interval", type=float, default=1.0, help="seconds between records")
     p.add_argument("--seed", type=int, default=None, help="repeatable output")
     p.add_argument("--log", metavar="FILE", help="append every record to FILE (JSON lines)")
     p.add_argument("--model-file", metavar="FILE", help="write a model file for the agent")
     p.add_argument("--replay", metavar="FILE", help="send records from a JSON lines file")
-    p.add_argument("--count", type=int, default=0, help="stop after N records")
+    p.add_argument("--count", type=int, default=0, help="stop after N records or check-ins")
     args = p.parse_args(argv)
-    if args.interval <= 0:
-        p.error("--interval must be above 0")
+    if not 0 < args.interval <= MAX_INTERVAL_S:
+        p.error(f"--interval must be above 0 and at most {MAX_INTERVAL_S:g} (the platform counts a device "
+                "silent for 5 s as gone, and the contract asks for a request every 2 s)")
+    if args.hold < 0:
+        p.error("--hold must be 0 or more")
+    if args.replay and args.mode != model.WATCHING:
+        p.error("--replay sends records, so it needs --mode watching")
     return args
 
 

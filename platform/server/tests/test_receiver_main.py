@@ -49,7 +49,8 @@ def test_main_starts_prints_url_and_stops_on_ctrl_c(tmp_path):
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/records",
             data=json.dumps(
-                {"device_id": "d1", "machine_id": "m1", "model_version": "v", "at": "2026-11-14T16:02:11Z", "diagnosis": "normal"}
+                {"device_id": "d1", "machine_id": "m1", "model_version": "v", "at": "2026-11-14T16:02:11Z", "diagnosis": "normal",
+                 "problems": [], "wrong": False}
             ).encode(),
             method="POST",
         )

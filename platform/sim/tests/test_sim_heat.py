@@ -71,9 +71,9 @@ def test_frozen_when_frames_identical():
 
 def test_heat_does_not_change_vibration_records_for_a_seed():
     # The replay sample is generated from random.Random(7); heat has its own generator.
-    a = model.make_record("imbalance", random.Random(7), [])
+    a = model.make_record("unbalance", random.Random(7), [])
     sim_heat.HeatSim("camera", seed=7).heat(AT)
-    b = model.make_record("imbalance", random.Random(7), [])
+    b = model.make_record("unbalance", random.Random(7), [])
     assert a["spectrum"] == b["spectrum"]
 
 

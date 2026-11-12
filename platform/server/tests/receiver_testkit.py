@@ -69,17 +69,21 @@ class Stream:
 
     def next(self, kind, timeout=5):
         """Next event named `kind`, skipping others."""
+        return self.next_of((kind,), timeout)[1]
+
+    def next_of(self, kinds, timeout=5):
+        """Next event named one of `kinds`, skipping others. Returns (name, data)."""
         end = time.monotonic() + timeout
         while True:
             left = end - time.monotonic()
             if left <= 0:
-                raise AssertionError(f"no '{kind}' event within {timeout}s")
+                raise AssertionError(f"no {kinds} event within {timeout}s")
             try:
                 name, data = self.events.get(timeout=left)
             except queue.Empty:
                 continue
-            if name == kind:
-                return data
+            if name in kinds:
+                return name, data
 
     def close(self):
         try:
@@ -92,15 +96,30 @@ class Stream:
 
 MODEL = {
     "device_id": "effente-01",
-    "model_version": "fake-0.1",
-    "class_names": ["normal", "imbalance", "loose_mount"],
-    "unknown_threshold": 0.5,
-    "spectrum_hz_max": 500,
-    "features": [
-        {"name": "once_per_turn", "sentence": "once-per-turn vibration"},
-        {"name": "rattle", "sentence": "rattling pattern"},
+    "machine_id": "conveyor-07",
+    "model_version": "conveyor-07-20261114",
+    "features_version": "c985a0908a96",
+    "library_entry": "conveyor",
+    "source": "calibrated",
+    "threshold": 1.0,
+    "fault_types": [
+        {"name": "unbalance_like", "text": "once-per-turn vibration grown", "group": "vibration", "validated": False},
     ],
+    "features": [
+        {"name": "vib_1x", "text": "vibration once per turn", "unit": "log"},
+        {"name": "vib_velocity_mm_s", "text": "vibration velocity, 10-250 Hz rms", "unit": "mm_s"},
+    ],
+    "spectrum_edges_hz": [5.0 * 1.3**i for i in range(21)],
     "simulated": True,
+}
+
+TOO_HOT = {"name": "too_hot", "kind": "limit", "text": "over 100 C", "value": 104.5, "since": "2026-11-14T16:01:50Z"}
+ABOVE_NORMAL = {
+    "name": "vibration_above_normal",
+    "kind": "outside_normal",
+    "text": "vibrating well beyond its normal",
+    "value": 2.3,
+    "since": "2026-11-14T16:00:47Z",
 }
 
 
@@ -108,19 +127,37 @@ def make_record(**over):
     record = {
         "device_id": "effente-01",
         "machine_id": "conveyor-07",
-        "model_version": "fake-0.1",
+        "model_version": "conveyor-07-20261114",
         "at": "2026-11-14T16:02:11Z",
-        "diagnosis": "imbalance",
-        "confidence": 0.94,
-        "unknown_score": 0.12,
-        "reason": "once-per-turn vibration",
-        "features": {"once_per_turn": 0.81, "rattle": 0.03},
-        "mask": [],
-        "spectrum": [i / 64 for i in range(64)],
+        "diagnosis": "unbalance_like",
+        "diagnosis_this_minute": "unbalance_like",
+        "confidence": 0.71,
+        "unknown_score": 2.4,
+        "reason": "once-per-turn vibration grown",
+        "features": {"vib_1x": 7.2, "vib_velocity_mm_s": 3.1},
+        "fault_types": {"unbalance_like": 9.1},
+        "abnormal_minutes": 3,
+        "out_of_range": 0,
+        "note": "",
+        "problems": [],
+        "wrong": True,
+        "spectrum": [-4.7 + i / 20 for i in range(20)],
         "simulated": True,
     }
     record.update(over)
     return record
+
+
+def make_check_in(**over):
+    body = {
+        "machine_id": "conveyor-07",
+        "mode": "recording",
+        "at": "2026-11-14T15:40:02Z",
+        "wrong": False,
+        "problems": [],
+    }
+    body.update(over)
+    return body
 
 
 def make_run(run_id="run-20261114-160300-conveyor-07", **over):

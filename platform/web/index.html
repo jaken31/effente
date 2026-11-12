@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>effente - live diagnosis</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="no-device">
@@ -30,33 +31,39 @@
 </div>
 
 <main class="grid">
-  <section class="hero" id="hero" aria-live="polite">
+  <section class="hero" id="hero" data-state="none" aria-live="polite">
     <div class="hero-stripe" aria-hidden="true"></div>
     <div class="hero-body">
       <div class="hero-label">
-        <span>Diagnosis</span>
+        <span>Is something wrong?</span>
+        <span class="mode-tag" id="mode-tag" hidden></span>
         <span class="stale-tag" id="stale-tag" hidden></span>
       </div>
       <div class="diag-row">
         <svg class="diag-glyph" id="diag-glyph" viewBox="0 0 100 100" aria-hidden="true"></svg>
         <div class="diag-name" id="diag-name">Waiting for a device</div>
       </div>
-      <div class="reason" id="reason">No device has connected to the platform yet.</div>
-      <div class="meta" id="meta"></div>
-    </div>
-    <div class="switchoff" id="switchoff" hidden>
-      <div class="switchoff-head">
-        <span class="switchoff-icon" aria-hidden="true"></span>
-        <span class="switchoff-title" id="switchoff-title"></span>
+      <div class="model-block" id="model-block">
+        <div class="model-line">
+          <svg class="model-glyph" id="model-glyph" viewBox="0 0 100 100" aria-hidden="true"></svg>
+          <span class="model-label" id="model-label">No device has connected to the platform yet.</span>
+          <span class="tag possible" id="model-possible" hidden>possible</span>
+        </div>
+        <div class="reason" id="reason"></div>
+        <div class="note" id="note"></div>
+        <div class="meta" id="meta"></div>
       </div>
-      <div class="switchoff-change" id="switchoff-change"></div>
+      <div class="problem-block" id="problem-block" hidden>
+        <div class="block-k" id="problem-head">Problems</div>
+        <ul class="prob-list" id="prob-list"></ul>
+      </div>
     </div>
   </section>
 
-  <section class="panel features">
-    <h2>Verified features <span class="h2-note">switch one off to test it</span></h2>
-    <div class="feature-list" id="feature-list"></div>
-    <div class="panel-note" id="feature-note"></div>
+  <section class="panel readings">
+    <h2>Readings that moved <span class="h2-note" id="readings-note"></span></h2>
+    <div class="reading-list" id="reading-list"></div>
+    <div class="panel-note" id="readings-foot"></div>
   </section>
 
   <section class="panel spectrum">

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from receiver_testkit import MODEL, make_record, make_run
+from receiver_testkit import ABOVE_NORMAL, MODEL, TOO_HOT, make_check_in, make_record, make_run
 
 
 def announce(client, model=MODEL):
@@ -24,19 +24,20 @@ def test_post_one_record_and_read_back_by_state(client):
     announce(client)
     status, reply = client.json("POST", "/api/records", make_record())
     assert status == 200
-    assert reply == {"ok": True, "stored": 1, "mask": [], "mask_version": 0, "need_model": False}
+    assert reply == {"ok": True, "stored": 1, "need_model": False}
 
     status, state = client.json("GET", "/api/state")
     assert status == 200 and state["ok"] is True
     assert state["machines"] == ["conveyor-07"]
-    assert state["models"] == {"fake-0.1": MODEL}
+    assert state["models"] == {"conveyor-07-20261114": MODEL}
     dev = state["devices"]["effente-01"]
-    assert dev["connected"] is True
-    assert dev["model_version"] == "fake-0.1"
-    assert dev["mask"] == [] and dev["mask_version"] == 0
+    assert set(dev) == {"connected", "last_seen", "mode", "machine_id", "model_version", "wrong", "problems", "latest"}
+    assert dev["connected"] is True and dev["mode"] == "watching" and dev["machine_id"] == "conveyor-07"
+    assert dev["model_version"] == "conveyor-07-20261114"
+    assert dev["wrong"] is True and dev["problems"] == []
     latest = dev["latest"]
-    assert latest["diagnosis"] == "imbalance"
-    assert len(latest["spectrum"]) == 64
+    assert latest["diagnosis"] == "unbalance_like"
+    assert len(latest["spectrum"]) == 20
     assert isinstance(latest["seq"], int)
     assert latest["received_at"].endswith("Z")
     assert dev["last_seen"].endswith("Z")
@@ -81,7 +82,7 @@ def test_unknown_fields_kept_and_simulated_defaults_false(client):
 
 
 def test_missing_required_field_rejected(client):
-    for field in ("device_id", "machine_id", "model_version", "at", "diagnosis"):
+    for field in ("device_id", "machine_id", "model_version", "at", "diagnosis", "problems", "wrong"):
         record = make_record()
         del record[field]
         status, body = client.json("POST", "/api/records", record)
@@ -114,7 +115,7 @@ def test_need_model_until_announced(client):
     announce(client)
     _, reply = client.json("POST", "/api/records", make_record())
     assert reply["need_model"] is False
-    _, reply = client.json("POST", "/api/records", make_record(model_version="fake-0.2"))
+    _, reply = client.json("POST", "/api/records", make_record(model_version="conveyor-07-20261115"))
     assert reply["need_model"] is True
 
 
@@ -124,7 +125,7 @@ def test_model_announcement_validation(client):
     status, body = client.json("POST", "/api/model", bad)
     assert status == 400 and "model_version" in body["error"]
     bad = copy.deepcopy(MODEL)
-    bad["features"] = [{"sentence": "no name"}]
+    bad["features"] = [{"text": "no name"}]
     status, body = client.json("POST", "/api/model", bad)
     assert status == 400
 
@@ -147,7 +148,7 @@ def test_machine_history_spectrum_and_limit(client):
     assert [r["n"] for r in hist["records"]] == [7, 8, 9]  # newest 3, oldest first
 
     _, hist = client.json("GET", "/api/machines/conveyor-07/records?limit=2&spectrum=1")
-    assert [len(r["spectrum"]) for r in hist["records"]] == [64, 64]
+    assert [len(r["spectrum"]) for r in hist["records"]] == [20, 20]
 
     _, hist = client.json("GET", "/api/machines/nobody/records")
     assert hist == {"ok": True, "records": []}
@@ -194,7 +195,7 @@ def test_machine_id_with_url_escapes(client):
 # ---- section 5: live stream -----------------------------------------------
 
 
-def test_stream_delivers_record_model_mask_and_run_events(make_receiver, open_stream):
+def test_stream_delivers_model_device_record_and_run_events(make_receiver, open_stream):
     _, client = make_receiver()
     stream = open_stream(client.port)
     assert stream.resp.status == 200
@@ -202,16 +203,18 @@ def test_stream_delivers_record_model_mask_and_run_events(make_receiver, open_st
     assert stream.comments.get(timeout=5) == "connected"
 
     announce(client)
-    device = stream.next("device")  # first contact comes before the model event
-    assert device["device_id"] == "effente-01" and device["connected"] is True
     assert stream.next("model") == MODEL
 
     client.json("POST", "/api/records", make_record())
-    record = stream.next("record")
-    assert record["seq"] == 1 and record["machine_id"] == "conveyor-07" and len(record["spectrum"]) == 64
-
-    _, reply = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["rattle"]})
-    assert stream.next("mask") == reply
+    names = []
+    while "record" not in names:
+        name, data = stream.events.get(timeout=5)
+        names.append(name)
+        if name == "device":
+            assert data == {"device_id": "effente-01", "connected": True, "last_seen": data["last_seen"], "mode": "watching"}
+        if name == "record":
+            assert data["seq"] == 1 and data["machine_id"] == "conveyor-07" and len(data["spectrum"]) == 20
+    assert names == ["device", "record"]  # the device connects with its first record, not its announcement
 
     run = make_run()
     client.json("PUT", f"/api/agent/runs/{run['run_id']}", run)
@@ -239,12 +242,28 @@ def test_device_goes_quiet_then_reconnects(make_receiver, open_stream):
     client.json("POST", "/api/records", make_record())
     assert stream.next("device")["connected"] is True
     quiet = stream.next("device", timeout=5)
-    assert quiet == {"device_id": "effente-01", "connected": False, "last_seen": quiet["last_seen"]}
+    assert quiet == {"device_id": "effente-01", "connected": False, "last_seen": quiet["last_seen"], "mode": "watching"}
     _, state = client.json("GET", "/api/state")
     assert state["devices"]["effente-01"]["connected"] is False
 
-    client.json("GET", "/api/devices/effente-01/mask")  # a mask poll counts as contact
-    assert stream.next("device")["connected"] is True
+    client.json("POST", "/api/devices/effente-01", make_check_in())  # a check-in counts as contact
+    back = stream.next("device")
+    assert back["connected"] is True and back["mode"] == "recording"
+
+
+def test_announcement_keeps_a_device_connected_but_does_not_connect_it(make_receiver):
+    receiver, client = make_receiver(quiet_after=0.6)
+    announce(client)
+    _, state = client.json("GET", "/api/state")
+    dev = state["devices"]["effente-01"]
+    assert dev["connected"] is False and dev["mode"] is None and dev["last_seen"].endswith("Z")
+
+    client.json("POST", "/api/records", make_record())
+    for _ in range(4):  # 1.2 s with only announcements, past quiet_after
+        time.sleep(0.3)
+        announce(client)
+    _, state = client.json("GET", "/api/state")
+    assert state["devices"]["effente-01"]["connected"] is True
 
 
 def test_many_streams_and_abrupt_disconnects_do_not_stall_uploads(make_receiver, open_stream):
@@ -295,74 +314,168 @@ def test_parallel_uploads_get_unique_seq(client):
     assert seqs == sorted(seqs)
 
 
-# ---- message 3: mask ------------------------------------------------------
+# ---- message 3: check-in --------------------------------------------------
 
 
-def test_mask_put_arrives_in_next_upload_reply_and_get(client):
-    """Done-when test: a mask set through the dashboard route reaches a test device."""
-    device = DeviceClient(client)
-    device.announce()
-    assert device.upload()["mask"] == []
-
-    status, reply = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["once_per_turn"]})
-    assert status == 200
-    assert reply == {"ok": True, "device_id": "effente-01", "mask": ["once_per_turn"], "mask_version": 1}
-
-    up = device.upload()
-    assert up["mask"] == ["once_per_turn"] and up["mask_version"] == 1
-    assert device.poll() == {"ok": True, "device_id": "effente-01", "mask": ["once_per_turn"], "mask_version": 1}
-
-    # Device acknowledges by echoing the mask in the next record.
-    device.upload(mask=["once_per_turn"], features={"once_per_turn": 0.0, "rattle": 0.03})
+def test_check_in_sets_mode_and_problems_in_state(client):
+    status, reply = client.json("POST", "/api/devices/effente-01", make_check_in(wrong=True, problems=[TOO_HOT]))
+    assert (status, reply) == (200, {"ok": True})
     _, state = client.json("GET", "/api/state")
-    assert state["devices"]["effente-01"]["latest"]["mask"] == ["once_per_turn"]
-    assert state["devices"]["effente-01"]["mask"] == ["once_per_turn"]
-
-    # Clearing the mask bumps the version again.
-    _, reply = client.json("PUT", "/api/devices/effente-01/mask", {"mask": []})
-    assert reply["mask"] == [] and reply["mask_version"] == 2
-    assert device.upload()["mask_version"] == 2
+    dev = state["devices"]["effente-01"]
+    assert dev["connected"] is True and dev["mode"] == "recording" and dev["machine_id"] == "conveyor-07"
+    assert dev["wrong"] is True and dev["problems"] == [TOO_HOT]
+    assert dev["latest"] is None
+    assert state["machines"] == []  # a check-in is not a record
 
 
-def test_mask_version_only_moves_on_change(client):
-    announce(client)
-    _, a = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["rattle", "once_per_turn"]})
-    _, b = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["once_per_turn", "rattle", "rattle"]})
-    assert a["mask_version"] == b["mask_version"] == 1
+def test_check_in_then_record_switches_mode_to_watching(make_receiver, open_stream):
+    _, client = make_receiver()
+    stream = open_stream(client.port)
+    for mode in ("display", "calibrating", "recording", "training"):
+        assert client.json("POST", "/api/devices/effente-01", make_check_in(mode=mode))[0] == 200
+        assert stream.next("device")["mode"] == mode
+    client.json("POST", "/api/devices/effente-01", make_check_in(mode="training"))  # same mode: no event
+    client.json("POST", "/api/records", make_record())
+    assert stream.next("device") == {
+        "device_id": "effente-01", "connected": True, "last_seen": stream_last_seen(client), "mode": "watching"}
 
 
-def test_unknown_feature_rejected(client):
-    announce(client)
-    status, body = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["once_per_turn", "made_up"]})
-    assert status == 400 and body["ok"] is False and "made_up" in body["error"]
-    _, mask = client.json("GET", "/api/devices/effente-01/mask")
-    assert mask["mask"] == [] and mask["mask_version"] == 0
+def stream_last_seen(client):
+    return client.json("GET", "/api/state")[1]["devices"]["effente-01"]["last_seen"]
 
 
-def test_mask_for_device_without_model(client):
-    status, body = client.json("PUT", "/api/devices/ghost/mask", {"mask": ["rattle"]})
-    assert status == 400 and "has not announced" in body["error"]
-    status, body = client.json("PUT", "/api/devices/ghost/mask", {"mask": []})
-    assert status == 200 and body["mask_version"] == 0
+def test_check_in_validation(client):
+    for field in ("machine_id", "mode", "at", "wrong", "problems"):
+        body = make_check_in()
+        del body[field]
+        status, reply = client.json("POST", "/api/devices/effente-01", body)
+        assert status == 400 and reply["ok"] is False and field in reply["error"], field
+    bad_bodies = [
+        make_check_in(mode="watching"),  # watching devices send records, not check-ins
+        make_check_in(mode="sleeping"),
+        make_check_in(wrong="yes"),
+        make_check_in(problems={"name": "too_hot"}),
+        make_check_in(problems=[{"kind": "limit"}]),
+        make_check_in(problems=[TOO_HOT, TOO_HOT]),
+        ["recording"],
+    ]
+    for body in bad_bodies:
+        status, reply = client.json("POST", "/api/devices/effente-01", body)
+        assert status == 400 and reply["ok"] is False, body
+    _, state = client.json("GET", "/api/state")
+    assert state["devices"] == {}  # nothing refused counts as contact
 
 
-def test_mask_validated_against_latest_announced_model(client):
-    announce(client)
-    newer = copy.deepcopy(MODEL)
-    newer["model_version"] = "fake-0.2"
-    newer["features"] = [{"name": "rattle", "sentence": "rattling pattern"}]
-    announce(client, newer)
-    status, _ = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["once_per_turn"]})
-    assert status == 400
-    status, _ = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["rattle"]})
+def test_check_in_route_methods(client):
+    status, _ = client.json("GET", "/api/devices/effente-01")
+    assert status == 405
+    status, _ = client.json("POST", "/api/devices/", make_check_in())
+    assert status == 404
+    status, _ = client.json("GET", "/api/devices/effente-01/mask")  # contract version 1 only
+    assert status == 404
+
+
+def test_problem_names_are_not_checked_against_a_list(client):
+    new = {"name": "smells_of_smoke", "kind": "limit", "text": "smoke", "value": None, "since": "2026-11-14T16:00:00Z"}
+    status, _ = client.json("POST", "/api/records", make_record(problems=[new], wrong=True))
+    assert status == 200
+    status, _ = client.json("POST", "/api/devices/effente-01", make_check_in(problems=[{"name": "x"}], wrong=True))
     assert status == 200
 
 
-def test_bad_mask_body_rejected(client):
-    announce(client)
-    for body in ({"mask": "rattle"}, {"nope": []}, {"mask": [1]}, ["rattle"]):
-        status, reply = client.json("PUT", "/api/devices/effente-01/mask", body)
-        assert status == 400 and reply["ok"] is False, body
+def test_record_problems_rules(client):
+    for problems in ("too_hot", [{"text": "no name"}], [TOO_HOT, dict(TOO_HOT, value=1)]):
+        status, reply = client.json("POST", "/api/records", make_record(problems=problems))
+        assert status == 400 and "problem" in reply["error"], problems
+    status, reply = client.json("POST", "/api/records", make_record(wrong=None))
+    assert status == 400 and "wrong" in reply["error"]
+    status, reply = client.json("POST", "/api/records", [make_record(), make_record(problems=None)])
+    assert status == 400 and "record 1" in reply["error"]
+
+
+# ---- section 5: problem events -------------------------------------------
+
+
+def test_problem_events_compare_by_name(make_receiver, open_stream):
+    _, client = make_receiver()
+    stream = open_stream(client.port)
+
+    def problem_events(body, path="/api/records"):
+        assert client.json("POST", path, body)[0] == 200
+        client.json("POST", "/api/model", MODEL)  # marker: everything before it has been sent
+        out = []
+        while True:
+            name, data = stream.events.get(timeout=5)
+            if name == "model":
+                return out
+            if name.startswith("problem"):
+                out.append((name, data))
+
+    # A problem while the diagnosis is normal.
+    got = problem_events(make_record(diagnosis="normal", at="2026-11-14T16:00:01Z", problems=[TOO_HOT], wrong=True))
+    assert got == [("problem", {"device_id": "effente-01", "machine_id": "conveyor-07",
+                                "at": "2026-11-14T16:00:01Z", "problem": TOO_HOT})]
+    # Same name, new value: no event, but state shows the new value.
+    hotter = dict(TOO_HOT, value=110.0)
+    assert problem_events(make_record(at="2026-11-14T16:00:02Z", problems=[hotter])) == []
+    _, state = client.json("GET", "/api/state")
+    assert state["devices"]["effente-01"]["problems"] == [hotter]
+    # One more appears.
+    got = problem_events(make_record(at="2026-11-14T16:00:03Z", problems=[hotter, ABOVE_NORMAL]))
+    assert got == [("problem", {"device_id": "effente-01", "machine_id": "conveyor-07",
+                                "at": "2026-11-14T16:00:03Z", "problem": ABOVE_NORMAL})]
+    # Leaving watching: only the limit stays (outside-normal checks stop), from a check-in.
+    got = problem_events(make_check_in(at="2026-11-14T16:00:04Z", problems=[hotter], wrong=True), "/api/devices/effente-01")
+    assert got == [("problem_cleared", {"device_id": "effente-01", "machine_id": "conveyor-07",
+                                        "at": "2026-11-14T16:00:04Z", "name": "vibration_above_normal"})]
+    # It cools down while recording.
+    got = problem_events(make_check_in(at="2026-11-14T16:00:05Z"), "/api/devices/effente-01")
+    assert got == [("problem_cleared", {"device_id": "effente-01", "machine_id": "conveyor-07",
+                                        "at": "2026-11-14T16:00:05Z", "name": "too_hot"})]
+    _, state = client.json("GET", "/api/state")
+    assert state["devices"]["effente-01"]["problems"] == [] and state["devices"]["effente-01"]["wrong"] is False
+
+
+def test_each_record_in_a_batch_is_compared_with_the_one_before(make_receiver, open_stream):
+    _, client = make_receiver()
+    stream = open_stream(client.port)
+    batch = [
+        make_record(at="2026-11-14T16:00:01Z", problems=[TOO_HOT]),
+        make_record(at="2026-11-14T16:00:02Z", problems=[]),
+        make_record(at="2026-11-14T16:00:03Z", problems=[TOO_HOT]),
+    ]
+    client.json("POST", "/api/records", batch)
+    got = [stream.next_of(("problem", "problem_cleared")) for _ in range(3)]
+    assert [(n, d["at"]) for n, d in got] == [
+        ("problem", "2026-11-14T16:00:01Z"), ("problem_cleared", "2026-11-14T16:00:02Z"), ("problem", "2026-11-14T16:00:03Z")]
+
+
+def test_quiet_device_clears_its_problems_and_they_come_back_as_new(make_receiver, open_stream):
+    _, client = make_receiver(quiet_after=0.5)
+    stream = open_stream(client.port)
+    client.json("POST", "/api/devices/effente-01", make_check_in(problems=[TOO_HOT], wrong=True))
+    assert stream.next("problem")["problem"] == TOO_HOT
+    cleared = stream.next("problem_cleared", timeout=5)
+    assert cleared["reason"] == "device quiet" and cleared["name"] == "too_hot"
+    assert cleared["device_id"] == "effente-01" and cleared["machine_id"] == "conveyor-07"
+    assert cleared["at"].endswith("Z")
+    _, state = client.json("GET", "/api/state")
+    dev = state["devices"]["effente-01"]
+    assert dev["connected"] is False and dev["wrong"] is False and dev["problems"] == []
+
+    client.json("POST", "/api/devices/effente-01", make_check_in(at="2026-11-14T15:41:00Z", problems=[TOO_HOT], wrong=True))
+    again = stream.next("problem")
+    assert again["at"] == "2026-11-14T15:41:00Z" and again["problem"] == TOO_HOT
+
+
+def test_wrong_and_problems_hidden_while_not_connected(make_receiver):
+    _, client = make_receiver(quiet_after=0.3)
+    client.json("POST", "/api/records", make_record(problems=[TOO_HOT]))
+    time.sleep(1.0)
+    _, state = client.json("GET", "/api/state")
+    dev = state["devices"]["effente-01"]
+    assert dev["connected"] is False and dev["wrong"] is False and dev["problems"] == []
+    assert dev["latest"]["problems"] == [TOO_HOT]  # the stored record is unchanged
 
 
 # ---- message 4: agent runs ------------------------------------------------
@@ -379,7 +492,7 @@ def test_agent_run_upsert_and_listing(client):
     run["report"] = {
         "summary": "s",
         "priority": "medium",
-        "cited_features": ["once_per_turn"],
+        "cited_features": ["vib_1x"],
         "recommended_action": "a",
         "part_reference": "",
     }
@@ -427,12 +540,11 @@ def test_unknown_api_route_and_wrong_method(client):
 # ---- restart --------------------------------------------------------------
 
 
-def test_restart_keeps_history_and_resets_masks(make_receiver, tmp_path):
+def test_restart_keeps_history_and_forgets_problems(make_receiver, tmp_path):
     data = tmp_path / "shared-data"
     receiver, client = make_receiver(data_dir=data)
     announce(client)
-    client.json("POST", "/api/records", [make_record(n=i) for i in range(5)])
-    client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["rattle"]})
+    client.json("POST", "/api/records", [make_record(n=i, problems=[TOO_HOT]) for i in range(5)])
     run = make_run()
     client.json("PUT", f"/api/agent/runs/{run['run_id']}", run)
     run["status"] = "done"
@@ -442,10 +554,10 @@ def test_restart_keeps_history_and_resets_masks(make_receiver, tmp_path):
     _, client = make_receiver(data_dir=data)
     _, state = client.json("GET", "/api/state")
     dev = state["devices"]["effente-01"]
-    assert dev["connected"] is False
-    assert dev["mask"] == [] and dev["mask_version"] == 0
+    assert dev["connected"] is False and dev["mode"] is None and dev["machine_id"] == "conveyor-07"
+    assert dev["wrong"] is False and dev["problems"] == []
     assert dev["latest"]["n"] == 4
-    assert state["models"] == {"fake-0.1": MODEL}
+    assert state["models"] == {"conveyor-07-20261114": MODEL}
     assert state["machines"] == ["conveyor-07"]
     _, hist = client.json("GET", "/api/machines/conveyor-07/records")
     assert [r["n"] for r in hist["records"]] == [0, 1, 2, 3, 4]
@@ -457,9 +569,6 @@ def test_restart_keeps_history_and_resets_masks(make_receiver, tmp_path):
     assert reply["need_model"] is False
     _, hist = client.json("GET", "/api/machines/conveyor-07/records")
     assert hist["records"][-1]["seq"] == 6
-    # The mask can be set again against the reloaded feature table.
-    status, _ = client.json("PUT", "/api/devices/effente-01/mask", {"mask": ["rattle"]})
-    assert status == 200
 
 
 def test_corrupt_last_line_does_not_stop_start(make_receiver, tmp_path):
@@ -483,38 +592,11 @@ def test_corrupt_last_line_does_not_stop_start(make_receiver, tmp_path):
     assert [r["n"] for r in hist["records"]] == [0, 1, 2]
 
 
-# ---- a test device --------------------------------------------------------
-
-
-class DeviceClient:
-    """Acts like the handheld: announces its model, uploads records, polls the mask."""
-
-    def __init__(self, client, device_id="effente-01"):
-        self.client = client
-        self.device_id = device_id
-
-    def announce(self):
-        model = dict(MODEL, device_id=self.device_id)
-        assert self.client.json("POST", "/api/model", model) == (200, {"ok": True})
-
-    def upload(self, **over):
-        status, reply = self.client.json("POST", "/api/records", make_record(device_id=self.device_id, **over))
-        assert status == 200 and reply["ok"] is True
-        if reply["need_model"]:
-            self.announce()
-        return reply
-
-    def poll(self):
-        status, reply = self.client.json("GET", f"/api/devices/{self.device_id}/mask")
-        assert status == 200
-        return reply
-
-
 # ---- connection handling ----------------------------------------------------
 
 
 @pytest.mark.parametrize("method,path", [
-    ("POST", "/api/devices/effente-01"),  # no such route here (a contract 3 check-in)
+    ("POST", "/api/devices/effente-01/mask"),  # no such route (the mask went in contract 3)
     ("PUT", "/api/records"),  # route exists, method does not
     ("POST", "/index.html"),  # dashboard files take no POST
 ])

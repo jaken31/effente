@@ -62,14 +62,5 @@ class Link:
         payload = records[0] if len(records) == 1 else records
         return self._call("POST", "/api/records", payload)
 
-    def get_mask(self) -> LinkResult:
-        return self._call("GET", f"/api/devices/{urllib.parse.quote(self.device_id, safe='')}/mask")
-
-
-def mask_from(body: dict) -> tuple[list[str], int] | None:
-    """Pull (mask, mask_version) out of a reply, or None if it carries none."""
-    mask = body.get("mask")
-    if not isinstance(mask, list) or not all(isinstance(m, str) for m in mask):
-        return None
-    version = body.get("mask_version")
-    return mask, version if isinstance(version, int) else -1
+    def check_in(self, body: dict) -> LinkResult:
+        return self._call("POST", f"/api/devices/{urllib.parse.quote(self.device_id, safe='')}", body)
