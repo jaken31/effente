@@ -1,6 +1,6 @@
 # Mini conveyor build guide
 
-> Keep this file next to its `images/` folder so the drawings show.
+> The drawings live in the repo-root `images/` folder.
 
 A desk-size belt conveyor to act as the demo machine for effente. The handheld probe (Arduino UNO Q + MPU6050 sensor head) is built separately, following the repo. This guide covers only the conveyor.
 
@@ -64,7 +64,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 1: Frame
 
-![Step 1: frame, wood vs 3D-printed](images/step-1.png)
+![Step 1: frame, wood vs 3D-printed](../../images/step-1.png)
 
 🟫 **Wood**
 1. Stand the two side rails on the base board, parallel, along the long edges.
@@ -80,7 +80,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 2: Bearing holes
 
-![Step 2: bearing holes and tension slot](images/step-2.png)
+![Step 2: bearing holes and tension slot](../../images/step-2.png)
 
 🟫 **Wood**
 1. Clamp both rails together and mark both ends so the holes line up.
@@ -97,7 +97,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 3: Rollers
 
-![Step 3: rollers, wood vs 3D-printed](images/step-3.png)
+![Step 3: rollers, wood vs 3D-printed](../../images/step-3.png)
 
 🟫 **Wood**
 1. Drill an 8 mm hole exactly in the centre of each end cap.
@@ -115,7 +115,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 4: Fit the rollers
 
-![Step 4: rollers in place, top view](images/step-4.png)
+![Step 4: rollers in place, top view](../../images/step-4.png)
 
 ⬜ **Both routes**
 1. Slide the drive roller's rod through the head bearings, leaving about 3 cm out on the motor side.
@@ -126,7 +126,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 5: Motor mount
 
-![Step 5: motor, coupler and mount](images/step-5.png)
+![Step 5: motor, coupler and mount](../../images/step-5.png)
 
 🟫 **Wood:** fix the motor to a metal L-bracket.
 
@@ -143,7 +143,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 6: Belt
 
-![Step 6: belt loop and tensioning](images/step-6.png)
+![Step 6: belt loop and tensioning](../../images/step-6.png)
 
 ⬜ **Both routes**
 1. Cut the strip to about twice the roller distance plus 10 cm. Overlap the ends 2–3 cm and glue or stitch. Keep the joint thin.
@@ -155,7 +155,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 7: Power (fixed speed)
 
-![Step 7: conveyor power, separate from the probe](images/step-7.png)
+![Step 7: conveyor power, separate from the probe](../../images/step-7.png)
 
 ⬜ **Both routes**
 1. Connect the motor to its own regulated supply (or buck converter) through the on/off switch.
@@ -166,7 +166,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 8: Probe point for the sensor head
 
-![Step 8: probe point for the sensor head](images/step-8.png)
+![Step 8: probe point for the sensor head](../../images/step-8.png)
 
 ⬜ **Both routes**
 1. Glue a steel disc on the side (rail or plate) right next to the drive-roller bearing. The magnetic sensor head snaps onto it.
@@ -177,7 +177,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 9: Measure the roller speed
 
-![Step 9: measuring roller speed](images/step-9.png)
+![Step 9: measuring roller speed](../../images/step-9.png)
 
 ⬜ **Both routes**
 1. Draw a line on the end of the drive roller.
@@ -186,7 +186,7 @@ A fully printed frame is usually bigger than the print bed (often 22–25 cm), h
 
 ## Step 10: Faults and recordings
 
-![Step 10: the four fault setups](images/step-10.png)
+![Step 10: the four fault setups](../../images/step-10.png)
 
 | Route | Fault | How |
 |---|---|---|
