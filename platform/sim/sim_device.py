@@ -15,6 +15,7 @@ import signal
 import sys
 import time
 
+import sim_heat
 import sim_model as model
 from sim_link import Link, mask_from
 
@@ -77,6 +78,7 @@ class Sim:
         self.link = Link(args.url, args.device)
         self.rng = random.Random(args.seed)
         self.case = args.case
+        self.heat = sim_heat.HeatSim(args.heat, args.seed)
         self.mask: list[str] = []
         self.mask_version = None
         self.reachable = None  # None until the first attempt
@@ -149,7 +151,11 @@ class Sim:
             src = self.replay[self.replay_index]
             self.replay_index += 1
             return model.replay_record(src, self.mask, self.args.device, self.args.machine)
-        return model.make_record(self.case, self.rng, self.mask, self.args.device, self.args.machine)
+        record = model.make_record(self.case, self.rng, self.mask, self.args.device, self.args.machine)
+        heat = self.heat.heat(record["at"], self.args.interval)
+        if heat is not None:
+            record["heat"] = heat
+        return record
 
     def step(self) -> bool:
         """Diagnose and send one window. Returns False when there is nothing more to send."""
@@ -188,7 +194,7 @@ class Sim:
             plat = "platform ok"
         if self.pending:
             plat += f" ({len(self.pending)} queued)"
-        return f"[SIM] case {source} | sent {sent} | mask {mask} | {plat}"
+        return f"[SIM] case {source} | heat {self.heat.mode} | sent {sent} | mask {mask} | {plat}"
 
     # --- main loop --------------------------------------------------------
     def run(self, keys: Keys) -> int:
@@ -198,7 +204,7 @@ class Sim:
                 f.write("\n")
         tty = keys.active
         if tty:
-            self.out.write("keys: 1 normal  2 imbalance  3 loose mount  4 unknown  p pause  q quit\n")
+            self.out.write("keys: 1 normal  2 imbalance  3 loose mount  4 unknown  t heat source  p pause  q quit\n")
         self.announce_if_needed()
         next_at = time.monotonic()
         while True:
@@ -207,6 +213,9 @@ class Sim:
                 break
             if key in KEYS:
                 self.case = KEYS[key]
+            elif key in ("t", "T"):
+                modes = sim_heat.MODES
+                self.heat.mode = modes[(modes.index(self.heat.mode) + 1) % len(modes)]
             elif key in ("p", "P", " "):
                 self.paused = not self.paused
             now = time.monotonic()
@@ -254,6 +263,8 @@ def parse_args(argv=None):
     p.add_argument("--device", default=model.DEVICE_ID)
     p.add_argument("--machine", default=model.MACHINE_ID)
     p.add_argument("--case", default="normal", choices=model.CASES)
+    p.add_argument("--heat", default="camera", choices=sim_heat.MODES,
+                   help="camera: thermal summary and images; imu: IMU temperature only; none: no heat field")
     p.add_argument("--interval", type=float, default=1.0, help="seconds between records")
     p.add_argument("--seed", type=int, default=None, help="repeatable output")
     p.add_argument("--log", metavar="FILE", help="append every record to FILE (JSON lines)")

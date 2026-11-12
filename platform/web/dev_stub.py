@@ -20,6 +20,9 @@ Stub-only controls, outside the contract, for trying the page's states:
   POST /dev/pause      stop sending records (device goes quiet, then disconnected)
   POST /dev/resume     start again
   POST /dev/agent-run  start a sample agent run now
+  POST /dev/heat?source=camera|imu|none
+                       what the records' heat field carries (contract 3.3;
+                       made up by platform/sim/sim_heat.py)
 """
 
 import argparse
@@ -27,6 +30,7 @@ import json
 import os
 import queue
 import random
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -34,6 +38,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 WEB_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(WEB_ROOT), "sim"))
+import sim_heat  # noqa: E402  (the simulator's made-up heat readings)
 
 DEVICE_ID = "effente-sim-01"
 MACHINE_ID = "sim-fan-01"
@@ -74,8 +80,10 @@ def iso(t=None):
 class StubPlatform:
     """All stub state. Thread-safe. tick() makes one fake record."""
 
-    def __init__(self, records_per_phase=8, mask_delay_s=1.0, seed=7):
+    def __init__(self, records_per_phase=8, mask_delay_s=1.0, seed=7, heat="camera", interval_s=1.0):
         self.lock = threading.RLock()
+        self.heat = sim_heat.HeatSim(heat, seed)
+        self.interval_s = interval_s
         self.rng = random.Random(seed)
         self.records_per_phase = records_per_phase
         self.mask_delay_s = mask_delay_s
@@ -184,6 +192,9 @@ class StubPlatform:
                 "seq": self.seq,
                 "received_at": iso(now),
             }
+            heat = self.heat.heat(rec["at"], self.interval_s)
+            if heat is not None:
+                rec["heat"] = heat
             self.records.append(rec)
             if len(self.records) > HISTORY_MAX:
                 del self.records[: len(self.records) - HISTORY_MAX]
@@ -323,12 +334,15 @@ class StubPlatform:
                 "machines": [MACHINE_ID] if self.records else [],
             }
 
-    def machine_records(self, machine_id, limit=300, spectrum=False):
+    def machine_records(self, machine_id, limit=300, spectrum=False, frames=False):
         limit = max(1, min(2000, limit))
         with self.lock:
             recs = [r for r in self.records if r["machine_id"] == machine_id][-limit:]
         if not spectrum:
             recs = [{k: v for k, v in r.items() if k != "spectrum"} for r in recs]
+        if not frames:
+            recs = [dict(r, heat={k: v for k, v in r["heat"].items() if k != "frames"}) if "heat" in r else r
+                    for r in recs]
         return recs
 
     def machine_runs(self, machine_id, limit=20):
@@ -384,7 +398,8 @@ def make_handler(platform):
                     return self.send_json(400, {"ok": False, "error": "limit must be a whole number"})
                 if p[3] == "records":
                     spectrum = q.get("spectrum", ["0"])[0] == "1"
-                    return self.send_json(200, {"ok": True, "records": platform.machine_records(p[2], limit, spectrum)})
+                    frames = q.get("frames", ["0"])[0] == "1"
+                    return self.send_json(200, {"ok": True, "records": platform.machine_records(p[2], limit, spectrum, frames)})
                 return self.send_json(200, {"ok": True, "runs": platform.machine_runs(p[2], limit)})
             return self.send_json(404, {"ok": False, "error": "not found"})
 
@@ -403,13 +418,18 @@ def make_handler(platform):
             return self.send_json(404, {"ok": False, "error": "not found"})
 
         def do_POST(self):
-            _, p, _ = self.parts()
+            _, p, q = self.parts()
             if p == ["dev", "pause"]:
                 platform.paused = True
             elif p == ["dev", "resume"]:
                 platform.paused = False
             elif p == ["dev", "agent-run"]:
                 threading.Thread(target=platform.run_agent, args=(1.0,), daemon=True).start()
+            elif p == ["dev", "heat"]:
+                source = q.get("source", [""])[0]
+                if source not in sim_heat.MODES:
+                    return self.send_json(400, {"ok": False, "error": "source must be camera, imu or none"})
+                platform.heat.mode = source
             else:
                 return self.send_json(404, {"ok": False, "error": "not found"})
             return self.send_json(200, {"ok": True})
@@ -488,9 +508,10 @@ def main():
     ap = argparse.ArgumentParser(description="Dashboard dev stub (simulated data only).")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--heat", default="camera", choices=sim_heat.MODES, help="what the records' heat field carries")
     ap.add_argument("--mask-delay", type=float, default=1.0, help="seconds before the fake device applies a new mask")
     args = ap.parse_args()
-    platform = StubPlatform(mask_delay_s=args.mask_delay)
+    platform = StubPlatform(mask_delay_s=args.mask_delay, heat=args.heat)
     server = make_server(platform, args.host, args.port)
     start_background(platform, server)
     print(f"effente dev stub (SIMULATED DATA) on http://localhost:{args.port}/  - Ctrl+C to stop")

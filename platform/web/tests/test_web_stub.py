@@ -36,7 +36,7 @@ def call(port, method, path, body=None):
 
 RECORD_KEYS = {
     "device_id", "machine_id", "model_version", "at", "diagnosis", "confidence",
-    "unknown_score", "reason", "features", "mask", "spectrum", "simulated", "seq", "received_at",
+    "unknown_score", "reason", "features", "mask", "spectrum", "simulated", "seq", "received_at", "heat",
 }
 
 
@@ -78,6 +78,23 @@ def test_record_shape():
         assert (r["reason"] == "") == (r["diagnosis"] in ("normal", "unknown"))
         seqs.append(r["seq"])
     assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+
+def test_heat_sources_and_history_without_frames(stub):
+    platform, port = stub
+    platform.tick()
+    assert call(port, "POST", "/dev/heat?source=imu")[0] == 200
+    platform.tick()
+    assert call(port, "POST", "/dev/heat?source=none")[0] == 200
+    platform.tick()
+    assert call(port, "POST", "/dev/heat?source=laser")[0] == 400
+    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records")
+    cam, imu, none = body["records"]
+    assert cam["heat"]["source"] == "camera" and "frames" not in cam["heat"] and len(cam["heat"]["cells"]) == 48
+    assert imu["heat"] == {"source": "imu", "imu_temp_c": imu["heat"]["imu_temp_c"]}
+    assert "heat" not in none
+    _, body = call(port, "GET", f"/api/machines/{dev_stub.MACHINE_ID}/records?frames=1")
+    assert len(body["records"][0]["heat"]["frames"]) == 2
 
 
 def test_cycles_all_four_diagnoses():

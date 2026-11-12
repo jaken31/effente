@@ -1,8 +1,15 @@
 # Device and platform contract
 
-Version 3.2, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 3.3, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
 It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds eight fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq`.
+
+## Changes from version 3.2
+
+Additions only. A version 3.2 device or dashboard keeps working.
+
+- A record may carry `heat`: the IMU's temperature, and, when a thermal camera is fitted, its summary and up to two small images (section 2).
+- The per-machine history leaves out those images unless asked (section 5).
 
 ## Changes from version 3.1
 
@@ -183,6 +190,52 @@ Once the dashboard has set a sensitivity for this device, the reply also carries
 
 The platform adds two fields before storing or showing a record: `seq` (a whole number that only goes up, across all devices) and `received_at`.
 
+### Heat (optional)
+
+A record may carry `heat`. Missing or `null` means the device sent no heat reading.
+
+With a thermal camera (MLX90640, 32 x 24 pixels):
+
+```json
+"heat": {
+  "source": "camera",
+  "imu_temp_c": 42.6,
+  "max_c": 61.2,
+  "hot_row": 9,
+  "hot_col": 21,
+  "background_c": 25.0,
+  "cells": [0.4, 0.6, 1.2],
+  "spots": [1.1, 1.9, 3.0],
+  "frozen": false,
+  "scene_match": 0.93,
+  "frames": [
+    {"at": "2026-11-14T16:02:10.5Z", "min_c": 24.1, "step_c": 0.15, "data": "base64 of 768 bytes"},
+    {"at": "2026-11-14T16:02:11Z", "min_c": 24.0, "step_c": 0.15, "data": "base64 of 768 bytes"}
+  ]
+}
+```
+
+Without one:
+
+```json
+"heat": {"source": "imu", "imu_temp_c": 42.6}
+```
+
+| Field | Rule |
+|-------|------|
+| `source` | `camera` if the thermal camera gave this reading, `imu` if there is no camera. With `imu`, only `imu_temp_c` is present. |
+| `imu_temp_c` | The IMU's own temperature sensor, in degC. Always present. It follows the surface the sensor head is fixed to, slowly, and is not a surface temperature. `null` if the IMU gave none. |
+| `max_c`, `background_c` | Hottest pixel and background (the image's median) over this record's window, in degC: `th_max_c` and `th_background_c` in `effente/features.py`. |
+| `hot_row`, `hot_col` | Where the hottest pixel is: row 0-23, column 0-31, in the camera's pixel order (`th_hot_row`, `th_hot_col`). |
+| `cells`, `spots` | 48 numbers each: the image cut into 6 rows of 8 blocks of 4 x 4 pixels, row by row from row 0. `cells` is each block's average and `spots` its hottest pixel, both in degC above `background_c`, so they can be below 0 (`th_cell_RC`, `th_spot_RC`). |
+| `frozen` | `true` if every frame in the window was identical (camera stuck, `th_frozen`). |
+| `scene_match` | How closely the image matches its usual layout, -1 to 1 (`trend_scene_match`). `null` until the device has learned the usual view. |
+| `frames` | Optional. The images taken since the previous record, oldest first, at most 2. Each is 768 bytes, base64 encoded: row 0 first, 32 pixels a row, in the same pixel order as `hot_row` and `hot_col`. Pixel temperature in degC = `min_c` + byte x `step_c`. The device picks `min_c` and `step_c` for each image so every pixel fits in 0 to 255. |
+
+Two images a second is the most the device's internal link can carry next to the vibration data. That is an estimate from its measured spare capacity, not yet tested with the camera.
+
+The platform adds two fields before storing or showing a record: `seq` (a whole number that only goes up, across all devices) and `received_at`.
+
 ## 3. Device check-in
 
 When the device is not watching (display, calibrating, recording or training), it checks in so the dashboard knows it is alive, what it is doing and whether something is wrong. It sends no records then, but the limits still run.
@@ -314,7 +367,7 @@ The device never sends events. The platform makes `problem` and `problem_cleared
 
 A comment line is sent every 5 seconds to keep the connection open. After a reconnect the dashboard calls `GET /api/state` again.
 
-`GET /api/machines/conveyor-07/records?limit=300` returns `{"ok": true, "records": [...]}`, oldest first, the newest `limit` records (default 300, at most 2,000), without `spectrum`. Add `&spectrum=1` to keep it.
+`GET /api/machines/conveyor-07/records?limit=300` returns `{"ok": true, "records": [...]}`, oldest first, the newest `limit` records (default 300, at most 2,000), without `spectrum` and without `heat.frames`. Add `&spectrum=1` or `&frames=1` to keep them.
 
 `GET /api/machines/conveyor-07/agent-runs?limit=20` returns `{"ok": true, "runs": [...]}`, newest first.
 
@@ -419,7 +472,7 @@ While a value is set, every reply to message 2 and message 3 carries it. When it
 
 The device's own `/settings` on port 8765 and `data/settings.json` stay for bench use. While the dashboard has a value set, the next reply overwrites a local change. Clear the dashboard's value to tune on the device.
 
-## Not in version 3.2
+## Not in version 3.3
 
 - No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The API key comes from the laptop's environment and is never sent to or through the platform.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
