@@ -1,6 +1,6 @@
 # Receiver
 
-Accepts log records, model announcements and agent runs from the device and agent, stores them, streams them live to the dashboard, passes the feature mask back to the device, and serves the dashboard's files. The routes are exactly those in [../CONTRACT.md](../CONTRACT.md), sections 1 to 5.
+Accepts model announcements, log records and check-ins from the device and agent runs from the agent, stores them, streams them live to the dashboard, tracks each device's mode and problems, and serves the dashboard's files. The routes are those in [../CONTRACT.md](../CONTRACT.md), sections 1 to 5. Sections 6 (alarms) and 7 (settings) are not built yet.
 
 Python 3.11 or newer, standard library only. No install, no build step.
 
@@ -31,7 +31,16 @@ Three JSON lines files in the data dir, appended as things arrive and reloaded a
 - `models.jsonl`: every model announcement. The last one per `model_version` wins.
 - `agent_runs.jsonl`: every copy of every agent run. The last one per `run_id` wins.
 
-Masks are not stored: they start empty at every start, as the contract says. A cut-off or corrupt line (for example after a crash) is skipped with a warning.
+Check-ins are not stored, and neither are each device's mode, `wrong` and `problems`: after a restart no device is connected, so they are `null`, `false` and `[]` until the device is heard from again. A cut-off or corrupt line (for example after a crash) is skipped with a warning.
+
+## Problems and the device event
+
+The receiver makes the `problem` and `problem_cleared` events by comparing the `problems` of each record or check-in with the previous ones from the same device, by name. Each record in a catch-up array is compared with the one before it. Problem names are not checked against a list (the device's safety checks own them); a record or check-in is refused only if `problems` is not a list, a problem has no `name`, or a name repeats.
+
+Two choices the contract leaves open:
+
+- A model announcement keeps a connected device connected, but does not connect one by itself, because the `device` event must carry `mode` and an announcement does not say it. The device connects with its first record (mode `watching`) or check-in. Until then its `mode` in `/api/state` is `null`.
+- When a device goes quiet, its problems are cleared with `"reason": "device quiet"`. No message caused that, so `at` is the platform's time.
 
 Writes are flushed to the OS after each request but not fsynced, so a power cut can lose the last few records.
 
