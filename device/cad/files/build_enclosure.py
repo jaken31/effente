@@ -149,21 +149,24 @@ SCREEN = dict(
     stop_w=4.0, stop_t=1.2,
 )
 
-# External power bank holder: a sleeve stuck to the outside of the right wall
+# External power bank holder: a tray stuck to the outside of the right wall
 # with command strips, for an Anker Prime 12,000 mAh (A1335). Size from Anker's
-# spec page: 134.4 x 55 x 34.53 mm (not measured). The bank slides in from the
-# top and rests on two ledges; its USB-C end points down. A short, thin USB-C
-# cable runs from the bank's port, up the gap between holder and wall (no back
-# plate below plate_y0), and in through the existing side slot to the UNO Q.
+# spec page: 134.4 x 55 x 34.53 mm (not measured). The bank lies flat with its
+# display (on the 134 x 55 face, near the USB-C end) facing up like the
+# device's screen, and the tray's top is flush with the device's front face.
+# The bank slides in from the top end (+Y) onto two corner stops at the bottom
+# end, USB-C end down. A short, thin USB-C cable runs from the bank's port,
+# under the tray floor, and through a window in the back plate into the
+# existing side slot to the UNO Q.
 BANK = dict(
-    size=(134.4, 55.0, 34.53),             # length (Y), width (Z), thickness (X)
-    clear=0.4, wall=2.0,
+    size=(134.4, 55.0, 34.53),             # length (Y), width (X), thickness (Z)
+    clear=0.4, wall=2.0, floor_t=2.0,
     strip_gap=2.0,                         # command strip thickness (UNVERIFIED)
-    y0=10.0,                               # bottom of the bank (room for the cable loop)
-    ledge=6.0, ledge_t=2.5,                # bank rests on two ledges at the bottom
-    lip=4.0,                               # lips on the open outer face
-    plate_y0=40.0,                         # back plate starts above the side slot
-    vent_win=((86.0, 122.0), (13.0, 31.0)),  # window over the wall vents: Y, Z
+    y0=8.0,                                # USB-C end of the bank
+    lip=3.0, lip_t=2.0,                    # lips over the long edges, flush with the front
+    stop=6.0, stop_t=3.0,                  # corner stops at the USB-C end
+    slot_win=((17.0, 37.0), (3.0, 15.0)),  # back plate window at the side slot: Y, Z
+    vent_win=((86.0, 122.0), (13.0, 31.0)),  # back plate window over the vents: Y, Z
 )
 
 MM = 0.1  # Fusion API works in cm
@@ -617,40 +620,36 @@ def bank_geo():
     c, w = k['clear'], k['wall']
     xp0 = B['width'] + k['strip_gap']              # back plate, on the strips
     xp1 = xp0 + w
-    xb0, xb1 = xp1 + c, xp1 + c + T                # bank
-    zb0 = B['depth'] / 2 - W / 2
+    xb0, xb1 = xp1 + c, xp1 + c + W                # bank, display up
+    zt = B['depth']                                # flush with the front face
+    zb1 = zt - k['lip_t']                          # bank top, just under the lips
+    zb0 = zb1 - T
     yb0 = k['y0']
-    return dict(xp0=xp0, xp1=xp1, xb0=xb0, xb1=xb1, xo=xb1 + c,
-                yb0=yb0, yb1=yb0 + L, zb0=zb0, zb1=zb0 + W,
-                zc0=zb0 - c - w, zc1=zb0 + W + c + w)
+    return dict(xp0=xp0, xp1=xp1, xb0=xb0, xb1=xb1, xo=xb1 + c, xo2=xb1 + c + w,
+                yb0=yb0, yb1=yb0 + L, zb0=zb0, zb1=zb1, zt=zt,
+                zf1=zb0 - c, zf0=zb0 - c - k['floor_t'])
 
 
 def build_bank_holder(comp):
-    """Sleeve for the external power bank, stuck on with command strips."""
+    """Tray for the external power bank, display up, stuck on with command
+    strips. Open at the top end so the bank slides in."""
     b, k, g = Builder(comp), BANK, bank_geo()
     c = k['clear']
-    ytop = g['yb1'] + c
-    yfl = g['yb0'] - k['ledge_t']
-    xo2 = g['xo'] + 2.0                            # outer face of the lips
-    # back plate first (only above the side slot, so the cable can pass below
-    # it); everything else joins onto it, so the holder is one body
-    holder = b.zbox(g['xp0'], k['plate_y0'], g['xp1'], ytop, g['zc0'], g['zc1'],
-                    'new').bodies.item(0)
+    ys0, ytop = g['yb0'] - k['stop_t'], g['yb1'] + c
+    # back plate on the strips, full height of the tray
+    holder = b.zbox(g['xp0'], ys0, g['xp1'], ytop, g['zf0'], g['zt'], 'new').bodies.item(0)
     holder.name = 'Bank holder'
-    # two side walls (front and back of the device), full length
-    for za, zb in ((g['zc0'], g['zb0'] - c), (g['zb1'] + c, g['zc1'])):
-        b.zbox(g['xp0'], yfl, xo2, ytop, za, zb, 'join', holder)
-    # ledges the bank rests on
-    for za, zb in ((g['zb0'] - c, g['zb0'] - c + k['ledge']),
-                   (g['zb1'] + c - k['ledge'], g['zb1'] + c)):
-        b.zbox(g['xp1'], yfl, g['xo'], g['yb0'], za, zb, 'join', holder)
-    # lips on the open outer face, just outside the bank
-    for za, zb in ((g['zb0'] - c, g['zb0'] - c + k['lip']),
-                   (g['zb1'] + c - k['lip'], g['zb1'] + c)):
-        b.zbox(g['xo'], yfl, xo2, ytop, za, zb, 'join', holder)
-    # window over the device's vents
-    (vy0, vy1), (vz0, vz1) = k['vent_win']
-    b.zbox(g['xp0'] - 0.5, vy0, g['xp1'] + 0.5, vy1, vz0, vz1, 'cut', holder)
+    b.zbox(g['xp0'], ys0, g['xo2'], ytop, g['zf0'], g['zf1'], 'join', holder)     # floor
+    b.zbox(g['xo'], ys0, g['xo2'], ytop, g['zf0'], g['zt'], 'join', holder)       # outer wall
+    # lips over the bank's long edges, top flush with the device's front face
+    for xa, xb in ((g['xp1'], g['xp1'] + k['lip']), (g['xo'] - k['lip'], g['xo'])):
+        b.zbox(xa, ys0, xb, ytop, g['zb1'] + c, g['zt'], 'join', holder)
+    # corner stops at the USB-C end; the middle stays open for the plug
+    for xa, xb in ((g['xp1'], g['xp1'] + k['stop']), (g['xo'] - k['stop'], g['xo'])):
+        b.zbox(xa, ys0, xb, g['yb0'] - c, g['zf1'], g['zt'], 'join', holder)
+    # windows in the back plate: the side slot (cable) and the vents
+    for (wy0, wy1), (wz0, wz1) in (k['slot_win'], k['vent_win']):
+        b.zbox(g['xp0'] - 0.5, wy0, g['xp1'] + 0.5, wy1, wz0, wz1, 'cut', holder)
     return holder
 
 
@@ -759,14 +758,17 @@ def run_checks(head_comp, body_comp):
     if 'Bank holder' in bb:
         hold, g = bb['Bank holder'], bank_geo()
         ext_bank = tbox(g['xb0'], g['yb0'], g['zb0'], g['xb1'], g['yb1'], g['zb1'])
-        # the cable's path: up the gap between the wall and the bank, into the slot
-        cable = tbox(BODY['width'] + 0.3, 0.0, 6.0, g['xb0'] - 0.3, BANK['plate_y0'] - 0.5, 12.0)
+        # cable: from the bank's port end, under the tray floor, into the slot
+        (sy0, sy1), _ = BANK['slot_win']
+        under = tbox(BODY['width'] + 0.3, 0.0, 2.0, g['xb1'], sy1 - 1.0, g['zf0'] - 0.3)
+        into = tbox(BODY['width'] + 0.3, sy0 + 1.0, 5.0, g['xp1'] + 0.4, sy1 - 1.0, 12.5)
         pairs += [('bank holder', hold, 'back shell', shell),
                   ('bank holder', hold, 'front lid', lid),
                   ('external bank', ext_bank, 'bank holder', hold),
                   ('external bank', ext_bank, 'back shell', shell),
-                  ('cable path', cable, 'bank holder', hold),
-                  ('cable path', cable, 'back shell', shell)]
+                  ('cable under tray', under, 'bank holder', hold),
+                  ('cable into slot', into, 'bank holder', hold),
+                  ('cable into slot', into, 'back shell', shell)]
     bad = 0
     for an, a, bn, b2 in pairs:
         vol = overlap(a, b2)
