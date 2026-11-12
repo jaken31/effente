@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -41,6 +42,12 @@ def main() -> int:
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
     parser.add_argument("--case", default="normal", help="case the simulator starts in")
     args = parser.parse_args()
+
+    # Without this, a kill or a closed terminal would skip the cleanup below
+    # and leave the receiver running on the port.
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), lambda *_: sys.exit(0))
 
     if args.fresh and DATA.exists():
         shutil.rmtree(DATA)
