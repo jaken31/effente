@@ -1,53 +1,78 @@
 # Device and platform contract
 
-Version 1. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 2. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
-It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds four fields to it: `model_version`, `reason`, `simulated`, and (set by the platform) `seq`. `model_version` closes gap 1 in [docs/architecture.md](../docs/architecture.md).
+It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds four fields to it: `model_version`, `reason`, `simulated`, and (set by the platform) `seq`.
+
+## Changes from version 1
+
+- Diagnosis names are the device runtime's (`effente/model_runtime.py`, `effente/fault_types.py`), not the four demo classes.
+- `features` holds the readings that moved, in spreads, not switch-off-tested feature activity.
+- The feature mask (message 3, `mask` fields and the `mask` event) is removed.
+- `spectrum` is 20 vibration bands in log10, not 64 magnitudes from 0 to 1.
+- The agent runs on the laptop, not the device.
+- Message 1 says which library entry the model came from, and whether it was calibrated or trained on the machine alone.
 
 ## Basics
 
 - Plain HTTP and JSON. The platform listens on port `8000` on all interfaces. The device finds it through the environment variable `EFFENTE_PLATFORM_URL` (default `http://localhost:8000`).
-- The device only makes outgoing requests. The platform never connects to the device. The mask comes back in the reply to each upload.
+- The device only makes outgoing requests. The platform never connects to the device.
 - No login. The platform runs on the team's own hotspot.
 - Times are ISO 8601 UTC, `2026-11-14T16:02:11Z`. Fractions of a second are allowed.
 - Success is HTTP 200 with `"ok": true`. A bad request is HTTP 400 with `{"ok": false, "error": "what was wrong"}`. Unknown fields are stored and passed on, never rejected.
-- A device counts as connected if the platform heard from it in the last 5 seconds. A device must make a request at least every 2 seconds: a record upload, or `GET` mask when it is not scanning.
+- A device counts as connected if the platform heard from it in the last 5 seconds. A device must make a request at least every 2 seconds: a record upload, or `GET /api/devices/{device_id}` when it is not watching.
 
 ## Names
 
 | Thing | Values |
 |-------|--------|
-| `diagnosis` | `normal`, `imbalance`, `loose_mount`, `unknown` |
-| feature name | the `name` from the model file's feature table, for example `once_per_turn`, `rattle` |
+| `diagnosis` | `warming_up`, `stopped`, `normal`, one of the 21 fault type names in `effente/fault_types.py`, `unrecognised_pattern` |
+| fault group | `vibration`, `sound`, `heat`, `room`, `sensing` |
+| feature name | a name from the model file's feature table, for example `vib_1x`, `vib_velocity_mm_s` |
 | `priority` | `none`, `low`, `medium`, `high` |
-| `model_version` | any string that changes when the model file changes, for example `fake-0.1` |
+| `model_version` | any string that changes when the model file changes, for example `conveyor-07-20261114` |
 
 ## 1. Device announces its model
 
-Sent once at start, and again whenever the platform replies `"need_model": true`. This is how the dashboard learns which features exist and what each means. Only features that passed a switch-off test may appear.
+Sent once at start, again after every calibration or training, and whenever the platform replies `"need_model": true`. This is how the dashboard learns the fault types and what each reading means.
 
 `POST /api/model`
 
 ```json
 {
   "device_id": "effente-01",
-  "model_version": "fake-0.1",
-  "class_names": ["normal", "imbalance", "loose_mount"],
-  "unknown_threshold": 0.5,
-  "spectrum_hz_max": 500,
-  "features": [
-    {"name": "once_per_turn", "sentence": "once-per-turn vibration"},
-    {"name": "rattle", "sentence": "rattling pattern"}
+  "machine_id": "conveyor-07",
+  "model_version": "conveyor-07-20261114",
+  "features_version": "c985a0908a96",
+  "library_entry": "conveyor",
+  "source": "calibrated",
+  "threshold": 1.0,
+  "fault_types": [
+    {"name": "unbalance_like", "text": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)", "group": "vibration", "validated": false},
+    {"name": "device_moved", "text": "the device has been moved or knocked (its tilt changed)", "group": "sensing", "validated": false}
   ],
+  "features": [
+    {"name": "vib_1x", "text": "vibration once per turn", "unit": "log"},
+    {"name": "vib_velocity_mm_s", "text": "vibration velocity, 10-250 Hz rms (ISO 10816-like, partial band)", "unit": "mm_s"}
+  ],
+  "spectrum_edges_hz": [5.0, 6.3, 7.9],
   "simulated": false
 }
 ```
+
+| Field | Rule |
+|-------|------|
+| `library_entry` | The library entry the model started from, for example `conveyor` or `generic_rotating`. |
+| `source` | `calibrated` (a library entry fitted to this machine) or `trained` (a model trained on this machine alone after a long stay). |
+| `fault_types` | Every type the device can name. `group` is `sensing` for a problem with the device or its view, otherwise the first sensor the type relies on. `validated` is `true` only once the type has caught that fault on the test rig or a pilot; the dashboard shows unvalidated types as "possible". |
+| `features` | Every reading in the model's feature table. |
+| `spectrum_edges_hz` | 21 band edges for the 20 `spectrum` values. (The example above is shortened.) |
 
 Reply: `{"ok": true}`
 
 ## 2. Device sends a log record
 
-One record per window, about one a second while scanning.
+While watching, one record a second. The diagnosis changes once per summary period.
 
 `POST /api/records` with one record, or a JSON array of records (for catching up after a dropout).
 
@@ -55,15 +80,19 @@ One record per window, about one a second while scanning.
 {
   "device_id": "effente-01",
   "machine_id": "conveyor-07",
-  "model_version": "fake-0.1",
+  "model_version": "conveyor-07-20261114",
   "at": "2026-11-14T16:02:11Z",
-  "diagnosis": "imbalance",
-  "confidence": 0.94,
-  "unknown_score": 0.12,
-  "reason": "once-per-turn vibration",
-  "features": {"once_per_turn": 0.81, "rattle": 0.03},
-  "mask": [],
-  "spectrum": [0.02, 0.05, 0.71, 0.04],
+  "diagnosis": "unbalance_like",
+  "diagnosis_this_minute": "unbalance_like",
+  "confidence": 0.71,
+  "unknown_score": 2.4,
+  "reason": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)",
+  "features": {"vib_1x": 7.2, "vib_velocity_mm_s": 3.1},
+  "fault_types": {"unbalance_like": 9.1, "vibration_too_high": 4.2},
+  "abnormal_minutes": 3,
+  "out_of_range": 0,
+  "note": "",
+  "spectrum": [-4.70, -4.62, -4.63],
   "simulated": false
 }
 ```
@@ -71,58 +100,47 @@ One record per window, about one a second while scanning.
 | Field | Rule |
 |-------|------|
 | `device_id`, `machine_id`, `model_version`, `at`, `diagnosis` | Required. A record missing one is rejected with 400. |
+| `diagnosis` | During an abnormal stretch, the type named most often so far, so it does not flip. |
+| `diagnosis_this_minute` | This period's own diagnosis. Present only while abnormal. |
 | `confidence` | 0 to 1. |
-| `unknown_score` | 0 or more. `diagnosis` is `unknown` when it is above the model's `unknown_threshold`. |
-| `reason` | The one line the device screen shows: the sentence of the feature behind the diagnosis. Empty string for `normal` and `unknown`. |
-| `features` | Activity of every verified feature, 0 to 1, after the mask is applied. A switched-off feature reads 0. |
-| `mask` | Names of the features that were switched off when this window was diagnosed. This is the device's acknowledgement of the mask. |
-| `spectrum` | 64 magnitudes, each 0 to 1, evenly covering 0 Hz to `spectrum_hz_max`, strongest axis per bin. (The example above is shortened.) |
+| `unknown_score` | The smoothed score divided by the threshold. Above 1 is abnormal. `null` while `warming_up` or `stopped`. |
+| `reason` | The one line the device screen shows: the fault type's `text`, "abnormal, no known fault type fits" for `unrecognised_pattern`, empty otherwise. |
+| `features` | The readings that moved most, each in spreads of its normal variation, signed. While normal, the top 3. |
+| `fault_types` | Every type with evidence, strongest first. Present only while abnormal. |
+| `abnormal_minutes` | Periods in the current abnormal stretch. |
+| `out_of_range` | How many readings are far outside anything seen while learning. |
+| `note` | Plain-text caveat, for example "sound only so far: may be the room". |
+| `spectrum` | 20 vibration band levels, log10, on the edges announced in message 1. (The example above is shortened.) |
 | `simulated` | `true` if the reading did not come from a real sensor. Missing means `false`. |
 
 Reply:
 
 ```json
-{"ok": true, "stored": 1, "mask": ["once_per_turn"], "mask_version": 3, "need_model": false}
+{"ok": true, "stored": 1, "need_model": false}
 ```
 
-The device applies `mask` to the next window it diagnoses. `mask_version` goes up by one each time the mask changes, so a device can skip work when it has not. `need_model` is `true` when the platform has not seen this `model_version`; the device then repeats message 1.
+`need_model` is `true` when the platform has not seen this `model_version`; the device then repeats message 1.
 
 The platform adds two fields before storing or showing a record: `seq` (a whole number that only goes up, across all devices) and `received_at`.
 
-## 3. Platform sends a feature mask
+## 3. Device check-in
 
-The mask is the list of feature names to switch off. Empty list means everything on. There is one mask per device. It starts empty each time the platform starts.
+When the device is not watching (display, calibrating, recording or training), it checks in so the dashboard knows it is alive and what it is doing.
 
-The dashboard sets it:
+`GET /api/devices/effente-01?mode=recording&machine_id=conveyor-07`
 
-`PUT /api/devices/effente-01/mask`
-
-```json
-{"mask": ["once_per_turn"]}
-```
-
-Reply: `{"ok": true, "device_id": "effente-01", "mask": ["once_per_turn"], "mask_version": 3}`
-
-A name that is not in the device's announced feature table is rejected with 400.
-
-The device receives it in every reply to message 2. When it is not uploading it asks instead:
-
-`GET /api/devices/effente-01/mask`
-
-Reply: `{"ok": true, "device_id": "effente-01", "mask": ["once_per_turn"], "mask_version": 3}`
-
-What the device must do with a mask: before the output layer, zero the hidden units of each named feature. The diagnosis that depends on a switched-off feature must go away and the others must stay. A toggle is confirmed only when a record arrives whose `mask` matches; until then the dashboard shows it as pending.
+`mode` is `display`, `calibrating`, `recording` or `training`. Reply: `{"ok": true}`
 
 ## 4. Agent sends its report
 
-The agent sends the whole run each time something happens: once when it starts, after each tool call, and once at the end. Same `run_id` every time; the platform keeps the latest copy. This is how tool calls show up live.
+The agents run on the laptop. An agent sends the whole run each time something happens: once when it starts, after each tool call, and once at the end. Same `run_id` every time; the platform keeps the latest copy. This is how tool calls show up live.
 
 `PUT /api/agent/runs/run-20261114-160300-conveyor-07`
 
 ```json
 {
   "run_id": "run-20261114-160300-conveyor-07",
-  "device_id": "effente-01",
+  "agent": "maintenance_report",
   "machine_id": "conveyor-07",
   "at": "2026-11-14T16:03:00Z",
   "status": "done",
@@ -132,14 +150,14 @@ The agent sends the whole run each time something happens: once when it starts, 
   "reason": "",
   "problems": [],
   "tool_calls": [
-    {"at": "2026-11-14T16:03:01Z", "name": "get_readings", "input": {"since": ""}, "output": "{\"windows\": 42}"},
-    {"at": "2026-11-14T16:03:02Z", "name": "get_feature_table", "input": {}, "output": "{\"once_per_turn\": \"once-per-turn vibration\"}"}
+    {"at": "2026-11-14T16:03:01Z", "name": "get_readings", "input": {"since": ""}, "output": "{\"records\": 42}"},
+    {"at": "2026-11-14T16:03:02Z", "name": "get_fault_types", "input": {}, "output": "{\"unbalance_like\": \"once-per-turn vibration grown\"}"}
   ],
   "report": {
-    "summary": "Imbalance on conveyor-07 in 40 of 42 windows.",
+    "summary": "Possible unbalance on conveyor-07: alarm for 40 of 42 periods, once-per-turn vibration up about 7 spreads.",
     "priority": "medium",
-    "cited_features": ["once_per_turn"],
-    "recommended_action": "Clean and rebalance the blades.",
+    "cited_features": ["vib_1x"],
+    "recommended_action": "Check the drive roller for added mass or damage, then rebalance.",
     "part_reference": ""
   },
   "simulated": false
@@ -149,16 +167,17 @@ The agent sends the whole run each time something happens: once when it starts, 
 | Field | Rule |
 |-------|------|
 | `run_id`, `machine_id`, `at`, `status` | Required. `run_id` in the body must match the URL. It may contain letters, digits, `-`, `_` and `.` only. |
+| `agent` | Which agent in the fleet wrote the run. `maintenance_report` for now. |
 | `status` | `running` or `done`. |
 | `ok` | Meaningful when `status` is `done`. `true` only if the report passed the agent's checks. |
-| `report` | `null` unless `ok` is `true`. Shape is fixed as shown. `cited_features` may be empty, and must be for `normal` and `unknown`. |
+| `report` | `null` unless `ok` is `true`. Shape is fixed as shown. `cited_features` holds only readings that appear in `features` of the records the agent read. It may be empty, and must be for `normal`. |
 | `reason`, `problems` | Why there is no report: for example `agent unavailable: no connection`, or the list of failed checks. |
 | `tool_calls` | In order. `output` is a string, cut to 2,000 characters. |
 | `simulated` | `true` if the report did not come from a real Claude call, or was written from simulated readings. |
 
 Reply: `{"ok": true}`
 
-If the platform cannot be reached the agent still writes its own log and carries on. The platform is never required for a report to exist.
+If the platform's HTTP endpoint cannot be reached the agent still writes its own log and carries on.
 
 ## 5. What the dashboard reads
 
@@ -174,13 +193,13 @@ Device authors can skip this section.
     "effente-01": {
       "connected": true,
       "last_seen": "2026-11-14T16:02:11Z",
-      "model_version": "fake-0.1",
-      "mask": [],
-      "mask_version": 0,
+      "mode": "watching",
+      "machine_id": "conveyor-07",
+      "model_version": "conveyor-07-20261114",
       "latest": {"...": "the newest record from this device, with spectrum, or null"}
     }
   },
-  "models": {"fake-0.1": {"...": "message 1 as announced"}},
+  "models": {"conveyor-07-20261114": {"...": "message 1 as announced"}},
   "machines": ["conveyor-07"]
 }
 ```
@@ -191,9 +210,8 @@ Device authors can skip this section.
 |-------|------|-----------|
 | `record` | a record, with `seq` | a record is stored |
 | `model` | message 1 | a device announces a model |
-| `mask` | the reply to `PUT` mask | a mask changes |
 | `agent_run` | message 4 | a run is created or updated |
-| `device` | `{"device_id": "effente-01", "connected": false, "last_seen": "..."}` | a device connects or goes quiet |
+| `device` | `{"device_id": "effente-01", "connected": false, "last_seen": "...", "mode": "..."}` | a device connects, goes quiet, or changes mode |
 
 A comment line is sent every 5 seconds to keep the connection open. After a reconnect the dashboard calls `GET /api/state` again.
 
@@ -203,8 +221,8 @@ A comment line is sent every 5 seconds to keep the connection open. After a reco
 
 Everything else under `/` is the dashboard's own files, served from `platform/web/`, with `index.html` at `/`.
 
-## Not in version 1
+## Not in version 2
 
-- The dashboard cannot ask the device to run the agent. A person starts the agent.
-- Machine names, locations and speeds. Machines are IDs only.
+- The dashboard cannot start an agent. A person starts it.
+- Machine profiles, model delivery to the device, and alarm feedback. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
 - More than one platform, or any security.
