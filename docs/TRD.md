@@ -7,9 +7,10 @@ The data pipeline, model and fault types described here are built on branch `tra
 ## Architecture
 
 ```
- magnetic sensor head: accelerometer (+ optional mic, thermal camera, room sensor)
+ magnetic sensor head: accelerometer
         |  short cable
  UNO Q microcontroller (STM32)      real-time sampling, 2.4" screen, button
+                                    (+ optional mic, thermal camera, room sensor in the body)
         |  Arduino Bridge (RPC)
  UNO Q Linux side (Debian, 4 GB)    features, model library, calibration,
         |                           small network per machine, fault types, log
