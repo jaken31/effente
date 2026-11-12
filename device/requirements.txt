@@ -1,1 +1,4 @@
 anthropic
+# device/intake and its tests (the simulators use scipy; the board itself needs only numpy)
+numpy
+scipy

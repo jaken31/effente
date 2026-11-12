@@ -13,6 +13,7 @@ import json
 import re
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from effente import fault_types as FT
@@ -136,6 +137,7 @@ class FakePlatform:
         self.known = set()
         self.need_model_once = False
         self.settings: dict | None = None  # put in every reply to message 2 and 3 when set
+        self.delay_s = 0.0  # wait this long before answering, like a slow platform
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -156,6 +158,8 @@ class FakePlatform:
                 return self._reply(200, {"ok": True, **more})
 
             def do_POST(self):
+                if owner.delay_s:
+                    time.sleep(owner.delay_s)
                 n = int(self.headers.get("Content-Length", 0))
                 try:
                     body = json.loads(self.rfile.read(n))
