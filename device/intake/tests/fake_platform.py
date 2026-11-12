@@ -40,6 +40,8 @@ def problem_errors(problems) -> list[str]:
         name = p.get("name")
         if name not in SF.CHECKS:
             out.append(f"unknown problem {name}")
+        if name in FT.NAMES:
+            out.append(f"problem {name} has a fault type's name")
         want = "limit" if name in SF.UNIVERSAL else "outside_normal"
         if p.get("kind") != want:
             out.append(f"{name}: kind {p.get('kind')}, not {want}")
