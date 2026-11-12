@@ -4,9 +4,15 @@ Status: draft for the 300 AI Hackathon (clock runs Thu Nov 12 9pm to Sun Nov 15 
 
 ## Summary
 
-effente is a handheld probe a technician carries from machine to machine. Its magnetic sensor head snaps onto a motor or assembly-line module, detects mechanical faults from vibration, and explains each diagnosis in terms the technician can check. Detection runs entirely on the device. An agent on the same device turns diagnoses into maintenance actions when a network connection is available.
+effente is a handheld probe with a magnetic sensor head. A technician snaps it onto a machine, picks the machine type, and gets a judgement within minutes: the device starts from a pretrained neural network in its library and calibrates it to this machine. It raises an alarm when the machine drifts from normal, names the likely fault, and shows which readings moved and by how much. Leaving the device on one machine for days is optional: it sharpens the model into one trained on that machine alone. Detection runs entirely on the device. A fleet of agents on a laptop turns the device's findings into maintenance actions when a network connection is available.
 
-What makes it different: we open the model, find the internal features it uses, and prove by switching them off that those features cause the diagnosis. Every explanation the device shows is backed by one of those tests.
+What makes it different:
+
+- **Useful in minutes, not weeks.** A library of pretrained networks means no long learning period before the first judgement. Staying on for days is an option, not a requirement.
+- **Works on any machine without fault data.** It calibrates to each machine's own normal, so nobody has to break a machine first to train it.
+- **Explains in readings a technician can check.** Every alarm names the readings that moved, for example "once-per-turn vibration 7 times its usual spread", not a score from a black box.
+- **Flags faults it has never seen.** Anything far from normal raises an alarm, even when no known fault type fits.
+- **No cloud for detection.** The device decides on its own. Only the agents need a connection.
 
 ## Problem
 
@@ -24,22 +30,23 @@ The framing is unmonitored equipment and lost expertise, not old equipment: US f
 
 Buyer: small and mid-size manufacturers, and maintenance contractors who serve them. One handheld covers a floor of machines that will never get a sensor each.
 
-- **Maintenance technician.** Walks a route, snaps the head onto each machine, and sees the diagnosis and the reason on the device screen. Needs to trust it enough to act.
-- **Maintenance planner.** Reads the uploaded history and the agent's report. Needs to know which motor to fix first and what to order.
+- **Maintenance technician.** Walks a route and checks each machine in minutes, or leaves the device on a machine that worries them. Sees the diagnosis and the readings that moved on the device screen. Needs to trust it enough to act.
+- **Maintenance planner.** Reads the uploaded history and the agents' reports. Needs to know which machine to fix first and what to order.
 
 ## Goals
 
-1. Detect imbalance and a loose mount on a demo conveyor, and report "normal" when it is healthy.
-2. Show why, in plain words, for every diagnosis.
-3. Say "unknown, inspect" when the fault is one the model was never trained on.
-4. Prove the explanations are causal, live, in front of judges.
+1. Snap onto the demo conveyor, pick "conveyor" from the library, calibrate in minutes, and report "normal" while it stays healthy.
+2. Raise an alarm and name the likely fault for an added weight on the drive roller and for a loosened motor mount.
+3. For every alarm, show in plain words which readings moved and how far.
+4. Say "unrecognised pattern, inspect" when the machine is abnormal but no known fault type fits.
 5. Back the early-warning claim with data, not assertion.
 
 ## Non-goals for the hackathon
 
 - Variable motor speed. The demo runs at one fixed speed and we say so.
-- Thermal camera and voltage sensing. These appear on the roadmap only.
-- A language model running on a microcontroller.
+- Any agent or language model on the device.
+- The setup chat, the review agent, alarm feedback and learning over time in [model-lifecycle.md](model-lifecycle.md). Those come after the hackathon.
+- A library covering many machine types. The hackathon library holds a conveyor entry and a generic entry.
 - Any price claim.
 
 ## Requirements
@@ -48,49 +55,52 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 
 | ID | Requirement |
 |----|-------------|
-| P1 | The sensor head attaches magnetically and holds itself during a reading. The device classifies vibration as normal, imbalance, or loose mount with no network connection. |
-| P2 | The device screen shows the diagnosis and a one-line reason. |
-| P3 | Each reason comes from a fixed table. A sentence exists in the table only if a switch-off test backs its feature. |
-| P4 | The device shows "unknown, inspect" when the model's internal activity is far from anything seen in training. |
-| P5 | The device uploads its full log over WiFi to a platform running on a laptop. |
-| P6 | The platform shows the live spectrum, feature activity, and history. |
-| P7 | A toggle on the platform switches off a named feature on the device, and the diagnosis changes accordingly. |
-| P8 | An agent running on the device reads the log and produces a maintenance report, a repair priority, and a parts or manual lookup. It may cite only features that passed a switch-off test. |
-| P9 | If the network is down, detection and explanations still work. Only the agent's output is unavailable. |
+| P1 | The sensor head attaches magnetically and holds itself. The technician picks a machine type from the library on the device. The device calibrates that pretrained network to this machine in minutes, with no network. |
+| P1a | Optional: left on one machine longer, the device records it and trains a model on that machine alone, then switches to it. |
+| P2 | The device judges the machine with no network connection: `normal`, `stopped`, a fault type, or `unrecognised_pattern`. |
+| P3 | The device screen shows the diagnosis and a one-line reason. |
+| P4 | Every alarm lists the readings that moved most, each in spreads of that reading's normal variation. |
+| P5 | Fault type names not yet checked on real faults are shown as "possible", for example "possible unbalance". |
+| P6 | The device uploads its full log over WiFi to a platform running on a laptop. |
+| P7 | The platform shows the live vibration spectrum, the readings that moved, and history. |
+| P8 | A fleet of agents on the laptop reads the stored log and produces a maintenance report, a repair priority, and a parts or manual lookup. A report may cite only readings that moved in the records it read. |
+| P9 | If the network is down, detection and explanations still work. Only the agents' output is unavailable. |
 
 ### Should have
 
 | ID | Requirement |
 |----|-------------|
 | P10 | A microphone as a second input, added only after vibration works end to end. |
-| P11 | Sparse autoencoder analysis, if the network's hidden units turn out to mix several faults each. |
+| P11 | Thermal camera and room sensor, if the parts are on hand. The data pipeline already handles them as optional. |
 
 ### Stretch
 
 | ID | Requirement |
 |----|-------------|
-| P12 | A small language model running locally on the device, so the agent works offline. |
+| P12 | Day-0 rules: general vibration and temperature limits that work before any learning ([model-lifecycle.md](model-lifecycle.md)). |
 | P13 | Variable motor speed. |
-| P14 | More fault types. |
+| P14 | Alarm feedback on the dashboard: "real problem" or "false alarm". |
 
 ## Demo script
 
-1. Healthy conveyor: "Normal".
-2. Weight added to the drive roller: "Imbalance: once-per-turn vibration".
-3. Loosened motor-mount screws: "Loose mount: rattling pattern".
-4. Something the model has not seen: "Unknown, inspect".
-5. With the weight still on, switch off the imbalance feature from the platform. The same conveyor no longer reads "Imbalance".
-6. The agent's report for the session: what it found, what to fix first, which part.
+1. Snap the device onto the healthy conveyor, pick "conveyor", calibrate for a few minutes: "Normal".
+2. Weight added to the drive roller: alarm, "possible unbalance", with the readings that moved (once-per-turn vibration up).
+3. Weight removed, motor-mount screws loosened: alarm, "possible looseness or rattle", with the readings that moved.
+4. Something no fault type covers: "Unrecognised pattern, inspect", with the readings that moved.
+5. The dashboard: live spectrum, the readings that moved and when.
+6. The agents' report for the session: what they found, what to fix first, which part.
 
 ## How we show it works
 
 | Evidence | What it proves |
 |----------|----------------|
-| Accuracy on recording sessions the model never trained on | The classifier generalises beyond one sensor placement |
+| False alarms on held-out normal sessions, with the sensor re-attached | It stays quiet on a healthy machine and survives re-mounting |
+| Library entry calibrated on a session it never trained on, compared with a model trained on the machine alone | How much a quick calibration gives up against a long stay |
+| Each fault session: alarm or not, and the type named | It detects the demo faults and names them |
 | Sensitivity sweep: smaller and smaller weights on the drive roller | The smallest imbalance the device catches, compared with what a hand can feel |
 | Public run-to-failure bearing data (NASA IMS) | How long before failure the alarm fires on real degradation |
-| Leave-one-fault-out: train without one fault, test on it | The "unknown" alarm fires on faults the model has never seen |
-| Switch-off tests per feature | Each explanation is causal |
+| A fault no type covers | It says "unrecognised pattern" instead of forcing a wrong name |
+| Comparison of 8 detectors on simulated and public data | Why the model is the one we chose |
 
 The pitch presents early warning as the motivation and the run-to-failure result as the evidence. The conveyor demo shows detection and explanation, not prediction.
 
@@ -98,24 +108,23 @@ The pitch presents early warning as the motivation and the run-to-failure result
 
 The event scores demo and pitch, investability, product, and societal impact.
 
-- **Demo and pitch:** the live switch-off in step 5.
-- **Product:** a working device, a platform, and an agent.
+- **Demo and pitch:** snap on, judging in minutes, then faults caught and explained live.
+- **Product:** a working device, a platform, and an agent fleet.
 - **Societal impact:** less unplanned downtime, and AI that workers can check.
 - **Investability:** see open questions.
 
 ## Competitors
 
-Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Fluke and SKF sell handheld vibration analyzers, the closest comparison: they show a spectrum for a trained analyst to interpret (check one real product before claiming this on stage). effente differs in three ways: it explains each diagnosis with a verified reason, it flags faults it has not seen before, and detection needs no cloud.
+Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Fluke and SKF sell handheld vibration analyzers, the closest comparison: they show a spectrum for a trained analyst to interpret (check one real product before claiming this on stage). effente differs in three ways: it names the readings behind each alarm in plain words, it flags faults it has not seen before, and detection needs no cloud. Some permanent-sensor vendors may also learn a per-machine baseline (check before claiming otherwise on stage); effente's difference there is one cheap handheld instead of a sensor per machine.
 
 ## Roadmap after the hackathon
 
-- A sensor head left attached permanently on critical machines.
+- Setup chat, a larger curated library, alarm feedback and learning over time: [model-lifecycle.md](model-lifecycle.md).
+- A fault test rig and pilot sites, to check fault names on real faults.
 - More inputs: thermal camera, voltage and current sensing.
-- Variable speed and more fault types.
-- The verified, trimmed model as a custom chip.
+- Variable speed.
 
 ## Open questions
 
-1. **Pricing.** The buyer is settled (small and mid-size manufacturers). How they pay is not: one-off hardware, or hardware plus paid software for history and reports. Needed for the investability score.
-2. **Pitch framing of the interpretability work.** Deferred by the team.
-3. **Source check.** The Siemens and Deloitte figures are confirmed through secondary coverage only. Open the original reports before quoting them.
+1. **Pricing.** The buyer is settled (small and mid-size manufacturers). How they pay is not: one-off hardware, or hardware plus paid software for history, reports and model updates. Needed for the investability score.
+2. **Source check.** The Siemens and Deloitte figures are confirmed through secondary coverage only. Open the original reports before quoting them.

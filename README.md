@@ -1,12 +1,13 @@
 # effente
 
-A handheld probe a technician carries from machine to machine. Its magnetic sensor head snaps onto a motor or assembly-line module, detects mechanical faults from vibration, and explains each diagnosis in terms the technician can check. Detection runs on the device with no cloud.
+A handheld probe with a magnetic sensor head. Snap it onto a machine, pick the machine type, and it is judging within minutes, using a pretrained network from its library calibrated to that machine. Leaving it on for days is optional and sharpens the model. It raises an alarm when the machine drifts from its normal, names the likely fault, and shows which readings moved. Detection runs on the device with no cloud.
 
 Built for the 300 AI Hackathon, Nov 12-15, 2026.
 
 - [Product requirements](docs/PRD.md)
 - [Technical requirements](docs/TRD.md)
 - [Architecture diagrams](docs/architecture.md)
+- [Model lifecycle: setup, calibration and learning over time](docs/model-lifecycle.md)
 
 ## The problem
 
@@ -18,50 +19,46 @@ Built for small and mid-size manufacturers: one handheld covers a whole floor of
 
 ## What it does
 
-- **What is wrong:** imbalance, loose mount, or normal.
-- **Why:** for example, "strong vibration once per turn".
-- **Unknown, inspect:** when it sees a fault it was never trained on.
-- **What to do about it:** an agent on the device turns the log into a maintenance report, a repair priority, and a parts lookup when a connection is available.
+- **Quick to use:** picks a pretrained network from its library and calibrates it to the machine in minutes. No fault data and no days-long learning needed.
+- **What is wrong:** normal, or a likely fault such as "possible unbalance" or "possible looseness", from 21 general fault types.
+- **Why:** the readings that moved and by how much, for example "once-per-turn vibration 7 times its usual spread".
+- **Unrecognised pattern, inspect:** when the machine is abnormal but no known fault type fits.
+- **What to do about it:** a fleet of agents on the laptop turns the log into a maintenance report, a repair priority, and a parts lookup when a connection is available.
 
 ## How it works
 
-The device is a handheld built on an Arduino UNO Q, with a small magnetic sensor head on a short cable. The magnet holds the head on with the same force every time, so a reading does not depend on how hard someone presses. The microcontroller samples the accelerometer in the head and drives a 2.4" screen. See the [mock-up](docs/mockup.svg). Its Linux side turns the signal into a frequency spectrum, runs a small neural network, and uploads the full log over WiFi to a platform on a laptop.
+The device is a handheld built on an Arduino UNO Q, with a small magnetic sensor head on a short cable. The magnet holds the head on with the same force every time, so a reading does not depend on how hard someone presses. The microcontroller samples the accelerometer in the head and drives a 2.4" screen. See the [mock-up](docs/mockup.svg).
 
-## Where mech interp comes in
-
-1. **Find the features.** We look inside the network and find what it uses: a "once-per-turn" feature for imbalance, a "rattling" feature for looseness.
-2. **Prove they are real.** Switching off the imbalance feature makes the model stop detecting imbalance. We do this live from the platform.
-3. **Only verified explanations.** The device shows a reason only if a switch-off test backs it. The agent may cite only those features.
-4. **Unknown-fault alarm.** It triggers when the network's internal activity looks unfamiliar.
+Its Linux side turns each second of signal into 278 readings and calibrates a small pretrained neural network from its library to the machine. Left on longer, it can train a network on that machine alone. While watching, the network scores how far the machine is from its normal. When it stays far off, the device names the likely fault and the readings behind it, and uploads the full log over WiFi to a platform on a laptop.
 
 ## Demo
 
-1. Healthy fan: "Normal".
-2. Coin taped to a blade: "Imbalance: once-per-turn vibration".
-3. Loosened mounting screws: "Loose mount: rattling pattern".
-4. Something unusual: "Unknown, inspect".
-5. Switch off the imbalance feature: the fan with the coin no longer reads "Imbalance".
-6. The agent's maintenance report.
+1. Snap onto the healthy conveyor, pick "conveyor", calibrate: "Normal".
+2. Weight on the drive roller: "Possible unbalance", once-per-turn vibration up.
+3. Loosened motor-mount screws: "Possible looseness or rattle".
+4. Something unusual: "Unrecognised pattern, inspect".
+5. The dashboard: live spectrum, readings that moved, history.
+6. The agents' maintenance report.
 
 ## Hardware
 
 - Arduino UNO Q (4 GB)
-- Accelerometer: MPU6050 (GY-521)
-- 2.4" OLED screen
+- Accelerometer: MPU-6500 (MPU-9250/6500 breakout)
+- 2.4" OLED screen and a button
 - Magnet for the sensor head, steel discs as probe points
 - USB power bank
-- Microphone (second input, added after vibration works)
-- Small fan or motor as the demo machine
+- Optional: microphone, thermal camera, room sensor
+- Mini belt conveyor as the demo machine
 
 ## Competitors
 
-Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Fluke and SKF sell handheld vibration analyzers, which show a spectrum for a trained analyst to read. effente gives a diagnosis instead: it explains each diagnosis with a verified reason, flags faults it has not seen before, and needs no cloud to detect.
+Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Fluke and SKF sell handheld vibration analyzers, which show a spectrum for a trained analyst to read. effente gives a diagnosis instead: it names the readings behind each alarm in plain words, flags faults it has not seen before, and needs no cloud to detect.
 
 ## Tracks
 
-1. **Device:** sampling, screen, on-device inference, WiFi upload.
+1. **Device:** sampling, screen, device app, WiFi upload.
 2. **Data and signal:** recordings, sensitivity sweep, public run-to-failure dataset.
-3. **Model and mech interp:** training, unknown alarm, model file, feature analysis, switch-off tests, explanation table.
-5. **Platform, agent and business:** dashboard, agent, validation, pitch.
+3. **Model:** model library, calibration, trainer, runtime, fault types, validation.
+5. **Platform, agent and business:** dashboard, agent fleet, validation, pitch.
 
 Rule: the four-case demo runs end to end by Saturday 1pm. Anything not working then is cut.
