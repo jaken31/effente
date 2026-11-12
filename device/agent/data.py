@@ -54,9 +54,12 @@ def summarize_readings(records: list[dict]) -> dict:
         return {"windows": 0}
     activity: dict[str, list[float]] = {}
     masked: Counter = Counter()
+    peak_by_diagnosis: dict[str, dict[str, float]] = {}
     for record in records:
+        peaks = peak_by_diagnosis.setdefault(record.get("diagnosis"), {})
         for name, value in record.get("features", {}).items():
             activity.setdefault(name, []).append(value)
+            peaks[name] = max(peaks.get(name, 0.0), round(value, 3))
         masked.update(record.get("mask", []))
     return {
         "windows": len(records),
@@ -67,6 +70,8 @@ def summarize_readings(records: list[dict]) -> dict:
         # Feature name -> windows in which it was switched off. Such a feature
         # reads 0 there, so a fault it detects cannot show in those windows.
         "masked_windows": dict(masked),
+        # Diagnosis -> feature -> highest activity in windows with that diagnosis.
+        "peak_by_diagnosis": peak_by_diagnosis,
         "max_unknown_score": max(r.get("unknown_score", 0.0) for r in records),
         "feature_activity": {
             name: {"mean": round(sum(values) / len(values), 3), "peak": round(max(values), 3)}
