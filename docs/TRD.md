@@ -171,9 +171,10 @@ docs/        PRD, TRD
 |-------|------------------|---------|
 | 1. Device | Sampling, bridge, screen, inference service, WiFi upload | Local language model |
 | 2. Data and signal | Protocol, multi-session recordings, sensitivity sweep, IMS dataset | Microphone, variable speed |
-| 3. Model | Training, unknown alarm, model file | More fault types |
-| 4. Mech interp | Unit analysis, switch-off tests, feature table, mask | Sparse autoencoders on the cluster |
+| 3. Model and mech interp | Training, unknown alarm, model file, unit analysis, switch-off tests, feature table, mask | More fault types, sparse autoencoders on the cluster |
 | 5. Platform, agent and business | Dashboard, toggle, agent, validation slides, pitch | Fleet view |
+
+Track 4 was merged into track 3. The number is left unused so track 5 keeps its name.
 
 Tracks 2 and 3 can stall the others, which is why the fake-data generator and the shared formats come first.
 
