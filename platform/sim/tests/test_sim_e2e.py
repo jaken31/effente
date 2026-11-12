@@ -1,0 +1,239 @@
+"""End to end: run main.py as a process against a tiny fake receiver."""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+import pytest
+
+from sim_fake_platform import FakePlatform, free_port, record_problems
+
+MAIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
+SAMPLE = os.path.join(os.path.dirname(MAIN), "sample_replay.jsonl")
+
+
+def run_sim(*args, timeout=30, url=None):
+    cmd = [sys.executable, MAIN, "--seed", "1", *args]
+    env = dict(os.environ)
+    if url:
+        env["EFFENTE_PLATFORM_URL"] = url
+    return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, env=env)
+
+
+def test_announces_then_acknowledges_mask_from_reply(tmp_path):
+    with FakePlatform() as fp:
+        fp.set_mask(["once_per_turn"])  # in place before the first record
+        log = tmp_path / "dev.jsonl"
+        model_file = tmp_path / "model.json"
+        p = run_sim("--case", "imbalance", "--interval", "0.1", "--count", "4",
+                    "--log", str(log), "--model-file", str(model_file), url=fp.url)
+        assert p.returncode == 0, p.stderr
+        assert fp.log[0] == ("model",), fp.log
+        assert len(fp.models) == 1
+        announced = fp.models[0]
+        assert announced["simulated"] is True and announced["device_id"] == "effente-sim-01"
+        assert announced["model_version"] == "sim-1" and announced["spectrum_hz_max"] == 500
+        recs = fp.records
+        assert len(recs) == 4
+        assert all(r["simulated"] is True for r in recs)
+        assert all(record_problems(r) == [] for r in recs)
+        assert record_problems({"diagnosis": "normal", "reason": "x", "spectrum": [2.0]})  # the check can fail
+        # First window was diagnosed before any mask arrived.
+        assert recs[0]["mask"] == [] and recs[0]["diagnosis"] == "imbalance"
+        # The reply carried the mask; every later window acknowledges and obeys it.
+        for r in recs[1:]:
+            assert r["mask"] == ["once_per_turn"]
+            assert r["diagnosis"] == "normal" and r["reason"] == ""
+            assert r["features"]["once_per_turn"] == 0
+        logged = [json.loads(line) for line in log.read_text().splitlines()]
+        assert logged == recs
+        mf = json.loads(model_file.read_text())
+        assert mf["simulated"] is True and [f["name"] for f in mf["features"]] == ["once_per_turn", "rattle"]
+
+
+def test_mask_switched_off_again_restores_diagnosis():
+    with FakePlatform() as fp:
+        fp.set_mask(["rattle"])
+        proc = subprocess.Popen([sys.executable, MAIN, "--url", fp.url, "--case", "loose_mount",
+                                 "--interval", "0.1", "--count", "30"],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        deadline = time.time() + 10
+        while len(fp.records) < 5 and time.time() < deadline:
+            time.sleep(0.05)
+        fp.set_mask([])
+        proc.wait(timeout=20)
+        assert proc.returncode == 0
+        diags = [(tuple(r["mask"]), r["diagnosis"]) for r in fp.records]
+        assert (("rattle",), "normal") in diags
+        assert diags[-1] == ((), "loose_mount")
+        for mask, diag in diags:
+            assert diag == ("normal" if mask == ("rattle",) else "loose_mount")
+
+
+def test_need_model_triggers_new_announcement():
+    with FakePlatform() as fp:
+        fp.force_need_model_once = True
+        p = run_sim("--interval", "0.1", "--count", "3", url=fp.url)
+        assert p.returncode == 0
+        assert len(fp.models) == 2
+        assert fp.log[:3] == [("model",), ("records", 1), ("model",)]
+
+
+def test_polls_mask_while_idle_between_slow_records():
+    with FakePlatform() as fp:
+        p = run_sim("--interval", "2.5", "--count", "2", url=fp.url)
+        assert p.returncode == 0
+        assert len(fp.records) == 2
+        assert len(fp.mask_gets) >= 1 and set(fp.mask_gets) == {"effente-sim-01"}
+
+
+def test_survives_platform_absent(tmp_path):
+    log = tmp_path / "dev.jsonl"
+    url = f"http://127.0.0.1:{free_port()}"  # nothing listening
+    t0 = time.time()
+    p = run_sim("--interval", "0.1", "--count", "5", "--log", str(log), url=url)
+    assert p.returncode == 0, p.stderr
+    assert "Traceback" not in p.stderr
+    assert "platform unreachable" in p.stdout
+    assert len(log.read_text().splitlines()) == 5
+    assert time.time() - t0 < 15
+
+
+def test_carries_on_when_platform_comes_back():
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, MAIN, "--url", f"http://127.0.0.1:{port}", "--case", "imbalance",
+                             "--interval", "0.1", "--count", "40"],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        time.sleep(1.0)
+        with FakePlatform(port) as fp:
+            out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 0, err
+        assert "platform unreachable" in out and "platform ok" in out
+        assert len(fp.models) >= 1  # announced once it was back
+        assert fp.log[0] == ("model",)
+        # Windows made while it was down were queued and sent as one array.
+        assert any(entry[0] == "records" and entry[1] > 1 for entry in fp.log)
+        assert len(fp.records) == 40
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_replay_sends_sample_file():
+    with FakePlatform() as fp:
+        fp.set_mask(["once_per_turn"])
+        p = run_sim("--replay", SAMPLE, "--interval", "0.05", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        assert len(fp.records) == 8
+        diags = [r["diagnosis"] for r in fp.records]
+        # First record goes out before the mask arrives; imbalance ones after it read normal.
+        assert diags == ["normal", "normal", "normal", "normal", "loose_mount", "loose_mount", "unknown", "unknown"]
+        assert all(r["simulated"] is True and r["device_id"] == "effente-sim-01" for r in fp.records)
+
+
+needs_pty = pytest.mark.skipif(not sys.platform.startswith(("linux", "darwin")), reason="needs a pty")
+
+
+def _spawn_on_pty(*args):
+    """Start main.py with its stdin/stdout on a fresh pty. Returns (proc, master_fd, slave_fd)."""
+    import fcntl
+    import pty
+    import termios
+
+    def make_controlling_tty():  # so Ctrl-C on the pty sends SIGINT, as in a real terminal
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+    master, slave = pty.openpty()
+    proc = subprocess.Popen([sys.executable, MAIN, *args], stdin=slave, stdout=slave, stderr=subprocess.PIPE,
+                            preexec_fn=make_controlling_tty)
+    return proc, master, slave
+
+
+def _pump(fd, seconds):
+    import select
+
+    out = b""
+    end = time.time() + seconds
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if r:
+            try:
+                out += os.read(fd, 4096)
+            except OSError:
+                break
+    return out
+
+
+@needs_pty
+def test_keyboard_switches_case_and_quits_restoring_terminal():
+    import termios
+
+    with FakePlatform() as fp:
+        proc, master, slave = _spawn_on_pty("--url", fp.url, "--interval", "0.1")
+        try:
+            assert termios.tcgetattr(slave)[3] & termios.ICANON
+            out = _pump(master, 0.8)
+            assert not termios.tcgetattr(slave)[3] & termios.ICANON  # keys without Enter
+            os.write(master, b"4")
+            out += _pump(master, 0.8)
+            os.write(master, b"2")
+            out += _pump(master, 0.8)
+            os.write(master, b"q")
+            proc.wait(timeout=5)
+            out += _pump(master, 0.2)
+            assert proc.returncode == 0
+            assert termios.tcgetattr(slave)[3] & termios.ICANON  # restored
+            assert termios.tcgetattr(slave)[3] & termios.ECHO
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            os.close(master)
+            os.close(slave)
+        text = out.decode(errors="ignore")
+        assert "case unknown" in text and "case imbalance" in text
+        diags = [r["diagnosis"] for r in fp.records]
+        assert "unknown" in diags and "imbalance" in diags
+
+
+@needs_pty
+def test_ctrl_c_restores_terminal():
+    import termios
+
+    proc, master, slave = _spawn_on_pty("--url", f"http://127.0.0.1:{free_port()}", "--interval", "0.1")
+    try:
+        _pump(master, 0.8)
+        assert not termios.tcgetattr(slave)[3] & termios.ICANON
+        os.write(master, b"\x03")  # Ctrl-C through the terminal
+        proc.wait(timeout=5)
+        assert proc.returncode == 130
+        assert b"Traceback" not in proc.stderr.read()
+        assert termios.tcgetattr(slave)[3] & termios.ICANON
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        os.close(master)
+        os.close(slave)
+
+
+def test_keys_restore_after_exception():
+    import pty
+    import termios
+
+    import sim_device
+
+    master, slave = pty.openpty()
+    try:
+        stream = os.fdopen(slave, "rb", buffering=0, closefd=False)
+        with pytest.raises(RuntimeError):
+            with sim_device.Keys(stream) as keys:
+                assert keys.active
+                assert not termios.tcgetattr(slave)[3] & termios.ICANON
+                raise RuntimeError("boom")
+        assert termios.tcgetattr(slave)[3] & termios.ICANON
+    finally:
+        os.close(master)
+        os.close(slave)
