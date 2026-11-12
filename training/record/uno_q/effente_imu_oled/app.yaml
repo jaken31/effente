@@ -1,0 +1,5 @@
+# effente sensor test: MPU6050 readings on the OLED screen (both on Wire2).
+name: effente_imu_oled
+icon: 📈
+ports: []
+bricks: []
