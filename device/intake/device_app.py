@@ -28,10 +28,10 @@ from pathlib import Path
 import numpy as np
 
 from effente import features as F
+from effente import safety as SF
 from effente.history import History
-from effente.model_input import load_recording
 from effente.model_runtime import Model, Watcher
-from effente.trainer import train_model
+from effente.trainer import load_for_training, train_model
 from device.intake.extract import feature_stream
 from device.intake.live import log_record
 from device.intake.recorder import Recorder
@@ -42,6 +42,9 @@ SCREEN_NAMES = {"display": "STREAMING", "recording": "RECORDING", "training": "T
 SCREEN_EVERY_S = 0.5  # how often the layout is checked for changes
 HISTORY_SAVE_EVERY_S = 300.0
 MIN_RECORD_S = 300.0  # learning needs at least 5 minutes of the machine running
+NOTES_SHOWN_S = 120.0  # how long the screen shows what was odd about the learning
+SCREEN_DIAG = {"normal": "NOTHING WRONG", "warming_up": "WARMING UP", "stopped": "MACHINE STOPPED",
+               "unrecognised_pattern": "OUTSIDE NORMAL"}  # the rest: the fault type's name
 
 
 def _g(x, name):
@@ -51,10 +54,9 @@ def _g(x, name):
 
 def readings(x) -> dict:
     """The few numbers shown on the screen, from one feature row."""
-    rms = [_g(x, f"vib_rms_{a}") for a in "xyz"]
-    total = math.sqrt(sum(10 ** (2 * r) for r in rms)) if all(r is not None for r in rms) else None
+    total = SF.vib_total_g(x) if x is not None else math.nan
     peak = _g(x, "vib_peak_g")
-    return {"vib_mg": None if total is None else round(1000 * total, 1),
+    return {"vib_mg": round(1000 * total, 1) if math.isfinite(total) else None,
             "peak_g": None if peak is None else round(10 ** peak, 3),
             "speed_hz": _g(x, "vib_speed_hz"), "imu_temp_c": _g(x, "imu_temp_c"),
             "tilt": [_g(x, f"vib_gravity_{a}") for a in "xyz"]}
@@ -98,12 +100,20 @@ class DeviceApp:
         self.latest, self.latest_t = None, None
         self.last_press = -math.inf
         self.history = History.load(self.dir / "history.npz")
+        self.settings_path = self.dir / "settings.json"
+        self.sensitivity, self._settings_seen = SF.DEFAULT_SENSITIVITY, None
+        self.safety = SF.Safety()
+        self.problems: list[dict] = []
+        self.notes: list[str] = []
+        self.notes_until = -math.inf
+        self._load_settings()
         self._last_history_save = None
         self._screen_text, self._screen_event = None, threading.Event()
         self._stop = threading.Event()
         self._resume()
         if self.stream is not None:
             self.stream.status_provider = self.status
+            self.stream.settings_handler = self.settings
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -122,12 +132,13 @@ class DeviceApp:
         if state.get("model") and Path(state["model"]).exists():
             try:
                 self.model_path = Path(state["model"])
-                self.watcher = Watcher(Model.load(self.model_path))
+                self.watcher = Watcher(Model.load(self.model_path), margin=SF.margins(self.sensitivity)["model"])
             except Exception as e:  # noqa: BLE001  a model made with other features: learn again
                 self.message = f"saved model not usable: {e}"
                 self.watcher, self.model_path = None, None
         if mode == "watching" and self.watcher is not None:
             self.mode = "watching"
+            self.safety.set_baseline(self.watcher.m.d.get("baseline"))
         elif mode in ("recording", "training") and state.get("recording"):
             self.recording = Path(state["recording"])
             self.record_started = state.get("record_started") or self.clock()
@@ -156,6 +167,7 @@ class DeviceApp:
         self.recording = self.dir / "recordings" / time.strftime("rec-%Y%m%d-%H%M%S", time.localtime(self.clock()))
         self.record_started = self.clock()
         self.result, self.message = None, ""
+        self.safety.set_baseline(None)  # relearning: the old normal no longer counts
         self._open_recorder()
         self.mode = "recording"
         self._save_state()
@@ -191,20 +203,24 @@ class DeviceApp:
 
     def _train(self):
         try:
-            X, t, names = load_recording(self.recording)
+            t, X, names, period = load_for_training(self.recording)
 
             def progress(stage, share):
                 self.train_stage, self.train_share = stage, share
 
-            d, report = train_model(t, X, names, source=str(self.recording), progress=progress)
+            d, report = train_model(t, X, names, period=period, source=str(self.recording), progress=progress)
             models = self.dir / "models"
             models.mkdir(exist_ok=True)
             path = models / f"{self.recording.name}.json"
             path.write_text(json.dumps(d))
-            watcher = Watcher(Model(d))
+            watcher = Watcher(Model(d), margin=SF.margins(self.sensitivity)["model"])
+            baseline = d.get("baseline") or {}
             with self.lock:
                 self.model_path, self.watcher, self.mode = path, watcher, "watching"
+                self.safety.set_baseline(baseline)
                 self.message = ""
+                self.notes = list(baseline.get("warnings_screen", []))
+                self.notes_until = self.clock() + NOTES_SHOWN_S
                 self._save_state()
             self._event("model_trained", {"file": path.name, **report})
             self._event("mode", {"mode": "watching"})
@@ -244,9 +260,16 @@ class DeviceApp:
         elif self._last_history_save is None or t0 - self._last_history_save >= HISTORY_SAVE_EVERY_S:
             self.history.save(self.dir / "history.npz")  # while recording, the recorder saves it
             self._last_history_save = t0
+        started, cleared = self.safety.update(t0, x)
+        for p in started:
+            self._event("problem", p)
+        for name in cleared:
+            self._event("problem_cleared", {"name": name})
+        self.problems = problems = self.safety.problems()
         result = None
         if mode == "watching" and watcher is not None:
             result = watcher.predict_at(t0, x)
+            result.update(SF.verdict(result, problems), problems=problems)
             self.result = result
         if self.stream is not None:
             missing = F.missing_sensors(x)
@@ -264,7 +287,66 @@ class DeviceApp:
                 self._screen_text, self._screen_sent = text, t0
                 self._screen_event.set()
 
+    # ------------------------------------------------------------ settings
+    def settings(self, changes: dict | None = None) -> dict:
+        """The device's settings; with changes, apply and save them first (raises ValueError if bad).
+        Used by POST /settings on the stream; editing data/settings.json by hand works too."""
+        if changes:
+            unknown = sorted(set(changes) - {"sensitivity"})
+            if unknown:
+                raise ValueError(f"unknown settings {unknown}; there is only sensitivity")
+            v = changes.get("sensitivity")
+            lo, hi = SF.SENSITIVITY_RANGE
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                raise ValueError(f"sensitivity must be a number from {lo:g} to {hi:g} ({SF.DEFAULT_SENSITIVITY:g} is the default)")
+            self._set_sensitivity(float(v))
+            tmp = self.settings_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"sensitivity": self.sensitivity}))
+            tmp.replace(self.settings_path)
+            self._settings_seen = self.settings_path.stat().st_mtime_ns
+        m = SF.margins(self.sensitivity)
+        return {"sensitivity": self.sensitivity, "sensitivity_range": list(SF.SENSITIVITY_RANGE),
+                "counts_as_wrong": {"vibration_times_normal": round(m["vibration"], 2),
+                                    "degrees_over_normal": round(m["temperature"], 1),
+                                    "db_over_normal": round(m["sound"], 1),
+                                    "model_score_over": round(m["model"], 2)},
+                "default": SF.DEFAULT_SENSITIVITY,
+                "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
+                        "counts as wrong; the universal limits never change"}
+
+    def _set_sensitivity(self, v: float):
+        with self.lock:
+            changed = v != self.sensitivity
+            self.sensitivity = v
+            self.safety.set_sensitivity(v)
+            if self.watcher is not None:
+                self.watcher.margin = SF.margins(v)["model"]
+        if changed:
+            self._event("settings", {"sensitivity": v})
+
+    def _load_settings(self):
+        """Read data/settings.json if it is new or changed (it is checked every couple of seconds)."""
+        try:
+            seen = self.settings_path.stat().st_mtime_ns
+        except OSError:
+            return
+        if seen == self._settings_seen:
+            return
+        self._settings_seen = seen
+        try:
+            v = json.loads(self.settings_path.read_text()).get("sensitivity", SF.DEFAULT_SENSITIVITY)
+            lo, hi = SF.SENSITIVITY_RANGE
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                raise ValueError(f"sensitivity must be from {lo:g} to {hi:g}")
+            self._set_sensitivity(float(v))
+        except (ValueError, AttributeError) as e:
+            self.message = f"settings.json not used: {e}"[:80]
+
     def _check_press_file(self):
+        now = time.monotonic()
+        if now - getattr(self, "_settings_checked", -1e9) >= 2.0:
+            self._settings_checked = now
+            self._load_settings()
         p = self.dir / "press"
         if p.exists():
             try:
@@ -285,24 +367,32 @@ class DeviceApp:
         speed = f"speed {r['speed_hz']:.1f} Hz" if r["speed_hz"] else "speed --"
         live = ["vib  {vib} mg", "{bar}", "peak {peak} g"]
         with self.lock:
-            mode, msg = self.mode, self.message
+            mode, msg, problems = self.mode, self.message, list(self.problems)
+            notes = self.notes if self.clock() < self.notes_until else []
         top = f"{SCREEN_NAMES[mode]:<12s}{time.strftime('%H:%M:%S', time.localtime(self.clock()))}"
+        bang = [f"! {SF.screen_text(p)}" for p in problems]  # what is wrong, in every mode
         if mode == "display":
-            lines = [top] + live + [speed, "temp {temp} C"]
+            head, tail = [top] + live + [speed, "temp {temp} C"], []
         elif mode == "recording":
-            lines = [top] + live + [speed, "temp {temp} C"] + (_wrap(msg)[:2] if msg else [])
+            head, tail = [top] + live + [speed, "temp {temp} C"], []
+            bang += _wrap(msg)[:2] if msg else []
         elif mode == "training":
-            lines = [top, f"{int(100 * self.train_share)}% {self.train_stage}"[:21], ""] + live[:2] + ["temp {temp} C"]
+            head, tail = [top, f"{int(100 * self.train_share)}% {self.train_stage}"[:21], ""] + live[:2], ["temp {temp} C"]
         else:
             res = self.result or {}
             diag = res.get("diagnosis", "warming_up")
-            score = res.get("unknown_score")
-            lines = [top] + _wrap(diag.replace("_", " ").upper())[:2]
-            lines += [f"score {score:.2f}x" if isinstance(score, (int, float)) else "score --"]
-            feats = list((res.get("features") or {}).items())
-            if diag not in ("normal", "warming_up", "stopped") and feats:
-                lines.append(f"{feats[0][0][:14]} {feats[0][1]:+.1f}")
-            lines += live[:2] + ["temp {temp} C"]
+            head = [top]
+            if diag in SCREEN_DIAG and diag != "unrecognised_pattern":
+                head.append(SCREEN_DIAG[diag] if not bang or diag != "normal" else bang.pop(0)[2:])
+            else:  # the model says something is wrong: what it is, and the reading that moved most
+                head += _wrap(SCREEN_DIAG.get(diag, diag.replace("_", " ").upper()))[:2]
+                feats = list((res.get("features") or {}).items())
+                if feats:
+                    head.append(f"{feats[0][0][:14]} {feats[0][1]:+.1f}")
+            bang += [f"note: {n}"[:21] for n in notes]
+            tail = live[:2] + ["temp {temp} C"]
+        room = max(0, 8 - len(head) - len(tail))
+        lines = head + bang[:room] + tail
         return [x[:21] if "{" not in x else x for x in lines[:8]]
 
     def _screen_worker(self):
@@ -328,6 +418,10 @@ class DeviceApp:
                 s["model"] = self.model_path.name
             if self.result:
                 s["diagnosis"] = self.result.get("diagnosis")
+            s.update(SF.verdict(self.result if self.mode == "watching" else None, self.problems),
+                     problems=list(self.problems), sensitivity=self.sensitivity)
+            if self.watcher is not None and (self.watcher.m.d.get("baseline") or {}).get("warnings"):
+                s["learning_notes"] = list(self.watcher.m.d["baseline"]["warnings"])
         if hasattr(self.source, "stats"):
             s["sensors"] = dict(self.source.stats)
         return s

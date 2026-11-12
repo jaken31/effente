@@ -149,6 +149,7 @@ class Stream:
         self.replay_s, self.client_queue, self.stall_s = replay_s, client_queue, stall_s
         self.keepalive_s, self.max_clients = keepalive_s, max_clients
         self.status_provider = None  # () -> dict, set by watch mode
+        self.settings_handler = None  # (changes dict or None) -> settings dict, set by the device app
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -326,7 +327,8 @@ def feature_table() -> dict:
 _INDEX = {"endpoints": {
     "/stream": "Server-Sent Events; ?topics=results,features,events,status (default all), "
                "?features_every=S, ?replay=S",
-    "/latest": "last item of each topic", "/features": "the feature table", "/health": "server up"}}
+    "/latest": "last item of each topic", "/features": "the feature table", "/health": "server up",
+    "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}"}}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -350,7 +352,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):  # CORS preflight, for browser clients that send custom headers
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Last-Event-ID, Cache-Control, Content-Type")
         self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Access-Control-Max-Age", "600")
@@ -369,12 +371,39 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, s.features_json)
             elif path == "/health":
                 self._json(200, dumps(s.health()))
+            elif path == "/settings":
+                self._settings(None)
             elif path == "/":
                 self._json(200, dumps(_INDEX))
             else:
                 self._json(404, dumps({"error": f"no such endpoint: {url.path}", **_INDEX}))
         except OSError:  # the client went away
             pass
+
+    def do_POST(self):
+        path = urlsplit(self.path).path.rstrip("/") or "/"
+        try:
+            if path != "/settings":
+                return self._json(404, dumps({"error": f"no such endpoint: {path}", **_INDEX}))
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                changes = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+                if not isinstance(changes, dict):
+                    raise ValueError("send a JSON object, e.g. {\"sensitivity\": 0.7}")
+            except ValueError as e:
+                return self._json(400, dumps({"ok": False, "error": str(e)}))
+            self._settings(changes)
+        except OSError:
+            pass
+
+    def _settings(self, changes) -> None:
+        handler = self.stream.settings_handler
+        if handler is None:
+            return self._json(404, dumps({"ok": False, "error": "this device has no settings"}))
+        try:
+            self._json(200, dumps({"ok": True, **handler(changes)}))
+        except ValueError as e:
+            self._json(400, dumps({"ok": False, "error": str(e)}))
 
     def _stream(self, q) -> None:
         s = self.stream

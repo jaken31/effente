@@ -10,12 +10,44 @@ plug in ──> DISPLAY ──button──> RECORDING ──button──> TRAINI
 
 | Mode | Screen | What happens |
 |------|--------|--------------|
-| Display | `READY`, vibration, peak, speed, IMU temperature | Sensors are read and features computed; nothing is kept |
-| Recording | `LEARNING mm:ss` and the readings | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
-| Training | `TRAINING nn%` and the stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on |
-| Watching | The diagnosis (`NORMAL`, `VIBRATION TOO HIGH`, …), the score, the strongest evidence | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
+| Streaming | `STREAMING` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
+| Recording | `RECORDING` and the readings | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
+| Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on. A day or more trains from the per-minute summaries, so a week fits in memory |
+| Inference | `NOTHING WRONG`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
 
-Pressing the button while watching starts a new recording, to relearn. After a power cut, the app resumes what it was doing. If it was watching, it carries on watching with the saved model. If it was recording, it carries on recording into the same folder.
+Pressing the button while in inference starts a new recording, to relearn. After a power cut, the app resumes what it was doing. If it was in inference, it carries on with the saved model. If it was recording, it carries on recording into the same folder.
+
+## What counts as wrong
+
+The device answers two things only: is something wrong, and what. There are no severity levels. Problems show on the screen as `! …` lines in every mode, go out on the stream as `problem` and `problem_cleared` events, and appear in `/latest` status as `wrong`, `what` and `problems`. The rules are in [effente/safety.py](../../effente/safety.py).
+
+- **From the moment it's plugged in (no setup, any machine):**
+  - vibration over 11 mm/s
+  - knocking: impulsive vibration with peaks of 0.5 g or more
+  - over 100 °C
+  - heating more than 8 °C a minute
+  - 5 or more sudden jolts in 10 minutes
+- **After training, against this machine's own normal** (the highest while learning): vibration at 2× normal, 15 °C or 6 dB over normal, and the learned model's line. No one has to say what kind of machine it is.
+- Each check must hold for 10 seconds before it shows, so a bump doesn't count.
+- **Notes after training:** the screen shows notes for 2 minutes after training (status keeps them) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
+
+**Sensitivity:** how far outside normal counts as wrong hasn't been decided. Sensitivity goes from 0 (least sensitive) to 1 (most), and the numbers above are the starting values at the default, 0.5. Each 0.25 step halves or doubles how far outside normal counts:
+
+| Sensitivity | Vibration | Temperature | Sound | Model's line |
+|---|---|---|---|---|
+| 0 | 5× normal | +60 °C | +24 dB | 4× |
+| 0.25 | 3× | +30 °C | +12 dB | 2× |
+| 0.5 (default) | 2× | +15 °C | +6 dB | 1× |
+| 0.75 | 1.5× | +7.5 °C | +3 dB | 0.5× |
+| 1 | 1.25× | +3.75 °C | +1.5 dB | 0.25× |
+
+It changes the outside-normal checks and the model, never the universal limits. Change it while the device runs:
+
+```bash
+curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
+```
+
+`curl http://localhost:8765/settings` shows the current value and what it means in numbers. Editing `data/settings.json` on the board (`{"sensitivity": 0.7}`) works too, and is picked up within 2 seconds.
 
 ## Wiring
 
@@ -41,9 +73,9 @@ adb forward tcp:8765 tcp:8765
 curl -N http://localhost:8765/stream
 ```
 
-`/latest`, `/features` and `/health` are described in [device/intake/README.md](../intake/README.md). On a network that lets devices see each other, use the board's address instead of `localhost`. University WiFi usually doesn't allow that, so use the USB forward or a phone hotspot.
+`/settings` is described above. `/latest`, `/features` and `/health` are described in [device/intake/README.md](../intake/README.md). On a network that lets devices see each other, use the board's address instead of `localhost`. University WiFi usually doesn't allow that, so use the USB forward or a phone hotspot.
 
-Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/`, `state.json` and `history.npz`. The deploy script never touches it.
+Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/`, `state.json`, `settings.json` and `history.npz`. The deploy script never touches it.
 
 ## Measured on this board (12 Nov 2026)
 
