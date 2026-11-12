@@ -80,6 +80,28 @@ The device applies a mask to hidden units before the output layer. The platform 
 - Rule: it may cite only features present in the explanation table.
 - Offline: the agent is skipped and the device says so. Detection is unaffected.
 
+### Harness
+
+The harness is the code around the Claude call. Keep it small: a short loop, a few tools, and hard checks in our own code.
+
+- **Loop:** the tool runner in the Python `anthropic` SDK. We write tools as plain functions and host the loop on the device. Not Managed Agents, because the tools read local device data.
+- **Tools:** `get_readings(machine_id, since)`, `get_feature_table()`, `search_parts(query)` (Tavily), and optionally `get_history(machine_id)`.
+- **Output:** a structured report with a fixed shape: summary, priority, cited features, part reference. `cited_features` is restricted to the names in the feature table, so the API rejects any feature that is not verified.
+- **Check in code:** after the response, confirm every cited feature was active in the readings supplied. If not, discard the report and say so.
+- **Offline and errors:** short timeout. Handle connection and rate-limit errors separately. On failure show "agent unavailable", queue the request, retry when WiFi returns.
+- **Limits:** cap the number of tool rounds and the output size.
+- **Logging:** save each request, tool call, response and token count to the device log. The dashboard shows the tool calls live.
+- **Tests:** about ten fake logs with known right answers (imbalance, loose mount, unknown fault, healthy). Run them after every prompt change.
+
+Settings:
+
+- Model: `claude-opus-5-5`. Set the effort level explicitly, since its default is medium. Haiku 5.5 is the cheaper, faster option if needed.
+- No forced tool calls: Opus 5.5 rejects them. Structured output is used instead.
+- Caching: stable content first (instructions, tool definitions, feature table), changing log data last.
+- Key: `ANTHROPIC_API_KEY` in the device's environment, never in the repo.
+
+Fallback if time is short: one Claude call with the readings included and a structured report out, no tool loop. Add the parts lookup tool afterwards.
+
 ## Shared formats
 
 Agreed in the first hour so the tracks do not wait on each other. Values below are examples.
