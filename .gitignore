@@ -1,0 +1,6 @@
+data/
+# Full fake-dataset hours are about 233 MB each, over GitHub's 100 MB limit.
+# Rebuild them with: python3 -m effente.simulate_day --out fake-dataset/normal-day-01
+fake-dataset/**/hour_*.npz
+__pycache__/
+*.pyc

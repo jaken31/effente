@@ -6,6 +6,7 @@ Built for the 300 AI Hackathon, Nov 12-15, 2026.
 
 - [Product requirements](docs/PRD.md)
 - [Technical requirements](docs/TRD.md)
+- [Fake dataset](fake-dataset/README.md): one simulated day of normal IMU, microphone and thermal data from a factory pump (no faults)
 
 ## The problem
 
