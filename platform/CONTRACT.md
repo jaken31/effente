@@ -1,8 +1,14 @@
 # Device and platform contract
 
-Version 3.1, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 3.2, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
 It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds eight fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq`.
+
+## Changes from version 3.1
+
+Wording only. Nothing a device or the dashboard sends or receives changes.
+
+- Who starts an agent: a person, from a terminal or the desktop app's button, never over HTTP. The desktop app runs one run per machine at a time (section 4).
 
 ## Changes from version 3
 
@@ -413,7 +419,7 @@ While a value is set, every reply to message 2 and message 3 carries it. When it
 
 The device's own `/settings` on port 8765 and `data/settings.json` stay for bench use. While the dashboard has a value set, the next reply overwrites a local change. Clear the dashboard's value to tune on the device.
 
-## Not in version 3.1
+## Not in version 3.2
 
 - No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The API key comes from the laptop's environment and is never sent to or through the platform.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
