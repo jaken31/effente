@@ -6,6 +6,7 @@ Built for the 300 AI Hackathon, Nov 12-15, 2026.
 
 - [Product requirements](docs/PRD.md)
 - [Technical requirements](docs/TRD.md)
+- [Architecture diagrams](docs/architecture.md)
 
 ## The problem
 
