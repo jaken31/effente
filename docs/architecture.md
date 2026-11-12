@@ -75,7 +75,7 @@ The bottom box happens before any of that: recordings train the network, mech in
 
 The dotted line is the bootstrap: the device captures the raw recordings used for training.
 
-Tracks map onto the boxes: track 1 is the handheld, track 2 is recordings and the signal pipeline, track 3 is training, track 4 is mech interp and the explanation table, track 5 is the laptop platform and the agent.
+Tracks map onto the boxes: track 1 is the handheld, track 2 is recordings and the signal pipeline, track 3 is training, mech interp and the explanation table, track 5 is the laptop platform and the agent.
 
 ## Data model
 

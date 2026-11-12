@@ -18,8 +18,7 @@ Each session works for one track and edits only that track's folders. Ask which 
 |-------|-----------------|
 | 1. Device | `firmware/`, `device/` |
 | 2. Data and signal | `training/record/`, `data/` |
-| 3. Model | `training/` (except `record/`) |
-| 4. Mech interp | `interp/` |
+| 3. Model and mech interp | `training/` (except `record/`), `interp/` |
 | 5. Platform, agent and business | `platform/`, `docs/` |
 
 Create your folder if it does not exist yet. Do not edit another track's folder. If you need a change there, describe it to your person and let that track make it.

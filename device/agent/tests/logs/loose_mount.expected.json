@@ -1,0 +1,26 @@
+{
+  "note": "Loose mount. Must cite rattle.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "loose_mount": 20
+      },
+      "may_cite": [
+        "rattle"
+      ],
+      "must_cite": [
+        "rattle"
+      ],
+      "priority": [
+        "medium",
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}

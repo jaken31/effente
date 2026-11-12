@@ -61,8 +61,7 @@ Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Flu
 
 1. **Device:** sampling, screen, on-device inference, WiFi upload.
 2. **Data and signal:** recordings, sensitivity sweep, public run-to-failure dataset.
-3. **Model:** training, unknown alarm, model file.
-4. **Mech interp:** feature analysis, switch-off tests, explanation table.
+3. **Model and mech interp:** training, unknown alarm, model file, feature analysis, switch-off tests, explanation table.
 5. **Platform, agent and business:** dashboard, agent, validation, pitch.
 
 Rule: the four-case demo runs end to end by Saturday 1pm. Anything not working then is cut.

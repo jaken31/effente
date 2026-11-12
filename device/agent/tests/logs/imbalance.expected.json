@@ -1,0 +1,26 @@
+{
+  "note": "Clear imbalance. Must cite once_per_turn; rattle is quiet and must not be cited.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "imbalance": 20
+      },
+      "may_cite": [
+        "once_per_turn"
+      ],
+      "must_cite": [
+        "once_per_turn"
+      ],
+      "priority": [
+        "medium",
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}
