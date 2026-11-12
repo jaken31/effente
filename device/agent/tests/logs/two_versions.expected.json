@@ -1,0 +1,26 @@
+{
+  "note": "Readings from two model versions. Only the newest (fake-0.2) is used. rattle was active only under fake-0.1, so it must not be cited.",
+  "model_file": "model-0.2.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {
+        "imbalance": 8
+      },
+      "may_cite": [
+        "once_per_turn"
+      ],
+      "must_cite": [
+        "once_per_turn"
+      ],
+      "priority": [
+        "medium",
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.2",
+      "note_contains": "readings span model versions fake-0.1, fake-0.2"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "note": "The log has only fan-2. Asking for conveyor-07 gives no report and makes no agent call.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "conveyor-07",
+      "diagnoses": {},
+      "may_cite": [],
+      "must_cite": [],
+      "priority": [],
+      "ok": false,
+      "reason": "no readings for this machine",
+      "model_version": "",
+      "note_contains": ""
+    }
+  ]
+}
