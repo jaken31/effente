@@ -232,6 +232,8 @@ python3 -m device.intake.coverage_check data/fake/server-rack --sim server
 
 ## Tests
 
+The tests need numpy and scipy (`pip install -r device/requirements.txt`).
+
 ```bash
 python3 -m device.intake.tests.test_intake
 python3 -m device.intake.tests.test_conveyor
