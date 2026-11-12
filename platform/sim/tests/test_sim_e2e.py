@@ -53,6 +53,23 @@ def test_announces_then_acknowledges_mask_from_reply(tmp_path):
         assert mf["simulated"] is True and [f["name"] for f in mf["features"]] == ["once_per_turn", "rattle"]
 
 
+def test_records_carry_heat_by_source(tmp_path):
+    with FakePlatform() as fp:
+        p = run_sim("--interval", "0.1", "--count", "2", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        cam = [r["heat"] for r in fp.records]
+    assert all(h["source"] == "camera" and len(h["frames"]) == 2 for h in cam)
+    assert all(record_problems(r) == [] for r in fp.records)
+    assert record_problems({"heat": {"source": "camera", "imu_temp_c": 40, "cells": [0] * 47}})  # the check can fail
+
+    with FakePlatform() as fp:
+        assert run_sim("--interval", "0.1", "--count", "2", "--heat", "imu", url=fp.url).returncode == 0
+        assert [set(r["heat"]) for r in fp.records] == [{"source", "imu_temp_c"}] * 2
+    with FakePlatform() as fp:
+        assert run_sim("--interval", "0.1", "--count", "2", "--heat", "none", url=fp.url).returncode == 0
+        assert all("heat" not in r for r in fp.records)
+
+
 def test_mask_switched_off_again_restores_diagnosis():
     with FakePlatform() as fp:
         fp.set_mask(["rattle"])
@@ -182,6 +199,8 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             out += _pump(master, 0.8)
             os.write(master, b"2")
             out += _pump(master, 0.8)
+            os.write(master, b"t")
+            out += _pump(master, 0.8)
             os.write(master, b"q")
             proc.wait(timeout=5)
             out += _pump(master, 0.2)
@@ -195,6 +214,8 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             os.close(slave)
         text = out.decode(errors="ignore")
         assert "case unknown" in text and "case imbalance" in text
+        assert "heat camera" in text and "heat imu" in text
+        assert fp.records[0]["heat"]["source"] == "camera" and fp.records[-1]["heat"]["source"] == "imu"
         diags = [r["diagnosis"] for r in fp.records]
         assert "unknown" in diags and "imbalance" in diags
 

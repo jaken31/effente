@@ -5,7 +5,7 @@ The answer is only whether something is wrong and what it is. There are no sever
 Universal limits work from the moment the device is plugged in, in every mode, before anything has
 been learned. Each is a reading that means trouble on practically any machine:
 
-  vibration_too_high   vibration velocity over 11 mm/s (ISO 10816-like: past "unsatisfactory" for
+  vibration_over_limit vibration velocity over 11 mm/s (ISO 10816-like: past "unsatisfactory" for
                        most machine sizes; this device's band is 10-250 Hz)
   knocking             sustained impacts: impulsive vibration (kurtosis over 8; smooth running is
                        about 3) with peaks of 0.5 g or more
@@ -79,12 +79,15 @@ def margins(sensitivity: float = DEFAULT_SENSITIVITY) -> dict[str, float]:
 # Vibration below these never counts as outside normal: the accelerometer's own noise is 4-9 mg.
 VIB_FLOOR = {"vib_velocity_mm_s": 0.3, "vib_total_g": 0.015}
 
-UNIVERSAL = ("vibration_too_high", "knocking", "too_hot", "heating_fast", "repeated_jolts")
+UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
 CHECKS = UNIVERSAL + RELATIVE
+# Old names of checks, as older saved models still list them in their baseline's "dropped".
+# "vibration_too_high" is now only a model fault type (effente.fault_types).
+RENAMED = {"vibration_too_high": "vibration_over_limit"}
 
 WHAT = {  # what each problem is, for people: (sentence, the screen's short form after "! ", with its value)
-    "vibration_too_high": ("vibration over 11 mm/s, too high for practically any machine", "VIBRATION TOO HIGH", None),
+    "vibration_over_limit": ("vibration over 11 mm/s, too high for practically any machine", "VIB OVER LIMIT", None),
     "knocking": ("knocking: repeated impacts in the vibration", "KNOCKING", None),
     "too_hot": ("over 100 C", "TOO HOT", None),
     "heating_fast": ("heating up more than 8 C a minute", "HEATING FAST", None),
@@ -128,7 +131,7 @@ def _universal(r: dict, imu_rise: float = _NAN) -> dict[str, tuple[bool, float]]
     """Per universal check: (over its limit, the value that decides)."""
     hot = _max(r["imu_temp_c"], r["th_max_c"])
     rise = _max(imu_rise, r["th_rise_per_min"])
-    return {"vibration_too_high": (r["vib_velocity_mm_s"] > VELOCITY_MM_S, r["vib_velocity_mm_s"]),
+    return {"vibration_over_limit": (r["vib_velocity_mm_s"] > VELOCITY_MM_S, r["vib_velocity_mm_s"]),
             "knocking": (r["kurtosis"] > KURTOSIS and r["peak_g"] >= KNOCK_PEAK_G, r["kurtosis"]),
             "too_hot": (hot > HOT_C, hot),
             "heating_fast": (rise > HEATING_C_PER_MIN, rise),
@@ -176,7 +179,7 @@ class Safety:
     def set_baseline(self, baseline: dict | None) -> None:
         """This machine's normal, from training (None while nothing has been learned)."""
         self.levels = dict((baseline or {}).get("levels", {}))
-        self.dropped = set((baseline or {}).get("dropped", []))
+        self.dropped = {RENAMED.get(n, n) for n in (baseline or {}).get("dropped", [])}
         for n in RELATIVE + tuple(self.dropped):
             self.hist[n].clear()
             self.active.pop(n, None)

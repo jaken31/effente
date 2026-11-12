@@ -9,7 +9,7 @@ python3 platform/web/dev_stub.py            # then open http://localhost:8000/
 python3 platform/web/dev_stub.py --port 8100
 ```
 
-`dev_stub.py` is a development aid, not the product. It plays one fake device (`effente-sim-01`) on one fake machine (`sim-fan-01`), sends one record a second marked `simulated: true`, cycles Normal, Imbalance, Loose mount and Unknown every 8 records, obeys the mask (after `--mask-delay` seconds, default 1, so "pending" is visible), and runs a sample agent run with tool calls every minute. Every third run fails on purpose to show the no-report state. Its features, sentences and spectra are made up for layout work.
+`dev_stub.py` is a development aid, not the product. It plays one fake device (`effente-sim-01`) on one fake machine (`sim-fan-01`), sends one record a second marked `simulated: true`, cycles Normal, Imbalance, Loose mount and Unknown every 8 records, obeys the mask (after `--mask-delay` seconds, default 1, so "pending" is visible), and runs a sample agent run with tool calls every minute. Every third run fails on purpose to show the no-report state. Its records carry the contract 3.3 `heat` field from the simulator's made-up thermal camera (`--heat camera`, the default; `imu` or `none` for the other states). Its features, sentences, spectra and heat readings are made up for layout work.
 
 Stub-only controls, outside the contract:
 
@@ -17,6 +17,7 @@ Stub-only controls, outside the contract:
 curl -X POST localhost:8000/dev/pause       # device goes quiet, then disconnected
 curl -X POST localhost:8000/dev/resume
 curl -X POST localhost:8000/dev/agent-run   # start a sample agent run now
+curl -X POST 'localhost:8000/dev/heat?source=imu'   # heat source: camera, imu or none
 ```
 
 ## What the page shows
@@ -27,6 +28,7 @@ curl -X POST localhost:8000/dev/agent-run   # start a sample agent run now
 - **Switch-off banner**: while the newest record's `mask` is not empty, a black bar under the diagnosis says which feature is switched off and what the device diagnosed with all features on, then now (for example "Imbalance → now: Normal"). It flashes when the switched-off set changes. Both diagnoses are ones the device sent; the page never links a feature to a diagnosis by itself.
 - **Verified features**: one row per feature in the announced model: sentence, name, activity bar from the latest record, and a toggle. Clicking sends `PUT /api/devices/<id>/mask` with the full new list. The toggle shows "Switching off…" / "Switching on…" until a record arrives whose `mask` agrees, then "Switched off" or "On".
 - **Vibration spectrum**: the latest record's 64 bins on a fixed 0 to 1 scale, frequency axis 0 to the model's `spectrum_hz_max`.
+- **Heat** (contract 3.3 `heat`, optional): with a thermal camera, the record's images played back at the spacing they were taken (2 a second from the device), one block per camera pixel, colour scale in whole degrees, the hottest pixel ringed, and hottest, where, background and the view check under it. A record without images (history) draws the 8 x 6 grid instead. A frozen image gets a yellow "FROZEN: CAMERA STUCK" band. Without a camera: "No thermal camera fitted", the IMU temperature and its change over the last 2 minutes, with a note that it is not the surface temperature. A record with no `heat` says so. Grey when not live.
 - **Agent report**: latest run for the shown machine. Tool calls in order (latest six), "working…" while running, then summary, priority, cited features, action and part reference; or the reason and problems if `ok` is false. Its own "Simulated" tag when the run says so.
 - **History**: diagnosis strip and feature activity lines for the last 300 records of the shown machine, from `GET /api/machines/<id>/records`, kept up to date from the stream. Hatched areas are windows with a feature switched off.
 

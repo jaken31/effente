@@ -12,7 +12,7 @@ python3 platform/sim/main.py
 
 Python 3.11+, standard library only. Connects to `EFFENTE_PLATFORM_URL` (default `http://localhost:8000`). It keeps running if the platform is down.
 
-Keys (when started in a terminal, no Enter needed): `1` normal, `2` imbalance, `3` loose mount, `4` unknown, `p` pause, `q` quit. The status line shows the case, the diagnosis sent, the active mask and whether the platform is reachable. Started from a script (stdin not a terminal) it reads no keys and prints one status line per record.
+Keys (when started in a terminal, no Enter needed): `1` normal, `2` imbalance, `3` loose mount, `4` unknown, `t` heat source (camera, IMU only, none), `p` pause, `q` quit. The status line shows the case, the heat source, the diagnosis sent, the active mask and whether the platform is reachable. Started from a script (stdin not a terminal) it reads no keys and prints one status line per record.
 
 | Option | Default | |
 |--------|---------|---|
@@ -20,6 +20,7 @@ Keys (when started in a terminal, no Enter needed): `1` normal, `2` imbalance, `
 | `--device` | `effente-sim-01` | device_id |
 | `--machine` | `demo-fan-1` | machine_id |
 | `--case` | `normal` | `normal`, `imbalance`, `loose_mount`, `unknown` |
+| `--heat` | `camera` | `camera`, `imu` or `none`: what the record's `heat` field carries (see Heat below) |
 | `--interval` | `1` | seconds between records |
 | `--seed` | random | repeatable output |
 | `--count N` | forever | stop after N records |
@@ -78,6 +79,16 @@ Names not in the feature table are ignored but still echoed in `mask` (the platf
 - **loose mount:** raised broadband floor, harmonics of 30 Hz up to 180 Hz that come and go window to window.
 - **unknown:** a strong tone at 300 Hz with sidebands. `unknown_score` is the height of a peak above 220 Hz, where none of the three known cases put energy; it stays well above 0.5 here. This stands in for the TRD's hidden-layer distance.
 
+## Heat
+
+Records carry the contract 3.3 `heat` field ([sim_heat.py](sim_heat.py)). Made up like everything else: the thermal scene is a hand-drawn layout (a warm motor body, a hot bearing spot, the room) with 0.15 degC noise and slow drift, and the IMU temperature wanders around 42.5 degC.
+
+- **camera:** the summary (hottest pixel and where, background, the 48-block grid, frozen, a made-up `scene_match`) and two 32 x 24 images per record, half an interval apart. The summary uses the same definitions as the `th_*` features in `effente/features.py`; a test checks they agree.
+- **imu:** `{"source": "imu", "imu_temp_c": ...}` only, as a device with no camera sends it.
+- **none:** no `heat` field.
+
+Heat has its own random generator, so `--seed` gives the same vibration records with or without it.
+
 ## Replay
 
 `--replay FILE` sends each line of a JSON lines file with `at` rewritten to now. `device_id` and `model_version` become the simulator's own, so the mask and announcement line up; `machine_id` is kept from the file. If a record has `features`, those values are taken as raw activity and the diagnosis is recomputed under the current mask. A record is `simulated: true` unless it says `simulated: false` explicitly.
@@ -87,7 +98,7 @@ Names not in the feature table are ignored but still echoed in `mask` (the platf
 ## Testing a real device against this
 
 1. **Shape:** run `python3 platform/sim/main.py --count 5 --log sim.jsonl` and compare a real device record with `sim.jsonl` field by field.
-2. **Behaviour:** point the device at the small fake receiver used by the tests. It prints each announcement and record and flags contract problems (missing fields, spectrum not 64 values in 0..1, a masked feature not 0, a reason on normal or unknown):
+2. **Behaviour:** point the device at the small fake receiver used by the tests. It prints each announcement and record and flags contract problems (missing fields, spectrum not 64 values in 0..1, a masked feature not 0, a reason on normal or unknown, a `heat` field of the wrong shape):
 
    ```
    python3 platform/sim/tests/sim_fake_platform.py 8000 once_per_turn

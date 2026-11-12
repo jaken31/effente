@@ -255,8 +255,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def get_machine_records(self, query, machine_id):
         limit = _limit(query, DEFAULT_HISTORY_LIMIT)
-        spectrum = query.get("spectrum", ["0"])[-1].lower() in ("1", "true", "yes")
-        records = self.server.store.machine_records(machine_id, limit, spectrum)
+        spectrum = _flag(query, "spectrum")
+        frames = _flag(query, "frames")
+        records = self.server.store.machine_records(machine_id, limit, spectrum, frames)
         self._json(200, {"ok": True, "records": records})
 
     def get_machine_runs(self, query, machine_id):
@@ -318,6 +319,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ext = os.path.splitext(full)[1].lower()
         content_type = CONTENT_TYPES.get(ext) or mimetypes.guess_type(full)[0] or "application/octet-stream"
         self._send(200, body, content_type, head_only)
+
+
+def _flag(query, name):
+    return query.get(name, ["0"])[-1].lower() in ("1", "true", "yes")
 
 
 def _limit(query, default):

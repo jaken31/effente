@@ -149,6 +149,26 @@ def test_machine_history_spectrum_and_limit(client):
     _, hist = client.json("GET", "/api/machines/nobody/records")
     assert hist == {"ok": True, "records": []}
 
+
+def test_machine_history_leaves_out_heat_frames_unless_asked(client):
+    frame = {"at": "2026-11-14T16:00:00Z", "min_c": 24.0, "step_c": 0.1, "data": "AAAA"}
+    heat = {"source": "camera", "imu_temp_c": 42.6, "max_c": 61.2, "frames": [frame]}
+    client.json("POST", "/api/records", [make_record(heat=heat), make_record(heat={"source": "imu", "imu_temp_c": 42.0})])
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records")
+    cam, imu = (r["heat"] for r in hist["records"])
+    assert cam == {"source": "camera", "imu_temp_c": 42.6, "max_c": 61.2}
+    assert imu == {"source": "imu", "imu_temp_c": 42.0}
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records?frames=1")
+    assert hist["records"][0]["heat"]["frames"] == [frame]
+    assert "spectrum" not in hist["records"][0]
+
+    _, state = client.json("GET", "/api/state")
+    assert state["devices"]["effente-01"]["latest"]["heat"]["source"] == "imu"
+    _, again = client.json("GET", "/api/machines/conveyor-07/records?frames=1")
+    assert again["records"][0]["heat"]["frames"] == [frame]  # leaving them out did not change the stored copy
+
     status, body = client.json("GET", "/api/machines/conveyor-07/records?limit=abc")
     assert status == 400 and body["ok"] is False
 
