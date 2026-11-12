@@ -62,6 +62,8 @@ Tracks map onto the boxes: track 1 is the handheld, track 2 is recordings and th
                 |
  RECORDING *--* MODEL            (a model is trained on recordings)
  MACHINE 1--* AGENT RUN 1--0..1 REPORT *--* FEATURE (cited)
+ MACHINE 1--* ALARM 1--* RECORD  (an alarm is a stretch of abnormal records)
+                  1--* ANSWER
 ```
 
 | Thing | Holds |
@@ -75,16 +77,19 @@ Tracks map onto the boxes: track 1 is the handheld, track 2 is recordings and th
 | Record | `device_id`, `machine_id`, `model_version`, `at`, `diagnosis`, `confidence`, `unknown_score`, `features` (readings that moved, in spreads), `fault_types`, `note`, `spectrum` |
 | Agent run | `machine_id`, `at`, model, usage, `ok`, reason, problems, tool calls |
 | Report | summary, priority, cited readings, recommended action, part reference |
+| Alarm | `alarm_id`, machine, device, `model_version`, start, end, open, diagnosis, periods, peak `unknown_score`. Worked out by the platform from records, not sent by the device |
+| Answer | verdict (real or false), who, when, finding |
 
 Reading it:
 
 - **Recording** is training data: a machine's normal running, kept by learn mode. **Record** is what the device produces while watching.
 - **Feature** is the shared language. Features are what the device measures, what moves in an alarm, and the only things a report may cite.
 - **Agent run** is one attempt to write a report. It has a report only if the checks passed.
+- **Alarm** is one abnormal stretch of records on one machine. **Answer** is a person's verdict on it. Answers are only added, never changed; the newest counts.
 
 In storage these are files, not database tables. Recordings are folders of `.npz` files. The model is one JSON file. Records and agent runs are one JSON object per line. Moved readings and citations live inside their parent records.
 
 ## Known gaps in the formats
 
 1. **Machines and devices are only IDs.** There is nowhere to store a machine's type, speed or location. The machine profile in [model-lifecycle.md](model-lifecycle.md) fills this.
-2. **No record of alarm verdicts.** Nobody can mark an alarm as real or false yet. See alarm feedback in [model-lifecycle.md](model-lifecycle.md).
+2. **Alarm verdicts are specified but not built.** Contract version 2.1 (section 6 of [CONTRACT.md](../platform/CONTRACT.md)) defines alarms and answers. The platform and dashboard do not have them yet. See alarm feedback in [model-lifecycle.md](model-lifecycle.md).
