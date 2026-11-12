@@ -9,7 +9,7 @@ python3 platform/web/dev_stub.py            # then open http://localhost:8000/
 python3 platform/web/dev_stub.py --port 8100
 ```
 
-`dev_stub.py` is a development aid, not the product. It plays one fake device (`effente-sim-01`) on one fake machine (`sim-fan-01`), sends one record a second marked `simulated: true`, cycles Normal, Imbalance, Loose mount and Unknown every 8 records, obeys the mask (after `--mask-delay` seconds, default 1, so "pending" is visible), and runs a sample agent run with tool calls every minute. Every third run fails on purpose to show the no-report state. Its features, sentences and spectra are made up for layout work.
+`dev_stub.py` is a development aid, not the product. It plays one fake device (`effente-sim-01`) on one fake machine (`sim-fan-01`), sends one record a second marked `simulated: true`, cycles Normal, Imbalance, Loose mount and Unknown every 8 records, obeys the mask (after `--mask-delay` seconds, default 1, so "pending" is visible), and runs a sample agent run with tool calls every minute. Every third run fails on purpose to show the no-report state. Its records carry the contract 3.3 `heat` field from the simulator's made-up thermal camera (`--heat camera`, the default; `imu` or `none` for the other states). Its features, sentences, spectra and heat readings are made up for layout work.
 
 Stub-only controls, outside the contract:
 
@@ -17,6 +17,7 @@ Stub-only controls, outside the contract:
 curl -X POST localhost:8000/dev/pause       # device goes quiet, then disconnected
 curl -X POST localhost:8000/dev/resume
 curl -X POST localhost:8000/dev/agent-run   # start a sample agent run now
+curl -X POST 'localhost:8000/dev/heat?source=imu'   # heat source: camera, imu or none
 ```
 
 ## What the page shows
