@@ -1,63 +1,64 @@
 # effente
 
-A handheld AI machine stethoscope. A technician touches it to a motor for 10 seconds and the screen shows what is wrong and why. It runs offline on an ESP32.
+A permanent sensor that listens to a motor, detects mechanical faults from vibration, and explains each diagnosis in terms a technician can check. Detection runs on the device with no cloud.
+
+Built for the 300 AI Hackathon, Nov 12-15, 2026.
+
+- [Product requirements](docs/PRD.md)
+- [Technical requirements](docs/TRD.md)
 
 ## The problem
 
 Factories lose a lot of money when machines break without warning. Siemens estimates $1.4 trillion a year across the 500 biggest companies, and about $2.3M per hour for a car plant (TODO: confirm both figures against the 2024 "True Cost of Downtime" report before the pitch).
 
-Machines usually give early warning signs, such as small vibration changes, weeks before they fail. Most motors are not monitored because sensors are expensive, and existing AI alerts are black boxes that technicians do not trust.
+Machines usually give early warning signs, such as small vibration changes, well before they fail. Most motors are not monitored, and existing AI alerts are black boxes that technicians do not trust.
 
-## What the device shows
+## What it does
 
 - **What is wrong:** imbalance, loose mount, or normal.
 - **Why:** for example, "strong vibration once per turn".
-- **Unknown pattern, inspect:** when it sees a fault it was never trained on.
+- **Unknown, inspect:** when it sees a fault it was never trained on.
+- **What to do about it:** an agent on the device turns the log into a maintenance report, a repair priority, and a parts lookup when a connection is available.
 
-No cloud, no subscription. Catching a problem weeks early means the repair happens during a planned break instead of a sudden shutdown.
+## How it works
+
+The device is an Arduino UNO Q. Its microcontroller samples an accelerometer and drives a 2.4" screen. Its Linux side turns the signal into a frequency spectrum, runs a small neural network, and uploads the full log over WiFi to a platform on a laptop.
 
 ## Where mech interp comes in
 
-This is what makes the project different from existing predictive maintenance tools.
-
-1. **Find the features.** We look inside the model and find what it uses: a "once-per-turn" feature for imbalance, a "rattling" feature for looseness.
-2. **Prove they are real.** Turning off the imbalance feature makes the model stop detecting imbalance. That is causal evidence, not a guess.
-3. **Unknown-fault alarm.** It triggers when the model's internal activity looks unfamiliar.
-4. **Shrink the model.** We remove the parts we can show it does not use, so it fits on a $5 chip.
-
-Pitch claim: "We opened up the AI and proved it learned real physics, so technicians can trust it."
-
-## Hardware (about $20-40)
-
-- ESP32 board
-- Accelerometer (MPU6050 or ADXL345)
-- Small OLED screen
-- Button and battery
-- Small fan or motor as the demo "machine"
+1. **Find the features.** We look inside the network and find what it uses: a "once-per-turn" feature for imbalance, a "rattling" feature for looseness.
+2. **Prove they are real.** Switching off the imbalance feature makes the model stop detecting imbalance. We do this live from the platform.
+3. **Only verified explanations.** The device shows a reason only if a switch-off test backs it. The agent may cite only those features.
+4. **Unknown-fault alarm.** It triggers when the network's internal activity looks unfamiliar.
 
 ## Demo
 
 1. Healthy fan: "Normal".
-2. Coin taped to a blade (simulates dirt buildup on a roller): "Imbalance: once-per-turn vibration".
+2. Coin taped to a blade: "Imbalance: once-per-turn vibration".
 3. Loosened mounting screws: "Loose mount: rattling pattern".
 4. Something unusual: "Unknown, inspect".
+5. Switch off the imbalance feature: the fan with the coin no longer reads "Imbalance".
+6. The agent's maintenance report.
+
+## Hardware
+
+- Arduino UNO Q (4 GB)
+- Accelerometer (MPU6050 or ADXL345)
+- 2.4" OLED screen
+- Microphone (second input, added after vibration works)
+- Small fan or motor as the demo machine
+- Tang Nano 20K FPGA (stretch: the trimmed model as a circuit)
 
 ## Competitors
 
-Tractian, Augury, SKF and ABB sell predictive maintenance sensors. Our difference: the device explains why, flags unknown faults, works offline, and is cheap.
+Tractian, Augury, SKF and ABB sell predictive maintenance sensors. effente explains each diagnosis with a verified reason, flags faults it has not seen before, and needs no cloud to detect.
 
-## Roles
+## Tracks
 
-1. **Hardware:** ESP32, sensor, screen.
-2. **Data:** record vibration for each fault, convert to frequency charts.
-3. **Model:** train it, shrink it, put it on the chip.
-4. **Mech interp and pitch:** find features, run the switch-off test, build the unknown alarm.
+1. **Device:** sampling, screen, on-device inference, WiFi upload.
+2. **Data and signal:** recordings, sensitivity sweep, public run-to-failure dataset.
+3. **Model and FPGA:** training, unknown alarm, circuit version.
+4. **Mech interp:** feature analysis, switch-off tests, explanation table.
+5. **Platform, agent and business:** dashboard, agent, validation, pitch.
 
-## Build order
-
-1. Sensor data
-2. Model on a laptop
-3. Explanations
-4. Deployment on the chip
-
-Backup: if chip deployment runs late, run the model on the laptop with the ESP32 as the sensor.
+Rule: the four-case demo runs end to end by Saturday 1pm. Anything not working then is cut.
