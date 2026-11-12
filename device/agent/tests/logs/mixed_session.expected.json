@@ -1,0 +1,30 @@
+{
+  "note": "One demo session with every case: normal, imbalance, loose mount, then unknown last. The report must name all of them, cite both features, fix loose mount first and say the unknown windows need inspection.",
+  "model_file": "model.json",
+  "runs": [
+    {
+      "machine_id": "demo-fan-1",
+      "diagnoses": {
+        "normal": 9,
+        "imbalance": 6,
+        "loose_mount": 25,
+        "unknown": 5
+      },
+      "may_cite": [
+        "once_per_turn",
+        "rattle"
+      ],
+      "must_cite": [
+        "once_per_turn",
+        "rattle"
+      ],
+      "priority": [
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "fake-0.1",
+      "note_contains": ""
+    }
+  ]
+}

@@ -43,7 +43,7 @@ def run_case(name, model_file, machine_id, tmp_path, call=stand_in_call):
 
 def test_there_are_about_ten_logs_and_every_record_is_marked_simulated():
     logs = sorted(LOGS.glob("*.jsonl"))
-    assert len(logs) == 10
+    assert len(logs) == 11
     for log in logs:
         for line in log.read_text().splitlines():
             record = json.loads(line)
@@ -121,7 +121,22 @@ def test_unknown_case_is_rejected_by_the_normal_or_unknown_rule(tmp_path):
 def test_masked_feature_is_mentioned_but_not_cited(tmp_path):
     result = run_case("masked", "model.json", "conveyor-07", tmp_path)
     assert result.report["cited_features"] == []
-    assert "once_per_turn was switched off in 15 windows" in result.report["summary"]
+    assert "with once_per_turn switched off in some windows" in result.report["summary"]
+
+
+def test_mixed_session_reports_every_finding_in_three_sentences(tmp_path):
+    result = run_case("mixed_session", "model.json", "demo-fan-1", tmp_path)
+    report = result.report
+    summary = report["summary"]
+    assert summary == (
+        "Stand-in report: demo-fan-1, 45 windows: 25 loose mount, 6 imbalance, 5 unknown, 9 normal. "
+        "Fix loose mount first, then imbalance. "
+        "The cause of the 5 unknown windows is not known: inspect the machine."
+    )
+    assert report["cited_features"] == ["rattle", "once_per_turn"]
+    assert report["priority"] == "high"
+    action = report["recommended_action"]
+    assert action.index("tighten the bolts") < action.index("rebalance") < action.index("Inspect the machine")
 
 
 def test_two_versions_uses_only_the_newest_and_notes_the_model_file(tmp_path):
