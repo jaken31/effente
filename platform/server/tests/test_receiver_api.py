@@ -1,10 +1,13 @@
 """End-to-end tests: a real receiver on a free port, talked to over HTTP."""
 
 import copy
+import http.client
 import json
 import socket
 import threading
 import time
+
+import pytest
 
 from receiver_testkit import MODEL, make_record, make_run
 
@@ -505,3 +508,23 @@ class DeviceClient:
         status, reply = self.client.json("GET", f"/api/devices/{self.device_id}/mask")
         assert status == 200
         return reply
+
+
+# ---- connection handling ----------------------------------------------------
+
+
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/api/devices/effente-01"),  # no such route here (a contract 3 check-in)
+    ("PUT", "/api/records"),  # route exists, method does not
+    ("POST", "/index.html"),  # dashboard files take no POST
+])
+def test_unread_body_does_not_spoil_the_next_request(client, method, path):
+    conn = http.client.HTTPConnection("127.0.0.1", client.port, timeout=5)
+    try:
+        conn.request(method, path, body=b'{"mode": "recording"}', headers={"Content-Type": "application/json"})
+        assert conn.getresponse().read()
+        conn.request("GET", "/api/state")  # same keep-alive connection
+        res = conn.getresponse()
+        assert res.status == 200 and json.loads(res.read())["ok"] is True
+    finally:
+        conn.close()
