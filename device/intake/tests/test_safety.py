@@ -49,9 +49,9 @@ def test_a_universal_limit_needs_10_seconds_and_clears():
     feed(s, 10, start=4, vel=1.0)
     assert not s.problems()
     started, _ = feed(s, 12, start=20, vel=14.0)
-    assert started == ["vibration_too_high"] and SF.screen_text(s.problems()[0]) == "VIBRATION TOO HIGH"
+    assert started == ["vibration_over_limit"] and SF.screen_text(s.problems()[0]) == "VIB OVER LIMIT"
     _, cleared = feed(s, 12, start=32, vel=1.0)
-    assert cleared == ["vibration_too_high"] and not s.problems()
+    assert cleared == ["vibration_over_limit"] and not s.problems()
 
 
 def test_knocking_needs_impacts_and_real_peaks():
@@ -109,7 +109,7 @@ def test_baseline_levels_dropped_limits_and_warnings():
     assert abs(b["levels"]["vib_velocity_mm_s"] - 1.12) < 0.1 and not b["warnings"] and not b["dropped"]
     rough = np.array([row(vel=14.0, imu=45.0 + 20 * k / 400) for k in range(400)])  # over 11 mm/s, warming up
     b = SF.learn_baseline(rough, F.FEATURE_NAMES, running=np.r_[np.ones(100, bool), np.zeros(300, bool)])
-    assert b["dropped"] == ["vibration_too_high"], b
+    assert b["dropped"] == ["vibration_over_limit"], b
     assert b["warnings_screen"] == ["MOSTLY STOPPED", "NORMAL OVER LIMIT", "STILL WARMING UP"], b
     assert len(b["warnings"]) == 3 and all(len(w) <= 19 for w in b["warnings_screen"])
     s = SF.Safety(b)  # this machine's normal is over the universal limit: it doesn't show for ever
@@ -124,6 +124,17 @@ def test_verdict_is_wrong_or_not_and_what():
     assert SF.verdict({"diagnosis": "warming_up"}, []) == {"wrong": False, "what": []}
     assert SF.verdict({"diagnosis": "unbalance"}, [{"name": "too_hot"}]) == {"wrong": True, "what": ["unbalance", "too_hot"]}
     assert SF.verdict(None, [{"name": "knocking"}]) == {"wrong": True, "what": ["knocking"]}
+    # the model's fault type and the universal limit have different names, so both read clearly
+    assert SF.verdict({"diagnosis": "vibration_too_high"}, [{"name": "vibration_over_limit"}]) == \
+        {"wrong": True, "what": ["vibration_too_high", "vibration_over_limit"]}
+
+
+def test_old_baseline_name_for_the_vibration_limit_still_drops_it():
+    # models saved before the rename list the limit as "vibration_too_high" in their baseline
+    s = SF.Safety({"levels": {"vib_velocity_mm_s": 14.0}, "dropped": ["vibration_too_high"]})
+    assert s.dropped == {"vibration_over_limit"}
+    feed(s, 15, vel=14.0)
+    assert not s.problems(), s.problems()
 
 
 def _hour_file(folder, hour, minutes, rows_per_minute):
@@ -171,9 +182,9 @@ def test_device_shows_problems_and_takes_sensitivity_from_the_stream_and_the_fil
                 clock.t = 1000.0 + k * 0.25
                 app._row(clock.t, row(vel=14.0))
             lines = app.screen_lines()
-            assert lines[0].startswith("STREAMING") and "! VIBRATION TOO HIGH" in lines, lines
+            assert lines[0].startswith("STREAMING") and "! VIB OVER LIMIT" in lines, lines
             st = app.status()
-            assert st["wrong"] and st["what"] == ["vibration_too_high"] and st["sensitivity"] == 0.5
+            assert st["wrong"] and st["what"] == ["vibration_over_limit"] and st["sensitivity"] == 0.5
             url = f"http://127.0.0.1:{stream.port}/settings"
             got = json.loads(urllib.request.urlopen(url, timeout=5).read())
             assert got["ok"] and got["sensitivity"] == 0.5 and got["counts_as_wrong"]["vibration_times_normal"] == 2.0
