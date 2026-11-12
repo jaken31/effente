@@ -1,8 +1,17 @@
 # Device and platform contract
 
-Version 3, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 3.1, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
-It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds six fields to it: `model_version`, `reason`, `problems`, `wrong`, `simulated`, and (set by the platform) `seq`.
+It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds eight fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq`.
+
+## Changes from version 3
+
+Additions only. A version 3 device keeps working; the dashboard shows its sensitivity as not reported.
+
+- `unknown_score` is compared with `alarm_line`, not with 1. They are equal only at the default sensitivity, 0.5.
+- Records, message 1 and the check-in say the sensitivity the device is running at.
+- Alarms keep the sensitivity and `alarm_line` they opened at (section 6).
+- The dashboard can set a device's sensitivity. The device picks it up from the replies it already gets (section 7).
 
 ## Changes from version 2.1
 
@@ -50,7 +59,7 @@ A problem name is never a fault type name, so the two can always be told apart.
 A problem is something the device's safety checks (`effente/safety.py`) found wrong. They run apart from the model: a problem does not depend on the diagnosis, and can be on while the diagnosis is `normal`, `warming_up` or `stopped`, in every mode. A problem shows once it has held for about 10 seconds and clears once it has mostly stopped.
 
 - A `limit` means trouble on practically any machine. Limits work from the moment the device is plugged in, before anything is learned. If the machine already went past a limit while learning, that limit is dropped for it and never shows.
-- An `outside_normal` problem means a reading is well beyond this machine's own normal, learned with its model. These run only while watching. Outside watching, only limits can be on.
+- An `outside_normal` problem means a reading is well beyond this machine's own normal, learned with its model. These run only while watching. Outside watching, only limits can be on. How far beyond counts is set by the sensitivity (section 7); limits never change with it.
 
 | `name` | `kind` | `value` |
 |--------|--------|---------|
@@ -78,6 +87,7 @@ Sent once at start, again after every calibration or training, and whenever the 
   "library_entry": "conveyor",
   "source": "calibrated",
   "threshold": 1.0,
+  "sensitivity": 0.5,
   "fault_types": [
     {"name": "unbalance_like", "text": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)", "group": "vibration", "validated": false},
     {"name": "device_moved", "text": "the device has been moved or knocked (its tilt changed)", "group": "sensing", "validated": false}
@@ -95,6 +105,7 @@ Sent once at start, again after every calibration or training, and whenever the 
 |-------|------|
 | `library_entry` | The library entry the model started from, for example `conveyor` or `generic_rotating`. |
 | `source` | `calibrated` (a library entry fitted to this machine) or `trained` (a model trained on this machine alone after a long stay). |
+| `sensitivity` | 0 to 1, the device's sensitivity when it sent this message (section 7). Missing means not reported. |
 | `fault_types` | Every type the device can name. `group` is `sensing` for a problem with the device or its view, otherwise the first sensor the type relies on. `validated` is `true` only once the type has caught that fault on the test rig or a pilot; the dashboard shows unvalidated types as "possible". |
 | `features` | Every reading in the model's feature table. |
 | `spectrum_edges_hz` | 21 band edges for the 20 `spectrum` values. (The example above is shortened.) |
@@ -117,6 +128,8 @@ While watching, one record a second. The diagnosis changes once per summary peri
   "diagnosis_this_minute": "unbalance_like",
   "confidence": 0.71,
   "unknown_score": 2.4,
+  "sensitivity": 0.5,
+  "alarm_line": 1.0,
   "reason": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)",
   "features": {"vib_1x": 7.2, "vib_velocity_mm_s": 3.1},
   "fault_types": {"unbalance_like": 9.1, "vibration_too_high": 4.2},
@@ -138,7 +151,9 @@ While watching, one record a second. The diagnosis changes once per summary peri
 | `diagnosis` | During an abnormal stretch, the type named most often so far, so it does not flip. |
 | `diagnosis_this_minute` | This period's own diagnosis. Present only while abnormal. |
 | `confidence` | 0 to 1. |
-| `unknown_score` | The smoothed score divided by the threshold. Above 1 is abnormal. `null` while `warming_up` or `stopped`. |
+| `unknown_score` | The smoothed score divided by the threshold. Above `alarm_line` is abnormal. `null` while `warming_up` or `stopped`. Sensitivity does not change it, only the line it is compared with. |
+| `sensitivity` | 0 (least sensitive) to 1 (most), the value this record was judged at (section 7). Missing means not reported: the dashboard then says so and draws no line. |
+| `alarm_line` | The `unknown_score` above which this record counts as abnormal: `4 ** (1 - 2 * sensitivity)`, so 4 at 0, 1 at the default 0.5, and 0.25 at 1. Sent with `sensitivity`. |
 | `reason` | The one line the device screen shows: the fault type's `text`, "abnormal, no known fault type fits" for `unrecognised_pattern`, empty otherwise. |
 | `features` | The readings that moved most, each in spreads of its normal variation, signed. While normal, the top 3. |
 | `fault_types` | Every type with evidence, strongest first. Present only while abnormal. |
@@ -157,6 +172,8 @@ Reply:
 ```
 
 `need_model` is `true` when the platform has not seen this `model_version`; the device then repeats message 1.
+
+Once the dashboard has set a sensitivity for this device, the reply also carries `"settings": {"sensitivity": 0.7}` (section 7).
 
 The platform adds two fields before storing or showing a record: `seq` (a whole number that only goes up, across all devices) and `received_at`.
 
@@ -184,8 +201,9 @@ When the device is not watching (display, calibrating, recording or training), i
 | `mode` | `display`, `calibrating`, `recording` or `training`. |
 | `problems` | As in message 2. Only limits can be on outside watching. |
 | `wrong` | `true` if `problems` is not empty. There is no diagnosis outside watching. |
+| `sensitivity` | Optional. 0 to 1, the device's sensitivity (section 7). Missing means not reported. |
 
-Reply: `{"ok": true}`
+Reply: `{"ok": true}`, with `settings` as in message 2 once the dashboard has set a sensitivity.
 
 ## 4. Agent sends its report
 
@@ -254,6 +272,8 @@ Device authors can skip this section.
       "model_version": "conveyor-07-20261114",
       "wrong": true,
       "problems": [{"name": "vibration_above_normal", "kind": "outside_normal", "text": "vibrating well beyond its normal", "value": 2.3, "since": "2026-11-14T16:00:47Z"}],
+      "sensitivity": 0.5,
+      "settings": {"sensitivity": 0.7},
       "latest": {"...": "the newest record from this device, with spectrum, or null"}
     }
   },
@@ -264,6 +284,8 @@ Device authors can skip this section.
 ```
 
 `wrong` and `problems` are from the device's newest record or check-in. While the device is not connected they are `false` and `[]`.
+
+Per device, `sensitivity` is the value the device last reported (in a record, message 1 or a check-in), or `null` if it never has. Unlike `wrong` and `problems`, it is kept while the device is not connected. `settings` is what the dashboard set, or `null` if nothing is set. The two differ while a change is on its way, or when the device is offline.
 
 `alarms` holds every open alarm and the 20 newest alarms of each machine, keyed by `alarm_id`.
 
@@ -276,6 +298,7 @@ Device authors can skip this section.
 | `agent_run` | message 4 | a run is created or updated |
 | `device` | `{"device_id": "effente-01", "connected": false, "last_seen": "...", "mode": "recording"}` | a device connects, goes quiet, or changes mode. `mode` is always there: `watching`, or the check-in's `mode` |
 | `alarm` | an alarm, as in section 6 | an alarm opens, its `diagnosis` or `periods` changes, it closes, or an answer is stored |
+| `settings` | `{"device_id": "effente-01", "sensitivity": 0.5, "settings": {"sensitivity": 0.7}}`, the two values in `/api/state` | the dashboard sets or clears a sensitivity, or the device reports a different one |
 | `problem` | `{"device_id": "effente-01", "machine_id": "conveyor-07", "at": "...", "problem": {"name": "too_hot", "...": "as in message 2"}}` | a problem appears |
 | `problem_cleared` | `{"device_id": "effente-01", "machine_id": "conveyor-07", "at": "...", "name": "too_hot", "reason": "device quiet"}` | a problem goes away |
 
@@ -332,6 +355,8 @@ Alarms are worked out again from the stored records when the platform starts.
   "diagnosis": "unbalance_like",
   "periods": 7,
   "peak_unknown_score": 2.4,
+  "sensitivity": 0.5,
+  "alarm_line": 1.0,
   "simulated": false,
   "answer": {"verdict": "real", "by": "Sam", "at": "2026-11-14T16:12:03Z", "finding": "loose bolt on the motor mount"},
   "answers": [{"...": "every answer, oldest first"}]
@@ -346,6 +371,7 @@ Alarms are worked out again from the stored records when the platform starts.
 | `diagnosis` | `diagnosis` of its newest abnormal record. The device keeps this steady over a stretch. |
 | `periods` | The highest `abnormal_minutes` seen. |
 | `peak_unknown_score` | The highest `unknown_score` seen. |
+| `sensitivity`, `alarm_line` | From the record that opened the alarm, so a false-alarm count can say which sensitivity raised it. `null` if that record did not report them. A change while the alarm is open does not close it or change these. |
 | `library_entry` | From the model announcement for `model_version`; `null` if the platform has none. |
 | `simulated` | `true` if any of its records was simulated. |
 | `answer` | The newest answer, or `null` if nobody has answered. |
@@ -373,7 +399,19 @@ Alarms are worked out again from the stored records when the platform starts.
 
 Reply: `{"ok": true, "alarm": {"...": "the alarm with the new answer"}}`
 
-## Not in version 3
+## 7. Settings
+
+The device owns its sensitivity and always reports the value it is using. The platform keeps only the value the dashboard wants. If the two differ, the device's value is what happened.
+
+Sensitivity goes from 0 (least sensitive) to 1 (most), default 0.5. It moves how far outside normal counts as wrong: the model's `alarm_line`, and the `outside_normal` problems. It never changes the limits.
+
+`PUT /api/devices/effente-01/settings` with `{"sensitivity": 0.7}` sets the wanted value. `{"sensitivity": null}` clears it. A value that is not a number from 0 to 1 is rejected with 400. A device the platform has not heard from yet can still have a value set; it gets it on first contact. Reply: `{"ok": true, "settings": {"sensitivity": 0.7}}`, or `"settings": null` after clearing.
+
+While a value is set, every reply to message 2 and message 3 carries it. When it differs from the device's own value, the device applies it at once and keeps it across a restart. The next record or check-in shows the new value. Expect up to 2 seconds for the reply, then up to one summary period (up to a minute) before a diagnosis is judged at the new line. `outside_normal` problems still need about 10 seconds of holding before they show.
+
+The device's own `/settings` on port 8765 and `data/settings.json` stay for bench use. While the dashboard has a value set, the next reply overwrites a local change. Clear the dashboard's value to tune on the device.
+
+## Not in version 3.1
 
 - The dashboard cannot start an agent. A person starts it.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
