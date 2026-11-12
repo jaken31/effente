@@ -40,6 +40,17 @@ def utc_now():
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
+def _slim(record, spectrum, frames):
+    """A history record without the bulky parts the caller did not ask for:
+    `spectrum`, and the images in `heat.frames` (contract 3.3)."""
+    out = record if spectrum else {k: v for k, v in record.items() if k != "spectrum"}
+    heat = out.get("heat")
+    if not frames and isinstance(heat, dict) and "frames" in heat:
+        out = dict(out)
+        out["heat"] = {k: v for k, v in heat.items() if k != "frames"}
+    return out
+
+
 def _parse_time(text):
     """ISO time to a sortable UTC timestamp. Unparseable times sort first."""
     if not isinstance(text, str):
@@ -332,13 +343,11 @@ class Store:
 
     # ---- section 5: reads -------------------------------------------------
 
-    def machine_records(self, machine_id, limit, spectrum):
+    def machine_records(self, machine_id, limit, spectrum, frames=False):
         with self.lock:
             history = self.by_machine.get(machine_id, [])
             chosen = history[-limit:] if limit > 0 else []
-        if spectrum:
-            return list(chosen)
-        return [{k: v for k, v in r.items() if k != "spectrum"} for r in chosen]
+        return [_slim(r, spectrum, frames) for r in chosen]
 
     def state(self):
         with self.lock:
