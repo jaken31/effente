@@ -29,6 +29,8 @@ by itself when the model file changes. With no model, features still flow
   python3 -m device.intake.live --data data/fake/normal-day-01 --from 20:00 --to 21:00
   python3 -m device.intake.live --data data/fake/normal-day-01 --from 20:00 --to 21:00 \\
       --loader my_model.py --model my_model.bin --record recordings/watch-01 --log results.jsonl --speed 1
+  python3 -m device.intake.live --sim conveyor --from 0:10:00 --to 0:11:00 --speed 1 --serve 8765
+      # live stream for a dashboard: curl -N http://DEVICE:8765/stream  (see stream.py)
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ from effente.history import History
 from device.intake.extract import add_source_args, feature_stream, features_version, make_source
 from device.intake.recorder import HISTORY_SAVE_EVERY_S, Recorder
 from device.intake.source import FileSource
+from device.intake.stream import Stream
 from device.intake.windowing import HOP_S, WINDOW_S
 
 _END = object()
@@ -198,24 +201,65 @@ def log_record(t0, x, result, status, missing, wait_s, device_id, machine_id) ->
         return json.dumps(rec, default=_jsonable, allow_nan=False)
     except (TypeError, ValueError) as e:  # NaN or something odd in the result: keep the line, not the crash
         rec["result"] = {"error": f"result could not be written: {type(e).__name__}: {e}"}
-        for k in TRD_FIELDS:
-            rec.pop(k, None) if k != "spectrum" else None
-        return json.dumps(rec, default=_jsonable)
+        for k in TRD_FIELDS:  # a spectrum from the model may be what failed; the default one never has NaN
+            rec.pop(k, None)
+        if not np.isnan(x[_SPECTRUM]).any():
+            rec["spectrum"] = [round(float(v), 3) for v in x[_SPECTRUM]]
+        return json.dumps(rec, default=_jsonable, allow_nan=False)
+
+
+def stream_events(recorder: Recorder, stream: Stream) -> None:
+    """Also publish the recorder's events (and its storage cleanup's) on the live stream.
+
+    Wraps `recorder.event` instead of changing recorder.py. Events written before
+    this is called (recording_started) are only in events.jsonl."""
+    if getattr(recorder, "_stream", None) is stream:
+        return
+    write = recorder.event
+
+    def event(t, name, **details):
+        write(t, name, **details)
+        try:
+            stream.publish_event(t, name, details)
+        except Exception:  # noqa: BLE001  the stream must never stop the recording
+            pass
+
+    recorder.event, recorder._stream = event, stream
+    if recorder.storage is not None and recorder.storage.event == write:
+        recorder.storage.event = event
 
 
 def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path=None,
              speed: float = 0.0, queue_size: int = 40, warmup_s: float = 60.0,
              window_s: float = WINDOW_S, hop_s: float = HOP_S, console: bool = True,
              report_every_s: float = 600.0, history: History | None = None, history_path=None,
-             device_id: str = "effente-01", machine_id: str = "machine-1") -> Stats:
+             device_id: str = "effente-01", machine_id: str = "machine-1", stream: Stream | None = None) -> Stats:
     """Run intake and the model together. `history` carries trend features across
     restarts: it is saved to `history_path` every 5 minutes (by the recorder, if
-    one is attached) and at the end."""
+    one is attached) and at the end. `stream` (a started device.intake.stream.Stream)
+    gets every result, a feature row a second, the recorder's events and a status."""
     stats = Stats()
     q: queue.Queue = queue.Queue(maxsize=queue_size)
     history = history if history is not None else (recorder.history if recorder else None) or History()
     if recorder is not None and recorder.history is None:
         recorder.history = history
+    now = {"running": True, "t": None, "status": None, "missing": None}
+    if stream is not None:
+        if recorder is not None:
+            stream_events(recorder, stream)
+
+        def status():
+            n = max(1, stats.scored)
+            storage = recorder.storage if recorder is not None else None
+            return {**now, "model": {"status": slot.status, "error": slot.error, "loads": slot.loads},
+                    "windows": {"made": stats.produced, "scored": stats.scored, "dropped": stats.dropped,
+                                "model_errors": stats.model_errors},
+                    "model_ms_avg": round(1000 * stats.model_s / n, 2),
+                    "queue_wait_ms_avg": round(1000 * stats.wait_s / n, 1),
+                    "recording": recorder is not None, "recording_paused": bool(storage and storage.paused),
+                    "intake_error": stats.intake_error}
+
+        stream.status_provider = status
 
     def intake():
         last_save = None
@@ -256,6 +300,8 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
         if first_t0 is None:
             first_t0, next_report = t0, t0 + report_every_s
         missing = F.missing_sensors(x)  # before the model sees the row
+        if stream is not None:
+            stream.publish_features(t0, x, missing)  # copies the row, so the model cannot change it
         t = time.perf_counter()
         try:
             result = slot.predict(x)
@@ -270,9 +316,14 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
         stats.wait_max_s = max(stats.wait_max_s, wait)
         stats.scored += 1
         status = "warming_up" if t0 - first_t0 < warmup_s else slot.status
+        line = (log_record(t0, x, result, status, missing, wait, device_id, machine_id)
+                if log or stream is not None else None)
         if log:
-            log.write(log_record(t0, x, result, status, missing, wait, device_id, machine_id) + "\n")
+            log.write(line + "\n")
             log.flush()
+        if stream is not None:
+            now.update(t=round(float(t0), 3), status=status, missing=missing)
+            stream.publish_result(line, t0)
         if console and t0 >= next_report:
             print(f"  t={t0:,.0f} s  {status}  {stats.summary()}", flush=True)
             next_report += report_every_s
@@ -281,6 +332,9 @@ def run_live(source, slot: ModelSlot, recorder: Recorder | None = None, log_path
         recorder.close()
     if log:
         log.close()
+    if stream is not None:
+        now["running"] = False
+        stream.publish_status()
     return stats
 
 
@@ -300,15 +354,33 @@ def main(argv=None) -> int:
     ap.add_argument("--max-gb", type=float, help="storage budget for --record (cleanup when crossed)")
     ap.add_argument("--device-id", default="effente-01", help="this device, for the results log")
     ap.add_argument("--machine-id", default="machine-1", help="the machine it watches, for the results log")
+    ap.add_argument("--serve", type=int, metavar="PORT",
+                    help="serve a live data stream on this port (8765 is the usual; see device/intake/stream.py)")
+    ap.add_argument("--serve-host", default="0.0.0.0",
+                    help="address to serve on (default 0.0.0.0 = every network; 127.0.0.1 = this machine only)")
+    ap.add_argument("--serve-features-every", type=float, default=1.0,
+                    help="seconds of data between full feature rows on the stream (default 1)")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
 
     source = make_source(args)
     slot = ModelSlot(args.loader, args.model)
+    stream = None
+    if args.serve is not None:
+        try:
+            stream = Stream(args.serve_host, args.serve, device_id=args.device_id, machine_id=args.machine_id,
+                            features_every_s=args.serve_features_every).start()
+        except OSError as e:
+            raise SystemExit(f"cannot serve the live stream on {args.serve_host}:{args.serve}: {e}")
+        if not args.quiet:
+            print(f"live stream on {args.serve_host}:{stream.port}: GET /stream, /latest, /features, /health",
+                  flush=True)
     history_path = args.history or (str(Path(args.record) / "history.npz") if args.record else None)
     history = History.load(history_path) if history_path else History()
     rec = (Recorder(args.record, lambda: source.info, source.sensors, history=history, max_gb=args.max_gb,
                     hop_s=args.hop) if args.record else None)
+    if rec and stream:
+        stream_events(rec, stream)
     if rec and history.reset_reason:
         rec.event(None, "history_reset", reason=history.reset_reason)
     if rec and args.history:
@@ -316,9 +388,13 @@ def main(argv=None) -> int:
     if history.reset_reason and not args.quiet:
         print(f"history: {history.reset_reason}")
     started = time.perf_counter()
-    stats = run_live(source, slot, rec, args.log, args.speed, args.queue, args.warmup, hop_s=args.hop,
-                     console=not args.quiet, history=history, history_path=history_path,
-                     device_id=args.device_id, machine_id=args.machine_id)
+    try:
+        stats = run_live(source, slot, rec, args.log, args.speed, args.queue, args.warmup, hop_s=args.hop,
+                         console=not args.quiet, history=history, history_path=history_path,
+                         device_id=args.device_id, machine_id=args.machine_id, stream=stream)
+    finally:
+        if stream is not None:
+            stream.stop(drain_s=1.0)  # let connected clients get the last items
     print(f"done in {time.perf_counter() - started:.0f} s; model slot: {slot.status}")
     print(stats.summary())
     if stats.intake_error:
