@@ -53,6 +53,65 @@ The device refuses a model trained on a different feature list, reloads by itsel
 
 The results log (`--log`, appended, never overwritten) has one JSON line per window in the TRD's log-record shape: `device_id`, `machine_id`, `at` (UTC), and `diagnosis`, `confidence`, `unknown_score`, `features`, `mask` and `spectrum` copied from the model's result when it gives them (left out, never null, when it does not). `spectrum` defaults to the 20 vibration bands for the dashboard. The intake adds `t`, `status`, the full `result`, `missing` sensors and `queue_wait_ms`. A result that cannot be written as JSON (NaN, an odd object) is logged as an error instead of stopping the device.
 
+## Live stream
+
+`--serve PORT` makes watch mode serve its data over HTTP ([stream.py](stream.py), standard library only), so a dashboard, the laptop platform or curl can connect. There is no UI here. It binds `0.0.0.0` (every network) by default; `--serve-host 127.0.0.1` keeps it on the device. There is no authentication.
+
+```bash
+python3 -m device.intake.live --sim conveyor --from 0:10:00 --to 0:11:00 --speed 1 --serve 8765 --machine-id conveyor-07
+curl -N "http://DEVICE:8765/stream"                          # everything
+curl -N "http://DEVICE:8765/stream?topics=results,events"    # only some topics
+curl "http://DEVICE:8765/latest"
+```
+
+```js
+const es = new EventSource("http://DEVICE:8765/stream?topics=results,events,status");
+es.addEventListener("results", e => show(JSON.parse(e.data)));   // named events: onmessage does not fire
+es.addEventListener("events", e => alert(JSON.parse(e.data)));
+```
+
+| Endpoint | What |
+|----------|------|
+| `GET /stream` | Server-Sent Events. `?topics=results,features,events,status` (default all). `?features_every=S` for fewer feature rows, `?replay=S` (0 = none) |
+| `GET /latest` | `{"results": ..., "features": ..., "events": ..., "status": ...}`: the last item of each topic (null if none yet); status is fresh |
+| `GET /features` | Every feature in row order: `index`, `name`, `text`, `unit`, `sensor`, `from_history`; plus `units`, the `spectrum` bands and their edges in Hz, and `features_version` |
+| `GET /health` | `ok`, `uptime_s`, `last_result_age_s`, `clients`, counts published |
+
+| Topic (SSE `event:`) | How often | Shape |
+|-------|-----------|-------|
+| `results` | every window, 4 a second | the results-log record, the same line as `--log` writes |
+| `features` | one row per second of data (`--serve-features-every`) | `values`: all 278 features in `/features` order, 6 significant digits, `null` where NaN |
+| `events` | when they happen: jolt, bang, beeping, heat jump, device moved or dropped, sensor lost or back, gaps, sensor clipping or stuck, storage cleanup, recording paused, stopped (needs `--record`) | `event`, `t`, `details` |
+| `status` | every 5 s, and once at the end with `running: false` | model, window counts, missing sensors, recording, stream clients |
+
+One message of each, from a 30 s run of the simulated conveyor with no model (only the feature values are cut short):
+
+```
+id: 6af60669-154
+event: results
+data: {"device_id": "effente-01", "machine_id": "conveyor-07", "at": "2026-11-12T18:33:21+00:00", "t": 36029.0, "status": "no model", "spectrum": [-4.702, -4.62, -4.627, -5.241, -4.892, -5.018, -5.037, -3.415, -4.819, -4.382, -4.075, -4.289, -4.182, -4.197, -4.095, -3.759, -3.934, -4.103, -4.582, -5.972], "result": null, "missing": [], "queue_wait_ms": 0.1}
+
+id: 6af6065b-1
+event: features
+data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:00+00:00","t":36000.0,"features_version":"c985a0908a96","missing":[],"values":[-1.87222,-1.98179,-1.91626,-5.00315,-4.68125, ... 278 values, null where NaN]}
+
+id: 6af6065b-155
+event: events
+data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:07+00:00","t":36029.0,"event":"recording_stopped","details":{"wall_time":"2026-11-12T18:33:07+00:00","windows":117,"rows":30}}
+
+id: 6af60669-30
+event: status
+data: {"device_id":"effente-01","machine_id":"conveyor-07","at":"2026-11-12T18:33:15+00:00","uptime_s":2.0,"running":true,"t":36005.25,"status":"no model","missing":[],"model":{"status":"no model","error":null,"loads":0},"windows":{"made":22,"scored":22,"dropped":0,"model_errors":0},"model_ms_avg":0.0,"queue_wait_ms_avg":0.1,"recording":true,"recording_paused":false,"intake_error":null,"stream":{"clients":1,"client_drops":0,"stalled_disconnects":0,"published":{"results":22,"features":6,"events":0,"status":1}}}
+```
+
+With a model, `results` also carries `diagnosis`, `confidence`, `unknown_score`, `features` and `mask` when the model gives them, and `result` is the model's full result. `at` is UTC: from the device clock when it is Unix time, otherwise (a replay or simulation) the time the line was made. NaN never appears in any message.
+
+- **On connect** a client first gets the last 30 s of its topics, then live data. EventSource reconnects by itself after 3 s and sends `Last-Event-ID`; the stream then resumes after that item, with no repeats (as far back as it keeps: 248 results, 34 feature rows, 200 events). After a device restart, ids start again and the client gets the normal replay.
+- **Never slows the device**: publishing only puts items in memory. Each client has its own queue of 256 items that drops its oldest when full (counted as `client_drops`), and a client that cannot be written to for 10 s is disconnected (`stalled_disconnects`). At most 16 clients; more get 503. Measured once on a laptop: 3 minutes of the simulated conveyor ran in 3.58 s without the stream and 3.73 s with it and a client that never reads, 717 windows made and 717 scored both times.
+- **CORS** is open (`Access-Control-Allow-Origin: *`), so a dashboard page on the laptop can connect to the device.
+- Events written before the stream attaches (`recording_started`) are only in `events.jsonl`. Without `--record` there are no events.
+- Not yet tried: a browser `EventSource`, other machines on a real network, and the UNO Q itself. The tests use urllib on one laptop.
+
 ## Feeding the model
 
 Feature rows are for people and the agent to read; a model needs plain, bounded numbers. [effente/model_input.py](../../effente/model_input.py) prepares them the same way in training and on the device. It is a preparation step, not a model:
@@ -163,6 +222,7 @@ python3 -m device.intake.coverage_check data/fake/server-rack --sim server
 ```bash
 python3 -m device.intake.tests.test_intake
 python3 -m device.intake.tests.test_conveyor
+python3 -m device.intake.tests.test_stream
 ```
 
 ## Not done yet
