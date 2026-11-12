@@ -29,7 +29,7 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 
 ## Goals
 
-1. Detect imbalance and a loose mount on a demo fan, and report "normal" when it is healthy.
+1. Detect imbalance and a loose mount on a demo conveyor, and report "normal" when it is healthy.
 2. Show why, in plain words, for every diagnosis.
 3. Say "unknown, inspect" when the fault is one the model was never trained on.
 4. Prove the explanations are causal, live, in front of judges.
@@ -75,11 +75,11 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 
 ## Demo script
 
-1. Healthy fan: "Normal".
-2. Coin taped to a blade: "Imbalance: once-per-turn vibration".
-3. Loosened mounting screws: "Loose mount: rattling pattern".
+1. Healthy conveyor: "Normal".
+2. Weight added to the drive roller: "Imbalance: once-per-turn vibration".
+3. Loosened motor-mount screws: "Loose mount: rattling pattern".
 4. Something the model has not seen: "Unknown, inspect".
-5. With the coin still on, switch off the imbalance feature from the platform. The same fan no longer reads "Imbalance".
+5. With the weight still on, switch off the imbalance feature from the platform. The same conveyor no longer reads "Imbalance".
 6. The agent's report for the session: what it found, what to fix first, which part.
 
 ## How we show it works
@@ -87,12 +87,12 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 | Evidence | What it proves |
 |----------|----------------|
 | Accuracy on recording sessions the model never trained on | The classifier generalises beyond one sensor placement |
-| Sensitivity sweep: smaller and smaller weights on the fan | The smallest imbalance the device catches, compared with what a hand can feel |
+| Sensitivity sweep: smaller and smaller weights on the drive roller | The smallest imbalance the device catches, compared with what a hand can feel |
 | Public run-to-failure bearing data (NASA IMS) | How long before failure the alarm fires on real degradation |
 | Leave-one-fault-out: train without one fault, test on it | The "unknown" alarm fires on faults the model has never seen |
 | Switch-off tests per feature | Each explanation is causal |
 
-The pitch presents early warning as the motivation and the run-to-failure result as the evidence. The fan demo shows detection and explanation, not prediction.
+The pitch presents early warning as the motivation and the run-to-failure result as the evidence. The conveyor demo shows detection and explanation, not prediction.
 
 ## Judging fit
 
