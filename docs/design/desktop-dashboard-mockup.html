@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>effente console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --side: #0a0a0a;
+  --panel: #0f0f0f;
+  --raised: #1a1a1a;
+  --hover: rgba(255, 255, 255, .05);
+  --border: rgba(255, 255, 255, .1);
+  --border-strong: rgba(255, 255, 255, .18);
+  --grid: rgba(255, 255, 255, .07);
+  --text: #ededed;
+  --soft: #a1a1a1;
+  --muted: #878787;
+  --accent: #52a8ff;
+  --accent-bg: rgba(82, 168, 255, .12);
+  --primary: #0070f3;
+  --primary-hover: #1a82ff;
+  --warn: #52a8ff;
+  --alert: #b5d8ff;
+  --normal: #8f8f8f;
+  --imbalance: var(--warn);
+  --unknown: var(--alert);
+  --r: 8px;
+  --r-sm: 6px;
+  --font: "Geist", "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+body { display: grid; grid-template-columns: 232px 1fr; min-width: 1200px; overflow: hidden; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* sidebar */
+aside { background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 16px; min-height: 0; }
+.brand { display: flex; align-items: baseline; gap: 8px; padding: 2px 8px; }
+.brand b { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.brand span { color: var(--muted); font-size: 13px; }
+.field { display: grid; gap: 6px; padding: 0 4px; }
+.field label { color: var(--muted); font-size: 13px; padding-left: 4px; }
+select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 8px; min-height: 32px; }
+select:hover { border-color: var(--border-strong); }
+option { background: #1a1a1a; color: var(--text); }
+nav { display: grid; gap: 1px; }
+nav button { display: flex; align-items: center; gap: 10px; padding: 7px 10px; min-height: 34px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--soft); cursor: pointer; text-align: left; transition: background-color .12s, color .12s; }
+nav button:hover { background: var(--hover); color: var(--text); }
+nav button.on { background: var(--accent-bg); color: var(--text); }
+nav button.on svg, nav button.parent-on svg { stroke: var(--accent); }
+nav svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+nav .k { margin-left: auto; color: var(--muted); font-size: 12px; opacity: 0; transition: opacity .12s; }
+nav:hover .k { opacity: 1; }
+nav .badge { display: none; margin-left: auto; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-size: 12px; font-weight: 500; text-align: center; }
+nav .badge.show { display: inline-block; }
+nav .badge.show + .k { display: none; }
+.devcard { margin-top: auto; border-top: 1px solid var(--border); padding: 14px 8px 2px; display: grid; gap: 6px; font-size: 13px; }
+.devcard .top { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.devcard .row { display: flex; justify-content: space-between; color: var(--muted); }
+.devcard .row b { color: var(--soft); font-weight: 400; }
+
+/* main */
+.main { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; }
+.topbar { display: flex; align-items: center; gap: 12px; padding: 0 24px; height: 56px; border-bottom: 1px solid var(--border); }
+.topbar h1 { margin: 0; font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.topbar .machine { color: var(--soft); font-weight: 400; }
+.topbar .slash { color: var(--border-strong); font-weight: 300; font-size: 18px; }
+.topbar .sub { color: var(--muted); }
+.topbar .spacer { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; color: var(--soft); white-space: nowrap; }
+.chip.sim { border-style: dashed; }
+.fresh { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--soft); white-space: nowrap; }
+.fresh.stale { color: var(--warn); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.content { padding: 24px; min-height: 0; overflow: auto; }
+.page { display: none; height: 100%; gap: 16px; min-height: 560px; }
+.page.on { display: grid; }
+
+/* panels */
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.ph { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); min-height: 44px; }
+.ph h2 { white-space: nowrap; margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
+.ph .hint { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ph .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.pb { flex: 1; min-height: 0; overflow: auto; }
+.pb.pad { padding: 14px 16px; }
+.pb.chart { overflow: hidden; padding: 12px 14px 8px; }
+
+/* stat strip: one surface, cells split by hairlines */
+.kpis { display: grid; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+.kpi { padding: 12px 16px; display: grid; gap: 2px; align-content: start; border-left: 1px solid var(--border); position: relative; }
+.kpi:first-child { border-left: 0; }
+.kpi .l { color: var(--soft); font-size: 13px; }
+.kpi .v { font-size: 22px; font-weight: 600; line-height: 1.25; letter-spacing: -.01em; }
+.kpi .s { color: var(--muted); font-size: 13px; }
+.meter { height: 6px; border-radius: 3px; background: var(--raised); position: relative; margin-top: 6px; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--soft); }
+
+/* tables */
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13.5px; }
+th { text-align: left; font-weight: 400; color: var(--muted); font-size: 13px; background: var(--panel); position: sticky; top: 0; z-index: 1; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+td { padding: 8px 16px; border-bottom: 1px solid var(--grid); white-space: nowrap; color: var(--soft); }
+tr:last-child td { border-bottom: 0; }
+td.r, th.r { text-align: right; }
+td.strong { color: var(--text); }
+tbody tr:hover td { background: var(--hover); }
+tr.sel td { background: var(--accent-bg); }
+tr.click { cursor: pointer; }
+table.fixed { table-layout: fixed; }
+table.fixed td { overflow: hidden; text-overflow: ellipsis; }
+.pill { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; font-size: 13px; line-height: 20px; color: var(--c); background: rgba(255, 255, 255, .07); white-space: nowrap; }
+.code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* controls */
+.btn { padding: 0 12px; height: 32px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; transition: background-color .12s, border-color .12s; white-space: nowrap; }
+.btn:hover { background: var(--raised); border-color: var(--border-strong); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 500; }
+.btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--soft); }
+.btn.ghost:hover { color: var(--text); background: var(--hover); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.small { height: 28px; padding: 0 10px; font-size: 13px; }
+.toggle { width: 34px; height: 20px; border-radius: 999px; border: 0; background: var(--raised); position: relative; cursor: pointer; flex: none; box-shadow: inset 0 0 0 1px var(--border); }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+.toggle.on { background: var(--primary); box-shadow: none; }
+.toggle.on::after { transform: translateX(14px); background: #fff; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px; gap: 2px; }
+.seg button { white-space: nowrap; border: 0; background: transparent; color: var(--soft); padding: 4px 12px; border-radius: 4px; cursor: pointer; }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--accent-bg); color: var(--accent); }
+.seg.small button { padding: 2px 10px; font-size: 13px; }
+.state { font-size: 13px; }
+.state.off { color: var(--unknown); }
+.state.pending { color: var(--warn); }
+.muted { color: var(--muted); }
+
+/* key-value */
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; color: var(--soft); white-space: normal; }
+.kv dd.big { color: var(--text); font-weight: 500; }
+
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--soft); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.hoverline { padding: 8px 16px; border-top: 1px solid var(--border); color: var(--soft); min-height: 34px; font-size: 13px; }
+pre.io { margin: 0; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg); color: var(--soft); font: 12.5px/1.55 var(--mono); white-space: pre-wrap; max-height: 180px; overflow: auto; }
+.empty { color: var(--muted); padding: 18px 16px; }
+
+/* page grids */
+.c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c6 { grid-column: span 6; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: 1 / -1; }
+#p-history { grid-template-rows: auto auto minmax(300px, 1fr); height: auto; }
+#p-history .panel:nth-child(2) .pb { max-height: 300px; }
+#p-spectrum { grid-template-columns: 3fr 2fr; grid-template-rows: minmax(300px, 1.3fr) minmax(200px, 1fr); }
+#p-spectrum .wide { grid-column: 1 / -1; }
+#p-agent { grid-template-columns: 290px 1fr 360px; grid-template-rows: 1fr; }
+#p-evidence { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(300px, 1fr) minmax(260px, 1fr); }
+#p-evidence .wide { grid-column: 1 / -1; }
+#p-device { grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(320px, 1fr); }
+#p-device .wide { grid-column: 1 / -1; }
+
+#p-thermal { grid-template-columns: 1.3fr 1fr; grid-template-rows: auto minmax(220px, 1fr) minmax(230px, 1fr); }
+#p-thermal .kpis { grid-column: 1 / -1; grid-template-columns: repeat(6, 1fr); }
+#p-thermal .tall { grid-row: span 2; }
+.th-body { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 12px 16px; }
+.th-view { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; }
+#t-cv { border-radius: 6px; display: block; cursor: crosshair; }
+.th-scale { display: flex; gap: 8px; align-items: stretch; padding: 4px 0; }
+.th-scale .bar { width: 10px; border-radius: 5px; }
+.th-scale .labels { display: flex; flex-direction: column; justify-content: space-between; font-size: 12px; color: var(--soft); }
+.th-foot { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--border); min-height: 46px; font-size: 13px; color: var(--soft); }
+.th-foot .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.cells { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(6, 1fr); gap: 3px; padding: 12px 16px; flex: 1; min-height: 0; }
+.cell { border-radius: 4px; padding: 3px 6px; font-size: 12px; display: flex; flex-direction: column; justify-content: space-between; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); min-height: 0; overflow: hidden; }
+.cell b { font-weight: 600; font-size: 13px; }
+.cell span { opacity: .85; }
+
+/* clickable surfaces: hover lifts the border, the title gets an arrow */
+.link { cursor: pointer; transition: border-color .12s, background-color .12s; }
+.panel.link:hover { border-color: rgba(82, 168, 255, .45); }
+.panel.link > .ph h2::after { content: "\2192"; margin-left: 6px; color: var(--muted); opacity: 0; transition: opacity .12s; }
+.panel.link:hover > .ph h2::after { opacity: 1; color: var(--accent); }
+nav .sub { display: grid; gap: 1px; margin: 0 0 4px 18px; padding-left: 8px; border-left: 1px solid var(--border); }
+nav .sub button { min-height: 30px; padding: 5px 10px; font-size: 13.5px; }
+nav button.parent-on { color: var(--text); }
+.crumb { color: var(--soft); cursor: pointer; }
+.crumb:hover { color: var(--accent); }
+
+input[type=range].sens { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px; background: var(--raised); margin: 12px 0 6px; cursor: pointer; }
+input[type=range].sens::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 0 0 4px rgba(82, 168, 255, .3); }
+input[type=range].sens::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--text); border: 0; }
+.sens-ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.sens-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sens-head .val { font-size: 16px; font-weight: 500; }
+.impact { font-size: 13px; color: var(--soft); display: grid; gap: 4px; }
+.impact .up { color: var(--warn); } .impact .down { color: var(--accent); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #262626; border-radius: 5px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+
+.moved { padding: 10px 16px; border-bottom: 1px solid var(--grid); display: grid; gap: 6px; }
+.moved:last-child { border-bottom: 0; }
+.moved .top { display: flex; justify-content: space-between; gap: 10px; }
+.moved .name { color: var(--text); }
+.moved .val { color: var(--soft); white-space: nowrap; }
+.dbar { position: relative; height: 6px; border-radius: 3px; background: var(--raised); }
+.dbar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--soft); }
+.dbar i.big { background: var(--warn); }
+.dbar b { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.dbar .mid { left: 50%; background: var(--border-strong); }
+.levels { display: grid; gap: 6px; margin-top: 4px; }
+.levels div { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+.levels div.on { color: var(--text); }
+.levels div::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
+.levels div.on::before { background: var(--accent); border-color: var(--accent); }
+.levels div.planned { opacity: .6; }
+.progress { height: 4px; border-radius: 2px; background: var(--raised); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+.vtag { font-size: 12px; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+
+/* LIVE: answer first, then signals, then detail */
+#p-live { grid-template-columns: repeat(12, minmax(0, 1fr)); height: auto; align-content: start; }
+.status { grid-column: 1 / -1; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); }
+.st-main { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; }
+.st-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; margin-top: 10px; }
+.st-title { font-size: 22px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; }
+.st-sub { color: var(--soft); margin-top: 4px; }
+.st-meta { margin-left: auto; display: flex; gap: 28px; align-self: center; }
+.st-meta div { display: grid; gap: 2px; }
+.st-meta span { color: var(--muted); font-size: 13px; }
+.st-meta b { font-weight: 500; white-space: nowrap; }
+.st-meta .link:hover b { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.st-ask { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-top: 1px solid var(--border); background: rgba(255, 255, 255, .03); }
+.st-ask .q { color: var(--text); }
+.st-ask .d { color: var(--soft); }
+.st-ask .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.st-ask a { color: var(--soft); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
+.progress.st { width: 220px; margin-top: 8px; }
+table.sig td { height: 46px; }
+table.sig td.v { color: var(--text); font-size: 15px; font-weight: 500; text-align: right; width: 120px; }
+table.sig td.nm { color: var(--text); width: 230px; }
+table.sig td.ctx { color: var(--muted); }
+table.sig td.sp { width: 240px; padding-top: 4px; padding-bottom: 4px; }
+table.sig td.chev { width: 36px; color: var(--muted); text-align: right; }
+table.sig tr:hover td.chev { color: var(--accent); }
+.band-sum { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--soft); padding-top: 4px; }
+.band-sum .end { margin-left: auto; color: var(--muted); }
+.sect { display: grid; gap: 10px; }
+.sect + .sect { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.sect h3 { margin: 0; font-size: 13px; font-weight: 400; color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#l-events-t { table-layout: fixed; }
+#l-events-t td { overflow: hidden; text-overflow: ellipsis; }
+#t-title { display: inline-flex; gap: 8px; align-items: center; }
+.kv dt::first-letter, th::first-letter { text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand"><b>effente</b><span>console</span></div>
+  <div class="field"><label for="machine">Machine</label><select id="machine"><option>conveyor-07</option><option disabled>conveyor-08 (not set up)</option></select></div>
+  <nav id="nav">
+    <button data-p="live" class="on"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live<span class="k">1</span></button>
+    <div class="sub">
+      <button data-p="spectrum"><svg viewBox="0 0 24 24"><path d="M4 20V14M8 20V6M12 20v-9M16 20v-4M20 20V9"/></svg>Spectrum<span class="k">2</span></button>
+      <button data-p="thermal"><svg viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 11v6"/></svg>Thermal<span class="k">3</span></button>
+    </div>
+    <button data-p="history"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>History<span class="badge" id="b-history"></span><span class="k">4</span></button>
+    <button data-p="evidence"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6M11 8v6"/></svg>Evidence<span class="k">5</span></button>
+    <button data-p="agent"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Agents<span class="badge" id="b-agent"></span><span class="k">6</span></button>
+    <button data-p="device"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg>Device & model<span class="k">7</span></button>
+  </nav>
+  <div class="devcard">
+    <div class="top"><span class="dot" id="d-dot" style="background:var(--accent)"></span><span>effente-sim-01</span></div>
+    <div class="row"><span>Mode</span><b id="d-mode">watching</b></div>
+    <div class="row"><span>Model</span><b>conveyor, calibrated</b></div>
+    <div class="row"><span>Receiver</span><b>0.0.0.0:8000</b></div>
+    <div class="row"><span>Records</span><b id="d-rate">1 / s</b></div>
+    <div class="row"><span>Thermal</span><b id="d-th">4 frames / s</b></div>
+    <div class="row"><span>Stored</span><b id="d-count"></b></div>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <h1><span class="machine">conveyor-07</span><span class="slash">/</span><span id="t-title">Live</span></h1><span class="sub" id="t-sub">current reading</span>
+    <span class="spacer"></span>
+    <span class="chip sim">Simulated data</span>
+    <span class="fresh" id="t-fresh"><span class="dot" id="t-dot"></span><span id="t-last"></span></span>
+  </div>
+
+  <div class="content">
+    <!-- LIVE -->
+    <section class="page on" id="p-live">
+      <div class="status" id="l-status"></div>
+      <div class="panel c12"><div class="ph"><h2>Signals</h2><span class="hint">now, and the last 5 minutes · click a row for detail</span></div>
+        <div class="pb"><table class="sig"><thead><tr><th>Signal</th><th class="r">Now</th><th>Context</th><th>Last 5 min</th><th></th></tr></thead><tbody id="l-sig"></tbody></table></div>
+      </div>
+      <div class="panel c7 link" data-go="spectrum" style="height:290px"><div class="ph"><h2>Spectrum</h2><span class="hint" id="l-spec-hint">20 vibration bands, 5 to 500 Hz · dashed line is the calibrated baseline</span></div><div class="pb chart" id="l-spec"></div></div>
+      <div class="panel c5 link" data-go="thermal" style="height:290px"><div class="ph"><h2>Thermal</h2><span class="hint" id="l-th-sum"></span></div>
+        <div class="th-body"><div class="th-view" id="l-th-host"><canvas id="l-th" style="border-radius:6px;display:block"></canvas></div>
+          <div class="th-scale"><div class="bar" id="l-th-bar"></div><div class="labels"><span id="l-th-hi"></span><span id="l-th-lo"></span></div></div></div>
+      </div>
+      <div class="panel c12 link" data-go="history"><div class="ph"><h2>Timeline</h2><span class="hint">last 5 minutes, as the dashboard labels them</span></div>
+        <div class="pb pad" style="overflow:hidden"><div id="l-band"></div><div class="band-sum" id="l-band-sum"></div></div>
+      </div>
+      <div class="panel c7"><div class="ph"><h2>Events</h2><span class="hint">alarms, answers, mode changes, agent runs</span></div>
+        <div class="pb" style="position:relative"><div style="position:absolute;inset:0;overflow:auto"><table id="l-events-t" class="fixed"><colgroup><col style="width:90px"><col style="width:130px"><col></colgroup><thead><tr><th>Time</th><th>Type</th><th>Event</th></tr></thead><tbody id="l-events"></tbody></table></div></div>
+      </div>
+      <div class="panel c5" id="l-controls"><div class="ph"><h2>Controls</h2></div>
+        <div class="pb pad">
+          <div class="sect">
+            <div class="sens-head"><span><span class="val" id="sens-val"></span></span>
+              <div class="seg small"><button data-sens="25">Low</button><button data-sens="50" class="on">Balanced</button><button data-sens="75">High</button></div></div>
+            <div><input type="range" class="sens" id="sens" min="0" max="100" value="50" aria-label="Dashboard sensitivity">
+              <div class="sens-ends"><span>Fewer false alarms</span><span>Flags drift earlier</span></div></div>
+            <div class="impact" id="sens-impact"></div>
+          </div>
+          <div class="sect">
+            <div class="actions">
+              <button class="btn primary" id="q-agent">Run Report Agent</button>
+              <button class="btn" id="q-mark">Bookmark</button>
+                            <button class="btn" data-flash="Saved session.csv">Export Session</button>
+            </div>
+          </div>
+          <div class="sect">
+            <h3>Simulator</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="width:72px">Vibration</span><div class="seg small"><button data-case="normal">Normal</button><button data-case="unbalance" class="on">Weight</button><button data-case="loose">Loose</button><button data-case="unusual">Unusual</button></div></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="width:72px">Thermal</span><div class="seg small"><button data-thcase="normal" class="on">Normal</button><button data-thcase="bearing">Hot spot</button><button data-thcase="fan">Area cold</button></div></div>
+            <div style="display:flex;gap:8px;align-items:center"><button class="btn small" id="q-cal" title="On the real device, pressing its button starts a new recording">Press Device Button</button><button class="btn small" id="sim-toggle">Pause</button><button class="btn small">Replay File…</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="page" id="p-history">
+      <div class="panel">
+        <div class="ph"><h2>Trends</h2><div class="legend" id="h-legend" style="margin-left:8px"></div>
+          <span class="end">
+            <select><option>Last 5 min</option><option>Last 1 h</option><option>All</option></select>
+            <button class="btn small">Export CSV</button>
+          </span>
+        </div>
+        <div class="pb chart" id="h-charts" style="flex:none"></div>
+      </div>
+      <div class="panel"><div class="ph"><h2>Alarms</h2><span class="hint" id="h-alarm-hint">each alarm asks one question: real problem or false alarm?</span></div>
+        <div class="pb"><table><thead><tr><th>Started</th><th>Ended</th><th>Diagnosis</th><th>Group</th><th class="r">Periods</th><th>Model</th><th>Answer</th></tr></thead><tbody id="h-alarms"></tbody></table></div>
+      </div>
+      <div class="panel"><div class="ph"><h2>Records</h2><span class="hint" id="h-count"></span>
+          <span class="end"><select id="h-filter"><option value="">All</option><option value="abn">Abnormal only</option><option value="normal">Normal only</option></select></span></div>
+        <div class="pb" style="max-height:360px"><table><thead><tr><th>Seq</th><th>Time (UTC)</th><th>Diagnosis</th><th>This period</th><th class="r">Confidence</th><th class="r">Score</th><th class="r">Periods</th><th>Top reading</th></tr></thead><tbody id="h-rows"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- SPECTRUM -->
+    <section class="page" id="p-spectrum">
+      <div class="panel"><div class="ph"><h2>Spectrum</h2><span class="hint">20 bands · log10 level · hover a band</span></div><div class="pb chart" id="s-spec"></div><div class="hoverline" id="s-hover">Hover a band to see its range and level.</div></div>
+      <div class="panel"><div class="ph"><h2>Waterfall</h2><span class="hint">last 120 periods · newest on top</span></div><div class="pb chart"><canvas id="s-wf" style="width:100%;height:100%;border-radius:6px;display:block"></canvas></div></div>
+      <div class="panel wide"><div class="ph"><h2>Bands</h2><span class="hint">strongest change from the calibrated baseline</span><span class="end"><button class="btn small" id="s-base">Use Current as Baseline</button></span></div>
+        <div class="pb"><table><thead><tr><th class="r">Band</th><th class="r">Range Hz</th><th class="r">Level</th><th class="r">Baseline</th><th class="r">Difference</th><th class="r">× baseline</th></tr></thead><tbody id="s-bands"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- THERMAL -->
+    <section class="page" id="p-thermal">
+      <div class="kpis">
+        <div class="kpi"><span class="l">Hottest</span><span class="v" id="tk-max"></span><span class="s" id="tk-where"></span></div>
+        <div class="kpi"><span class="l">Above room</span><span class="v" id="tk-rise"></span><span class="s" id="tk-bg"></span></div>
+        <div class="kpi"><span class="l">Average</span><span class="v" id="tk-avg"></span><span class="s" id="tk-spread"></span></div>
+        <div class="kpi"><span class="l">Hot pixels</span><span class="v" id="tk-hot"></span><span class="s">15 °C or more above room</span></div>
+        <div class="kpi"><span class="l">Fastest change</span><span class="v" id="tk-rate"></span><span class="s">any pixel, per second</span></div>
+        <div class="kpi"><span class="l">Scene match</span><span class="v" id="tk-match"></span><span class="s" id="tk-match-s"></span></div>
+      </div>
+      <div class="panel tall">
+        <div class="ph"><h2>Thermal camera</h2><span class="hint">optional sensor · MLX90640 · 32 × 24 · 4 fps</span>
+          <span class="end">
+            <div class="seg small"><button data-thscale="auto" class="on">Auto range</button><button data-thscale="fixed">20 to 60 °C</button></div>
+            <div class="seg small"><button data-thview="smooth" class="on">Smooth</button><button data-thview="pixels">Pixels</button></div>
+            <span class="muted" style="font-size:13px">Grid</span><button class="toggle on" id="t-grid"></button>
+          </span>
+        </div>
+        <div class="th-body">
+          <div class="th-view" id="t-view-host"><canvas id="t-cv"></canvas></div>
+          <div class="th-scale"><div class="bar" id="t-bar"></div><div class="labels"><span id="t-hi"></span><span id="t-mid"></span><span id="t-lo"></span></div></div>
+        </div>
+        <div class="th-foot"><span id="t-hover">Hover the image to read a pixel.</span>
+          <span class="end"><span class="muted">Sim case</span><div class="seg small"><button data-thcase="normal" class="on">Normal</button><button data-thcase="bearing">Hot spot</button><button data-thcase="fan">Area cold</button></div></span>
+        </div>
+      </div>
+      <div class="panel"><div class="ph"><h2>Heat trend</h2><span class="hint">last 2 min, above room</span><span class="end legend"><span><span class="sw" style="background:var(--accent)"></span>hottest</span><span><span class="sw" style="background:var(--soft)"></span>bearing end</span><span><span class="sw" style="background:transparent;border:1px dashed var(--muted)"></span>fan cover</span></span></div><div class="pb chart" id="t-trend"></div></div>
+      <div class="panel"><div class="ph"><h2>Grid</h2><span class="hint">8 × 6 cells · average and hottest point above room</span></div><div class="cells" id="t-cells"></div></div>
+    </section>
+
+    <!-- EVIDENCE -->
+    <section class="page" id="p-evidence">
+      <div class="panel"><div class="ph"><h2>Readings that moved</h2><span class="hint">signed spreads from this machine's normal · 6 or more counts as evidence</span></div><div class="pb" id="e-moved"></div></div>
+      <div class="panel"><div class="ph"><h2>Fault type evidence</h2><span class="hint" id="e-ft-hint"></span></div><div class="pb" id="e-ft"></div></div>
+      <div class="panel wide"><div class="ph"><h2>Fault types</h2><span class="hint">21 general types, the same on every machine · none validated on the rig yet, so all show as "possible"</span></div>
+        <div class="pb"><table><thead><tr><th>Group</th><th>Type</th><th>What it means</th><th>Status</th><th class="r">Evidence now</th></tr></thead><tbody id="e-types"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- AGENTS -->
+    <section class="page" id="p-agent" style="grid-template-columns:290px 1fr 360px">
+      <div class="panel"><div class="ph"><h2>Agent fleet</h2><span class="hint">runs on this laptop</span></div>
+        <div class="pb pad" style="display:grid;gap:10px;align-content:start;border-bottom:1px solid var(--border);flex:none">
+          <div class="levels"><div class="on">maintenance_report</div><div class="planned">setup (later)</div><div class="planned">review (later)</div></div>
+          <div class="seg small" id="a-mode"><button data-mode="standin" class="on">Stand-in</button><button data-mode="live">Live Claude</button></div>
+          <button class="btn primary" id="a-run">Run Report Agent</button>
+        </div>
+        <div class="pb"><table><tbody id="a-runs"></tbody></table></div>
+      </div>
+      <div class="panel"><div class="ph"><h2>Tool calls</h2><span class="hint" id="a-usage"></span></div>
+        <div class="pb"><table class="fixed"><colgroup><col style="width:104px"><col style="width:160px"><col style="width:30%"><col></colgroup><thead><tr><th>Time</th><th>Tool</th><th>Input</th><th>Output</th></tr></thead><tbody id="a-calls"></tbody></table></div>
+        <pre class="io" id="a-io">Select a tool call to see its full input and output.</pre>
+      </div>
+      <div class="panel"><div class="ph"><h2>Report</h2><span class="end" id="a-flag"></span></div><div class="pb pad"><dl class="kv" id="a-report"></dl></div></div>
+    </section>
+
+    <!-- DEVICE & MODEL -->
+    <section class="page" id="p-device">
+      <div class="panel wide"><div class="ph"><h2>Devices</h2></div>
+        <div class="pb"><table><thead><tr><th>Device</th><th>Status</th><th>Mode</th><th>Last seen</th><th>Machine</th><th>Model version</th><th class="r">Records</th></tr></thead><tbody id="d-devs"></tbody></table></div>
+      </div>
+      <div class="panel"><div class="ph"><h2>Model</h2><span class="hint">from the library, calibrated to this machine</span></div><div class="pb pad" id="d-model"></div></div>
+      <div class="panel"><div class="ph"><h2>Event log</h2><span class="end"><span class="muted" style="font-size:13px">Pause</span><button class="toggle" id="d-pause"></button></span></div>
+        <div class="pb"><table><thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead><tbody id="d-log"></tbody></table></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const C = { text: css("--text"), soft: css("--soft"), muted: css("--muted"), grid: css("--grid"), accent: css("--accent"), raised: css("--raised"), warn: css("--warn"), alert: css("--alert"), normal: css("--normal") };
+
+// ---------- contract v2 names ----------
+const FT_LIST = [
+  ["vibration_too_high", "vibration", "high vibration", "overall vibration well above this machine's normal"],
+  ["unbalance_like", "vibration", "unbalance", "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)"],
+  ["misalignment_like", "vibration", "misalignment", "twice-per-turn vibration grown (misalignment, a worn coupling)"],
+  ["looseness_or_rattle", "vibration", "looseness or rattle", "many harmonics, half-order and rattling (looseness, a soft foot, a cracked mount)"],
+  ["repeating_knock", "vibration", "repeating knock", "a knock or click that repeats (damaged belt splice, gear tooth, clicking drive)"],
+  ["impacts", "vibration", "impacts", "jolts or bangs much more often than usual (collisions, a jam, loose parts hitting)"],
+  ["bearing_defect_like", "vibration", "bearing defect", "pulses at bearing defect rates in vibration or high-pitched sound (rolling-bearing wear)"],
+  ["speed_change", "vibration", "speed change", "running speed away from its usual (belt slip, a failing drive, a different load)"],
+  ["electrical_motor", "vibration", "motor electrical fault", "twice-mains vibration and hum grown (motor electrical fault, a failing supply)"],
+  ["unsteady_vibration_or_sound", "vibration", "unsteady vibration", "vibration or sound coming and going more than usual (intermittent fault)"],
+  ["new_tone_whine_squeal", "sound", "new tone", "a new or louder tone (whine, squeal, a belt or bearing singing)"],
+  ["grinding_or_hiss", "sound", "grinding or hiss", "rough high-pitched noise (grinding, lubrication loss, cavitation, arcing)"],
+  ["alarm_or_beeping", "sound", "alarm or beeping", "a tone switching on and off (an alarm, a warning beeper, a UPS on battery)"],
+  ["overheating", "heat", "overheating", "hotter than usual for this machine"],
+  ["heating_up_over_time", "heat", "heating up over time", "temperature climbing over hours, days or weeks"],
+  ["local_hot_spot", "heat", "local hot spot", "one small part heating (a connection, a bearing, a cable, a contact)"],
+  ["area_running_cold", "heat", "area running cold", "an area cooler than usual (a stopped fan, blocked fins or flow, a failed heater)"],
+  ["excess_temperature_fluctuation", "heat", "temperature swings", "temperature swinging more than usual (cycling, hunting, an intermittent fault)"],
+  ["room_too_hot_or_humid", "room", "room too hot or humid", "the room warmer or damper than usual (cooling failure, condensation risk)"],
+  ["device_moved", "sensing", "device moved", "the device has been moved or knocked (its tilt changed)"],
+  ["camera_moved_or_blocked", "sensing", "camera moved or blocked", "the thermal image no longer looks like its usual view"],
+];
+const FT = Object.fromEntries(FT_LIST.map(([name, group, short, text]) => [name, { name, group, short, text, validated: false }]));
+const READ = {
+  vib_1x: "vibration once per turn", vib_2x: "vibration twice per turn", vib_velocity_mm_s: "vibration velocity", vib_rms_y: "vibration level, y axis",
+  vib_peak_g: "biggest jolt", vib_harm_3_10: "harmonics 3× to 10×", vib_half: "half-order vibration", vib_crest: "knockiness",
+  vib_kurtosis: "spikiness", trend_shocks_10m: "jolts in the last 10 min", vib_env_peak: "bearing-rate pulses", vib_band_14: "vibration, 126 to 158 Hz band",
+  snd_centroid_hz: "sound pitch centre", snd_level_db: "sound level", th_mean_c: "average temperature", vib_speed_hz: "running speed", vib_rms_x: "vibration level, x axis",
+};
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+const DLABEL = (d) => ({ normal: "Normal", warming_up: "Warming up", stopped: "Stopped", unrecognised_pattern: "Unrecognised pattern", elevated: "Elevated" }[d] || (FT[d].validated ? cap(FT[d].short) : "Possible " + FT[d].short));
+const DCOL = (d) => (d === "normal" ? C.normal : d === "warming_up" || d === "stopped" ? C.muted : d === "unrecognised_pattern" ? C.alert : C.warn);
+const GROUP = (d) => (FT[d] ? cap(FT[d].group) : d === "unrecognised_pattern" ? "No known type fits" : "");
+const REASON = (d) => (FT[d] ? FT[d].text : d === "unrecognised_pattern" ? "abnormal, no known fault type fits" : "");
+const PAGES = {
+  live: ["Live", "current reading"], spectrum: ["Spectrum", "what the sensor hears"], thermal: ["Thermal", "live heat image, optional sensor"],
+  history: ["History", "every period and alarm for this machine"], evidence: ["Evidence", "why the device thinks what it thinks"],
+  agent: ["Agents", "the agent fleet on this laptop"], device: ["Device & model", "mode, library model, calibration and events"],
+};
+const EDGES = Array.from({ length: 21 }, (_, k) => 5 * Math.pow(10, k / 10));
+const BAND_LO = -5.6, BAND_HI = -2.4;
+const DEVICE_LINE = 1.0;
+
+let seed = 11;
+const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+const $ = (id) => document.getElementById(id);
+const fmtT = (d) => d.toTimeString().slice(0, 8);
+const f2 = (x) => x.toFixed(2);
+const fmtDur = (ms) => { const s = Math.round(ms / 1000); return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`; };
+const pill = (d) => `<span class="pill" style="--c:${DCOL(d)}">${DLABEL(d)}</span>`;
+const per = (n) => `${n} period${n === 1 ? "" : "s"}`;
+const sgn = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
+
+// ---------- simulated device (contract v2 records) ----------
+const SPEED_HZ = 24.6;
+const bandOf = (hz) => EDGES.findIndex((e, i) => hz >= e && hz < EDGES[i + 1]);
+function spectrumFor(kase) {
+  const s = EDGES.slice(0, 20).map((e, i) => -4.75 - 0.02 * i + (rnd() - 0.5) * 0.12);
+  const b1 = bandOf(SPEED_HZ), b2 = bandOf(SPEED_HZ * 2), b3 = bandOf(SPEED_HZ * 3);
+  s[b1] += 0.35;
+  if (kase === "unbalance") { s[b1] += 1.45 + rnd() * 0.15; s[b2] += 0.25; }
+  if (kase === "loose") { [b1, b2, b3, b3 + 1, b3 + 2, b3 + 3].forEach((b, k) => (s[b] += 0.9 - k * 0.08)); s[bandOf(SPEED_HZ / 2)] += 0.55; for (let i = 14; i < 20; i++) s[i] += 0.3; }
+  if (kase === "unusual") { s[14] += 1.1 + rnd() * 0.2; s[15] += 0.6; s[13] += 0.35; }
+  return s;
+}
+const MOVED = {
+  unbalance: [["vib_1x", 7.2], ["vib_velocity_mm_s", 4.1], ["vib_rms_y", 3.3], ["vib_peak_g", 2.0]],
+  loose: [["vib_harm_3_10", 6.8], ["vib_half", 5.1], ["vib_crest", 3.9], ["vib_kurtosis", 3.0], ["trend_shocks_10m", 2.2]],
+  unusual: [["vib_band_14", 6.1], ["snd_centroid_hz", 3.1], ["vib_env_peak", 2.4], ["vib_1x", -0.9]],
+};
+const EVID = {
+  unbalance: { unbalance_like: 9.1, vibration_too_high: 4.2, misalignment_like: 1.3 },
+  loose: { looseness_or_rattle: 8.4, impacts: 3.6, repeating_knock: 2.0, vibration_too_high: 1.8 },
+  unusual: { bearing_defect_like: 1.2 },
+};
+const gen = { run: 0, counts: {}, warm: 0, su: null };
+function makeRecord(kase, at, seqNo) {
+  const r = { seq: seqNo, at, kase, spectrum: spectrumFor(kase), simulated: true };
+  r.speedHz = SPEED_HZ + (rnd() - 0.5) * 0.08 + (kase === "loose" ? -0.15 : 0);
+  r.vel = { normal: 1.2, unbalance: 4.6, loose: 5.9, unusual: 2.4 }[kase] * (0.92 + rnd() * 0.16);
+  r.crest = { normal: 2.9, unbalance: 2.5, loose: 5.6, unusual: 4.0 }[kase] + rnd() * 0.4;
+  r.track = { vib_1x: kase === "unbalance" ? 7 + rnd() : (rnd() - 0.5) * 1.6, vib_harm_3_10: kase === "loose" ? 6.5 + rnd() : (rnd() - 0.5) * 1.4 };
+  r.oor = kase === "unusual" ? 2 : 0;
+  r.note = "";
+  if (gen.warm > 0) {
+    gen.warm--; gen.su = null;
+    Object.assign(r, { diagnosis: "warming_up", u: null, confidence: 0, devAbn: false, features: {}, ftypes: null, abnMin: 0, dtm: null });
+    return label(r);
+  }
+  const raw = kase === "normal" ? 0.32 + rnd() * 0.3 + Math.pow(rnd(), 6) * 0.7 : { unbalance: 2.3, loose: 2.7, unusual: 3.0 }[kase] + rnd() * 1.1;
+  gen.su = gen.su == null ? raw : 0.55 * gen.su + 0.45 * raw;
+  r.u = +gen.su.toFixed(2);
+  r.devAbn = r.u > DEVICE_LINE;
+  if (r.devAbn) {
+    const ev = EVID[kase] || { vibration_too_high: 0.8 };
+    const top = Object.entries(ev).sort((a, b) => b[1] - a[1])[0];
+    r.dtm = top[1] >= 2.5 ? top[0] : "unrecognised_pattern";
+    gen.run++; gen.counts[r.dtm] = (gen.counts[r.dtm] || 0) + 1;
+    r.diagnosis = Object.entries(gen.counts).sort((a, b) => b[1] - a[1])[0][0];
+    r.ftypes = Object.fromEntries(Object.entries(ev).map(([k, v]) => [k, +(v * (0.9 + rnd() * 0.2)).toFixed(1)]));
+    r.abnMin = gen.run;
+    r.confidence = r.dtm === "unrecognised_pattern" ? 0.45 + rnd() * 0.2 : 0.62 + rnd() * 0.25;
+    r.features = Object.fromEntries((MOVED[kase] || [["vib_rms_x", 2.1], ["snd_level_db", 1.4], ["vib_1x", 1.1]]).map(([k, v]) => [k, +(v * (0.88 + rnd() * 0.24)).toFixed(1)]));
+  } else {
+    gen.run = 0; gen.counts = {};
+    Object.assign(r, { diagnosis: "normal", dtm: null, ftypes: null, abnMin: 0, confidence: 0.82 + rnd() * 0.15 });
+    const pool = ["vib_rms_x", "vib_1x", "snd_level_db", "th_mean_c", "vib_2x", "vib_crest"];
+    const pick = pool.sort(() => rnd() - 0.5).slice(0, 3);
+    r.features = Object.fromEntries(pick.map((k) => [k, +((rnd() - 0.5) * 3).toFixed(1)]));
+  }
+  r.reason = REASON(r.diagnosis);
+  return label(r);
+}
+
+// ---------- dashboard sensitivity: re-labels on the laptop, never changes the device ----------
+let SENS = 0.5, LINE = 1.0;
+const devScale = (s) => Math.pow(2, 2 - 4 * s);
+const lineFor = (s) => +devScale(s).toFixed(2);
+const sensName = (s) => (s < 0.34 ? "Low" : s > 0.66 ? "High" : "Balanced");
+function viewOf(r, line) {
+  if (r.u == null) return r.diagnosis;
+  if (r.u > line) return r.devAbn ? r.diagnosis : "elevated";
+  return "normal";
+}
+function label(r) { r.view = viewOf(r, LINE); r.suppressed = r.devAbn && r.view === "normal"; return r; }
+
+// ---------- seeded history ----------
+const records = [], events = [], bookmarks = [], heatAlerts = [], feedback = {};
+let seq = 1100, mode = "watching", calEnd = 0, calProgress = 1, calibratedAt = null;
+const PLAN_LEN = 345;
+const start = Date.now() - (PLAN_LEN + 2) * 1000;
+events.push({ at: new Date(start - 400000), ev: "mode", text: "display → calibrating (library entry conveyor)" });
+events.push({ at: new Date(start - 100000), ev: "model", text: "conveyor-07-20261114 announced · calibrated · fit check passed" });
+events.push({ at: new Date(start - 100000), ev: "mode", text: "calibrating → watching" });
+calibratedAt = new Date(start - 100000);
+gen.warm = 20;
+const plan = [[90, "normal"], [70, "unbalance"], [40, "normal"], [55, "loose"], [25, "normal"], [20, "unusual"], [15, "normal"], [30, "unbalance"]];
+let cursor = 0;
+for (const [n, kase] of plan) for (let i = 0; i < n; i++) { records.push(makeRecord(kase, new Date(start + cursor * 1000), ++seq)); cursor++; }
+let liveCase = "unbalance", paused = false;
+const avgBands = (rs) => { const o = new Array(20).fill(0); rs.forEach((r) => r.spectrum.forEach((v, i) => (o[i] += v / rs.length))); return o; };
+let baseline = avgBands(records.filter((r) => r.kase === "normal"));
+
+function alarms() {
+  const out = [];
+  let cur = null;
+  records.forEach((r, i) => {
+    if (r.devAbn && !cur) cur = { id: r.seq, start: r.at, end: null, rs: [] };
+    if (cur && r.devAbn) cur.rs.push(r);
+    if (cur && (!r.devAbn || i === records.length - 1)) {
+      cur.end = r.devAbn ? null : records[i - 1].at;
+      cur.diag = cur.rs[cur.rs.length - 1].diagnosis;
+      out.push(cur); cur = null;
+    }
+  });
+  return out;
+}
+alarms().slice(0, 2).forEach((a, k) => (feedback[a.id] = { verdict: k === 0 ? "real" : "false", at: new Date(a.start.getTime() + 120000), by: "technician" }));
+
+// ---------- svg helpers ----------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function txt(svg, x, y, s, o = {}) { const t = el("text", { x, y, "font-size": o.size || 12, fill: o.fill || C.muted, "text-anchor": o.anchor || "start", "font-family": "inherit" }, svg); t.textContent = s; return t; }
+function frame(host, h) {
+  host.innerHTML = "";
+  const cs = getComputedStyle(host);
+  const w = Math.max(300, host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const hh = h || Math.max(160, host.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 4);
+  return { svg: el("svg", { width: w, height: hh, style: "display:block" }, host), w, h: hh };
+}
+function bandChart(host, spec, onHover) {
+  const { svg, w, h } = frame(host);
+  const L = 44, R = 6, T = 8, B = 24, pw = w - L - R, ph = h - T - B, n = spec.length, bw = pw / n;
+  const y = (v) => T + ph * (1 - (Math.min(Math.max(v, BAND_LO), BAND_HI) - BAND_LO) / (BAND_HI - BAND_LO));
+  [-5.5, -4.5, -3.5, -2.5].forEach((v) => { el("line", { x1: L, x2: L + pw, y1: y(v), y2: y(v), stroke: C.grid }, svg); txt(svg, L - 8, y(v) + 4, v.toFixed(1), { anchor: "end" }); });
+  [5, 10, 20, 50, 100, 200, 500].forEach((hz) => { const x = L + (Math.log10(hz / 5) / 2) * pw; txt(svg, x, h - 6, hz === 500 ? "500 Hz" : hz, { anchor: hz === 5 ? "start" : hz === 500 ? "end" : "middle" }); });
+  const xf = L + (Math.log10(218 / 5) / 2) * pw;
+  el("rect", { x: xf, y: T, width: L + pw - xf, height: ph, fill: "rgba(255,255,255,.035)" }, svg);
+  txt(svg, L + pw - 4, T + 12, "above sensor filter, 218 Hz", { anchor: "end", size: 11 });
+  const hl = el("rect", { x: 0, y: T, width: bw, height: ph, rx: 3, fill: "rgba(82,168,255,.12)", visibility: "hidden" }, svg);
+  spec.forEach((v, i) => { const lift = v - baseline[i]; el("rect", { x: L + i * bw + 2, y: y(v), width: bw - 4, height: T + ph - y(v), rx: 3, fill: C.accent, opacity: lift > 0.5 ? 1 : 0.35 }, svg); });
+  el("polyline", { points: baseline.map((v, i) => `${L + (i + 0.5) * bw},${y(v)}`).join(" "), fill: "none", stroke: C.muted, "stroke-dasharray": "4 4", "stroke-width": 1.2 }, svg);
+  [[SPEED_HZ, "1×"], [SPEED_HZ * 2, "2×"], [SPEED_HZ * 3, "3×"]].forEach(([hz, lab]) => { const x = L + (Math.log10(hz / 5) / 2) * pw; el("line", { x1: x, x2: x, y1: T + 16, y2: T + ph, stroke: C.muted, "stroke-dasharray": "2 4", opacity: 0.7 }, svg); txt(svg, x, T + 10, lab, { fill: C.soft, anchor: "middle" }); });
+  if (onHover) svg.addEventListener("mousemove", (e) => { const i = Math.floor((e.offsetX - L) / bw); if (i < 0 || i >= n) { hl.setAttribute("visibility", "hidden"); return; } hl.setAttribute("x", L + i * bw); hl.setAttribute("visibility", "visible"); onHover(i); });
+}
+function lineChart(host, h, series, opts) {
+  const wrap = document.createElement("div"); host.appendChild(wrap);
+  const { svg, w } = frame(wrap, h); wrap.style.marginBottom = "14px";
+  const L = opts.label ? 110 : 44, R = 8, T = 8, B = opts.axis ? 22 : 6, pw = w - L - R, ph = h - T - B, n = series[0].values.length;
+  if (opts.label) txt(svg, 0, T + ph / 2 + 4, opts.label, { fill: C.soft, size: 13 });
+  const lo = opts.ymin ?? 0, hi = opts.ymax ?? 1, nv = (v) => (Math.min(Math.max(v, lo), hi) - lo) / (hi - lo), fmt = opts.fmt || ((v) => v.toFixed(1));
+  (opts.ticks || [lo, hi]).forEach((v) => { const yy = T + ph * (1 - nv(v)); el("line", { x1: L, x2: L + pw, y1: yy, y2: yy, stroke: C.grid }, svg); txt(svg, L - 8, yy + 4, fmt(v), { anchor: "end" }); });
+  (opts.lines || []).forEach((ln) => { const yy = T + ph * (1 - nv(ln.y)); el("line", { x1: L, x2: L + pw, y1: yy, y2: yy, stroke: ln.color, "stroke-dasharray": ln.dash || "5 4", opacity: 0.85 }, svg); txt(svg, L + 6, yy - 5, ln.label, { fill: ln.color }); });
+  series.forEach((s) => el("polyline", { points: s.values.map((v, i) => `${L + (i / (n - 1)) * pw},${T + ph * (1 - nv(v ?? lo))}`).join(" "), fill: "none", stroke: s.color, "stroke-width": 1.6, "stroke-linejoin": "round", "stroke-dasharray": s.dash || "" }, svg));
+  if (opts.axis) for (let k = 0; k <= 5; k++) { const i = Math.round((k / 5) * (n - 1)); txt(svg, L + (i / (n - 1)) * pw, h - 5, fmtT(opts.times[i]), { anchor: k === 0 ? "start" : k === 5 ? "end" : "middle" }); }
+}
+function diagBand(host, rs, L = 110) {
+  const wrap = document.createElement("div"); host.appendChild(wrap); wrap.style.marginBottom = "8px";
+  const { svg, w } = frame(wrap, 26);
+  const pw = w - L - 8, bw = pw / rs.length;
+  txt(svg, 0, 17, "diagnosis", { fill: C.soft, size: 13 });
+  const cid = "bc" + Math.random().toString(36).slice(2);
+  el("rect", { x: L, y: 3, width: pw, height: 20, rx: 6 }, el("clipPath", { id: cid }, el("defs", {}, svg)));
+  const g = el("g", { "clip-path": `url(#${cid})` }, svg);
+  let s = 0;
+  for (let i = 1; i <= rs.length; i++) {
+    if (i === rs.length || rs[i].view !== rs[s].view) {
+      el("rect", { x: L + s * bw, y: 3, width: (i - s) * bw - 1, height: 20, fill: DCOL(rs[s].view), opacity: 0.85 }, g);
+      if ((i - s) * bw > DLABEL(rs[s].view).length * 6.4 + 16) txt(svg, L + ((s + i) / 2) * bw, 17, DLABEL(rs[s].view), { anchor: "middle", fill: "#0a0a0a", size: 12 });
+      s = i;
+    }
+  }
+}
+function spark(host, values, color, lo, hi, thr) {
+  host.innerHTML = "";
+  const w = Math.max(100, host.clientWidth), h = 30, svg = el("svg", { width: w, height: h, style: "display:block" }, host);
+  const y = (v) => h - 2 - ((Math.min(Math.max(v, lo), hi) - lo) / (hi - lo)) * (h - 4);
+  if (thr != null) el("line", { x1: 0, x2: w, y1: y(thr), y2: y(thr), stroke: C.alert, "stroke-dasharray": "3 3", opacity: 0.8 }, svg);
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${y(v ?? lo)}`).join(" ");
+  el("polygon", { points: `0,${h} ${pts} ${w},${h}`, fill: color, opacity: 0.07 }, svg);
+  el("polyline", { points: pts, fill: "none", stroke: color, "stroke-width": 1.5, "stroke-linejoin": "round" }, svg);
+}
+function movedRows(features, max = 10) {
+  const e = Object.entries(features).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (!e.length) return `<div class="empty">No readings yet. The device is ${mode === "watching" ? "warming up" : mode}.</div>`;
+  return e.map(([k, v]) => {
+    const pos = Math.min(Math.abs(v), max) / max * 50, big = Math.abs(v) >= 6;
+    const left = v >= 0 ? 50 : 50 - pos;
+    return `<div class="moved"><div class="top"><span><span class="name">${READ[k] || k}</span> <span class="code">${k}</span></span><span class="val">${sgn(v)} spreads</span></div>
+      <div class="dbar"><b class="mid"></b><b style="left:${50 + 30}%"></b><b style="left:${50 - 30}%"></b><i class="${big ? "big" : ""}" style="left:${left}%;width:${pos}%"></i></div></div>`;
+  }).join("");
+}
+const zoneOf = (v) => [[0.71, "A"], [1.8, "B"], [4.5, "C"], [1e9, "D"]].find((z) => v <= z[0])[1];
+
+// ---------- chrome ----------
+const PROT = () => (mode === "calibrating" ? ["Day-0 rules", "Watching for serious problems. Learning this machine."] : ["Calibrated", "Calibrated. Watching for changes from this machine's normal."]);
+function renderChrome() {
+  const last = records[records.length - 1];
+  $("t-fresh").classList.toggle("stale", paused);
+  $("t-last").textContent = paused ? `No reading for ${fmtDur(Date.now() - last.at)}` : mode === "calibrating" ? `Calibrating ${Math.round(calProgress * 100)}%` : `Updated ${fmtT(last.at)}`;
+  $("t-dot").style.background = $("d-dot").style.background = paused ? C.muted : C.accent;
+  $("d-mode").textContent = paused ? "quiet" : mode;
+  $("d-rate").textContent = paused || mode !== "watching" ? "0 / s" : "1 / s";
+  $("d-count").textContent = records.length.toLocaleString();
+  const open = alarms().filter((a) => !feedback[a.id]).length;
+  $("b-history").textContent = open;
+  $("b-history").classList.toggle("show", open > 0);
+  $("b-agent").textContent = "1";
+  $("b-agent").classList.toggle("show", runs.some((r) => r.status === "running"));
+  document.title = `${paused ? "No data" : mode === "calibrating" ? "Calibrating" : DLABEL(last.view)} · conveyor-07 · effente`;
+}
+
+// ---------- LIVE ----------
+let snoozed = {};
+function renderStatus() {
+  const r = records[records.length - 1];
+  let i = records.length - 1;
+  while (i > 0 && records[i - 1].view === r.view) i--;
+  const since = records[i].at;
+  let title, sub, col = DCOL(r.view);
+  if (mode === "calibrating") { title = "Learning this machine"; sub = "Day-0 rules watch for serious problems until calibration finishes"; col = C.muted; }
+  else if (r.view === "warming_up") { title = "Warming up"; sub = "Collecting the first readings after a restart"; }
+  else if (r.view === "normal") { title = "Nothing needs attention"; sub = r.suppressed ? "The device flagged this period, but your sensitivity setting hides it" : `Running normally · last checked ${fmtT(r.at)}`; }
+  else if (r.view === "elevated") { title = "Elevated"; sub = "Alarm score is above your dashboard line but below the device's own line"; }
+  else { title = DLABEL(r.view); sub = `${GROUP(r.view)} · ${cap(r.reason)}`; }
+  const meta = [
+    r.devAbn ? ["Abnormal for", per(r.abnMin)] : ["Diagnosis", DLABEL(r.view)],
+    ["Since", fmtT(since)],
+    ["Protection", PROT()[0], 'data-go="device"'],
+    ["Sensitivity", sensName(SENS), 'data-focus="l-controls"'],
+  ];
+  const open = alarms().filter((a) => !feedback[a.id] && !snoozed[a.id]).reverse();
+  let ask = "";
+  if (open.length) {
+    const a = open[0];
+    ask = `<div class="st-ask"><span class="q">Was this a real problem?</span><span class="d">${a.end ? `${DLABEL(a.diag)} at ${fmtT(a.start)} · ${per(a.rs.length)}` : "The alarm above, still going"}</span>
+      <span class="end">${open.length > 1 ? `<a data-go="history">${open.length - 1} more to answer</a>` : ""}<button class="btn small" data-fb="real" data-id="${a.id}">Real Problem</button><button class="btn small" data-fb="false" data-id="${a.id}">False Alarm</button><button class="btn small ghost" data-fb="later" data-id="${a.id}">Later</button></span></div>`;
+  }
+  $("l-status").innerHTML = `<div class="st-main"><span class="st-dot" style="background:${col}"></span>
+    <div><div class="st-title" style="${r.view === "normal" || mode === "calibrating" ? "" : `color:${col}`}">${title}</div><div class="st-sub">${sub}</div>
+      ${mode === "calibrating" ? `<div class="progress st"><i style="width:${calProgress * 100}%"></i></div>` : ""}</div>
+    <div class="st-meta">${meta.map(([k, v, attr]) => `<div ${attr ? `class="link" ${attr}` : ""}><span>${k}</span><b>${v}</b></div>`).join("")}</div></div>${ask}`;
+}
+function sparkSVG(vals, color, lo, hi, thr) {
+  const W = 240, H = 30, n = vals.length;
+  const y = (v) => (H - 3 - ((Math.min(Math.max(v, lo), hi) - lo) / (hi - lo)) * (H - 6)).toFixed(1);
+  const segs = [];
+  let cur = [];
+  vals.forEach((v, k) => { if (v == null) { if (cur.length) segs.push(cur); cur = []; } else cur.push(`${((k / (n - 1)) * W).toFixed(1)},${y(v)}`); });
+  if (cur.length) segs.push(cur);
+  const t = thr != null ? `<line x1="0" x2="${W}" y1="${y(thr)}" y2="${y(thr)}" stroke="${C.alert}" stroke-dasharray="3 3" opacity=".6" vector-effect="non-scaling-stroke"/>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" width="100%" height="${H}" style="display:block">${t}${segs.map((s) => `<polyline points="${s.join(" ")}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`).join("")}</svg>`;
+}
+const evidenceCount = (x) => Object.values(x.features).filter((v) => Math.abs(v) >= 6).length;
+function renderSignals() {
+  const r = records[records.length - 1], rs = records.slice(-300), vFlag = Math.min(11, 1.2 * (1 + devScale(SENS)));
+  const top = Object.entries(r.features).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
+  const nEv = evidenceCount(r);
+  const sig = [
+    { nm: "Alarm score", v: r.u == null ? "–" : `${f2(r.u)}×`, c: r.u > DEVICE_LINE ? C.alert : "", ctx: `Device alarms above 1.0${LINE !== DEVICE_LINE ? ` · your line ${LINE.toFixed(2)}` : ""}`, vals: rs.map((x) => x.u), lo: 0, hi: 4, thr: DEVICE_LINE, col: r.u > DEVICE_LINE ? C.alert : C.accent, go: "history" },
+    { nm: "Confidence", v: r.u == null ? "–" : `${Math.round(r.confidence * 100)}%`, ctx: "How sure the device is of its label", vals: rs.map((x) => (x.u == null ? null : x.confidence)), lo: 0.3, hi: 1, go: "history" },
+    { nm: "Readings that moved", v: r.u == null ? "–" : String(nEv), c: nEv ? C.warn : "", ctx: top ? `${cap(READ[top[0]] || top[0])} <span class="code">${top[0]}</span> ${sgn(top[1])} spreads` : "None yet", vals: rs.map((x) => (x.u == null ? null : evidenceCount(x))), lo: 0, hi: 5, go: "evidence" },
+    { nm: "Vibration velocity", v: `${r.vel.toFixed(1)} mm/s`, c: r.vel > vFlag ? C.warn : "", ctx: `Normal 1.2 mm/s · wrong above ${vFlag.toFixed(1)} · limit 11 from plug-in`, vals: rs.map((x) => x.vel), lo: 0, hi: 8, go: "spectrum" },
+    { nm: "Running speed", v: `${Math.round(r.speedHz * 60).toLocaleString()} rpm`, ctx: `${r.speedHz.toFixed(1)} Hz <span class="code">vib_speed_hz</span>`, vals: rs.map((x) => x.speedHz), lo: 23.5, hi: 25.5, go: "spectrum" },
+  ];
+  if (tStats) {
+    const rise = tStats.max - tStats.bg, th = tHist.filter((_, k) => k % 4 === 0).map((x) => x.max);
+    sig.push({ nm: "Hottest point", v: `${tStats.max.toFixed(1)} °C`, c: rise > 35 ? C.alert : "", ctx: `${cap(whereHot())}, +${rise.toFixed(1)} °C over room · optional sensor`, vals: th, lo: 0, hi: Math.max(40, ...th), go: "thermal" });
+  }
+  $("l-sig").innerHTML = sig.map((s) => `<tr class="click" data-go="${s.go}"><td class="nm">${s.nm}</td><td class="v"${s.c ? ` style="color:${s.c}"` : ""}>${s.v}</td><td class="ctx">${s.ctx}</td><td class="sp">${sparkSVG(s.vals, s.col || C.accent, s.lo, s.hi, s.thr)}</td><td class="chev">→</td></tr>`).join("");
+}
+function renderSensitivity() {
+  const rs = records.slice(-300).filter((r) => r.u != null);
+  const flagged = (line) => rs.filter((r) => r.u > line).length;
+  const dev = rs.filter((r) => r.devAbn).length, now = flagged(LINE);
+  const early = rs.filter((r) => !r.devAbn && r.u > LINE).length, hidden = rs.filter((r) => r.devAbn && r.u <= LINE).length;
+  $("sens-val").innerHTML = `Sensitivity ${SENS.toFixed(2)} <span class="muted" style="font-size:13px;font-weight:400">· ${sensName(SENS)}, default 0.50</span>`;
+  const sl = $("sens"); sl.value = Math.round(SENS * 100);
+  sl.style.background = `linear-gradient(to right, ${C.accent} ${SENS * 100}%, ${C.raised} ${SENS * 100}%)`;
+  $("sens-impact").innerHTML = `<div>Counts as wrong at vibration <b>${(1 + devScale(SENS)).toFixed(2).replace(/\.?0+$/, "")}×</b> normal, <b>+${(15 * devScale(SENS)).toFixed(1).replace(/\.0$/, "")} °C</b>, <b>+${(6 * devScale(SENS)).toFixed(1).replace(/\.0$/, "")} dB</b>, model line <b>${LINE.toFixed(2)}×</b>. Universal limits stay fixed.</div>
+    <div>Last 5 min: <b>${now}</b> flagged · device alarmed on ${dev}${early ? ` · <span class="up">${early} early warnings</span>` : ""}${hidden ? ` · <span class="down">${hidden} hidden</span>` : ""}</div>`;
+}
+function setSensitivity(v) {
+  SENS = v; LINE = lineFor(v);
+  records.forEach(label);
+  document.querySelectorAll("[data-sens]").forEach((b) => b.classList.toggle("on", Math.abs(b.dataset.sens / 100 - v) < 0.005));
+  renderChrome(); RENDER[active]();
+}
+function liveEvents() {
+  const ev = [];
+  alarms().forEach((a) => {
+    ev.push({ at: a.start, kind: "Alarm", c: DCOL(a.diag), text: `${DLABEL(a.diag)} · ${GROUP(a.diag)}` });
+    if (a.end) ev.push({ at: a.end, kind: "Back to normal", c: C.normal, text: `after ${per(a.rs.length)}` });
+    const f = feedback[a.id];
+    if (f) ev.push({ at: f.at, kind: "Answer", c: C.accent, text: f.verdict === "real" ? `real problem · ${DLABEL(a.diag)} at ${fmtT(a.start)}` : `false alarm · ${fmtT(a.start)}` });
+  });
+  events.filter((e) => e.ev === "mode").forEach((e) => ev.push({ at: e.at, kind: "Mode", c: C.soft, text: e.text }));
+  runs.forEach((r) => ev.push({ at: r.at, kind: "Agent", c: C.soft, text: r.status === "running" ? "report agent running" : r.ok ? `report ready · priority ${r.report.priority}` : `no report · ${r.reason}` }));
+  return ev.concat(heatAlerts, bookmarks).sort((a, b) => b.at - a.at).slice(0, 60);
+}
+function renderLive() {
+  renderStatus(); renderSignals(); renderSensitivity();
+  const r = records[records.length - 1];
+  bandChart($("l-spec"), r.spectrum);
+  drawLiveThermal();
+  const rs = records.slice(-300), band = $("l-band");
+  band.innerHTML = ""; diagBand(band, rs, 76);
+  const c = {}; rs.forEach((x) => (c[x.view] = (c[x.view] || 0) + 1));
+  $("l-band-sum").innerHTML = Object.entries(c).sort((a, b) => b[1] - a[1]).map(([d, n]) => `<span>${pill(d)} ${fmtDur(n * 1000)} · ${Math.round((n / rs.length) * 100)}%</span>`).join("") + `<span class="end">${alarms().length} alarms · ${rs.length} periods</span>`;
+  $("l-events").innerHTML = liveEvents().map((e) => `<tr><td>${fmtT(e.at)}</td><td>${e.kind === "Alarm" || e.kind === "Heat" ? `<span class="pill" style="--c:${e.c}">${e.kind}</span>` : e.kind}</td><td class="strong">${e.text}</td></tr>`).join("");
+}
+function protBlock() {
+  const p = PROT();
+  return `<div style="display:grid;gap:10px">
+    <div class="strong" style="color:var(--text);font-weight:600">${p[1]}</div>
+    ${mode === "calibrating" ? `<div class="progress"><i style="width:${calProgress * 100}%"></i></div><div class="muted" style="font-size:13px">Learning this machine's levels · ${Math.round(calProgress * 100)}%</div>` : ""}
+    <div class="levels">
+      <div class="${mode === "calibrating" ? "on" : ""}">Day-0 rules only</div>
+      <div class="${mode !== "calibrating" ? "on" : ""}">Calibrated · library entry conveyor</div>
+      <div class="planned">Trained on this machine (optional long stay)</div>
+      <div class="planned">Model change waiting for approval (later)</div>
+    </div>
+    <dl class="kv" style="font-size:13px"><dt>fit check</dt><dd>${mode === "calibrating" ? "after calibration" : "passed: your conveyor looks normal"}</dd><dt>calibrated</dt><dd>${calibratedAt ? fmtT(calibratedAt) : "–"}</dd></dl>
+  </div>`;
+}
+
+// ---------- HISTORY ----------
+function renderHistory() {
+  const rs = records.slice(-300);
+  $("h-legend").innerHTML = `<span><span class="sw" style="background:${C.accent}"></span>vib_1x</span><span><span class="sw" style="background:transparent;border:1px dashed ${C.soft}"></span>vib_harm_3_10</span>`;
+  const host = $("h-charts"); host.innerHTML = "";
+  diagBand(host, rs);
+  const lines = [{ y: DEVICE_LINE, color: C.alert, label: "device line 1.0" }];
+  if (LINE !== DEVICE_LINE) lines.push({ y: LINE, color: C.accent, label: `your line ${LINE.toFixed(2)}`, dash: "2 3" });
+  lineChart(host, 84, [{ values: rs.map((r) => r.u), color: C.accent }], { label: "alarm score", ymin: 0, ymax: 4, ticks: [0, 2, 4], lines });
+  lineChart(host, 70, [{ values: rs.map((r) => r.confidence), color: C.accent }], { label: "confidence" });
+  lineChart(host, 96, [{ values: rs.map((r) => r.track.vib_1x), color: C.accent }, { values: rs.map((r) => r.track.vib_harm_3_10), color: C.soft, dash: "4 3" }],
+    { label: "spreads", ymin: -2, ymax: 10, ticks: [0, 6, 10], fmt: (v) => v.toFixed(0), axis: true, times: rs.map((r) => r.at), lines: [{ y: 6, color: C.muted, label: "evidence at 6", dash: "2 4" }] });
+  const al = alarms().slice().reverse();
+  $("h-alarm-hint").textContent = `${al.filter((a) => !feedback[a.id]).length} unanswered · each alarm asks one question: real problem or false alarm?`;
+  $("h-alarms").innerHTML = al.map((a) => {
+    const f = feedback[a.id];
+    const ans = f ? `<span class="pill" style="--c:${f.verdict === "real" ? C.warn : C.muted}">${f.verdict === "real" ? "Real problem" : "False alarm"}</span> <span class="muted">${f.verdict === "real" ? "we'll ask what you found in a few days" : ""}</span>`
+      : `<button class="btn small" data-fb="real" data-id="${a.id}">Real Problem</button> <button class="btn small" data-fb="false" data-id="${a.id}">False Alarm</button>`;
+    return `<tr><td>${fmtT(a.start)}</td><td>${a.end ? fmtT(a.end) : '<span class="state pending">ongoing</span>'}</td><td>${pill(a.diag)}</td><td>${GROUP(a.diag)}</td><td class="r">${a.rs.length}</td><td>conveyor · calibrated</td><td>${ans}</td></tr>`;
+  }).join("");
+  const flt = $("h-filter").value;
+  const rows = records.filter((r) => !flt || (flt === "abn" ? r.devAbn : !r.devAbn)).slice().reverse();
+  $("h-count").textContent = `${rows.length} periods`;
+  $("h-rows").innerHTML = rows.slice(0, 400).map((x) => {
+    const top = Object.entries(x.features).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
+    return `<tr><td class="code">${x.seq}</td><td>${x.at.toISOString().slice(11, 19)}</td><td>${pill(x.view)}</td><td>${x.dtm ? DLABEL(x.dtm) : '<span class="muted">–</span>'}</td><td class="r">${x.u == null ? "–" : f2(x.confidence)}</td><td class="r">${x.u == null ? "–" : f2(x.u)}</td><td class="r">${x.abnMin || ""}</td><td>${top ? `<span class="code">${top[0]}</span> ${sgn(top[1])}` : "–"}</td></tr>`;
+  }).join("");
+}
+
+// ---------- SPECTRUM ----------
+function renderSpectrum() {
+  const r = records[records.length - 1];
+  bandChart($("s-spec"), r.spectrum, (i) => {
+    const d = r.spectrum[i] - baseline[i];
+    $("s-hover").innerHTML = `Band <b>${i + 1}</b> · ${EDGES[i].toFixed(1)} to ${EDGES[i + 1].toFixed(1)} Hz · level <b>${r.spectrum[i].toFixed(2)}</b> · baseline ${baseline[i].toFixed(2)} · ${Math.pow(10, d).toFixed(1)}× baseline`;
+  });
+  const cv = $("s-wf"); cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  const ctx = cv.getContext("2d"), rows = records.slice(-120).reverse(), rh = cv.height / 120, bw = cv.width / 20;
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, cv.width, cv.height);
+  rows.forEach((rec, y) => rec.spectrum.forEach((v, x) => { const t = Math.min(1, Math.max(0, (v - BAND_LO) / (BAND_HI - BAND_LO))); ctx.fillStyle = `rgba(82,168,255,${0.04 + t * 0.96})`; ctx.fillRect(x * bw, y * rh, bw - 1, rh + 0.5); }));
+  const order = r.spectrum.map((v, i) => ({ v, i, d: v - baseline[i] })).sort((a, b) => b.d - a.d).slice(0, 10);
+  $("s-bands").innerHTML = order.map((p) => `<tr><td class="r">${p.i + 1}</td><td class="r strong">${EDGES[p.i].toFixed(1)} to ${EDGES[p.i + 1].toFixed(1)}</td><td class="r">${p.v.toFixed(2)}</td><td class="r">${baseline[p.i].toFixed(2)}</td><td class="r" style="color:${p.d > 0.5 ? C.warn : ""}">${sgn(p.d)}</td><td class="r">${Math.pow(10, p.d).toFixed(1)}×</td></tr>`).join("");
+}
+
+// ---------- EVIDENCE ----------
+function renderEvidence() {
+  const r = records[records.length - 1];
+  $("e-moved").innerHTML = movedRows(r.features);
+  const ft = r.ftypes ? Object.entries(r.ftypes).sort((a, b) => b[1] - a[1]) : [];
+  $("e-ft-hint").textContent = r.devAbn ? `strongest first · device names ${DLABEL(r.diagnosis).toLowerCase()} (most often this stretch)` : "only sent while the machine is abnormal";
+  $("e-ft").innerHTML = ft.length ? ft.map(([k, v]) => `<div class="moved"><div class="top"><span><span class="name">${DLABEL(k)}</span> <span class="muted">${cap(FT[k].group)}</span></span><span class="val">${v.toFixed(1)}</span></div>
+      <div class="dbar"><i class="${k === r.diagnosis ? "big" : ""}" style="left:0;width:${Math.min(v, 12) / 12 * 100}%"></i></div><div class="muted" style="font-size:13px">${cap(FT[k].text)}</div></div>`).join("")
+    : `<div class="empty">${r.devAbn ? "Abnormal, but no known fault type fits: unrecognised pattern. Inspect the machine." : "Machine is normal. Fault types are scored only during an alarm."}</div>`;
+  const now = r.ftypes || {};
+  $("e-types").innerHTML = FT_LIST.map(([name, group, , text]) => `<tr${now[name] ? ' class="sel"' : ""}><td>${cap(group)}</td><td class="strong">${DLABEL(name)} <span class="code">${name}</span></td><td style="white-space:normal">${text}</td><td><span class="vtag">possible · not validated</span></td><td class="r">${now[name] ? now[name].toFixed(1) : '<span class="muted">–</span>'}</td></tr>`).join("");
+}
+
+// ---------- AGENTS ----------
+const ago = (min, s = 0) => new Date(Date.now() - min * 60000 + s * 1000);
+const runs = [
+  { id: "run-a", agent: "maintenance_report", at: ago(22), status: "done", ok: false, model: "claude-opus-5-5", reason: "agent unavailable: no connection", problems: [], usage: null, tool_calls: [], report: null, simulated: false },
+  { id: "run-b", agent: "maintenance_report", at: ago(3), status: "done", ok: true, model: "stand-in, no Claude call", simulated: true, usage: null,
+    tool_calls: [
+      { at: fmtT(ago(3, 1)), name: "get_readings", input: { since: "" }, output: '{"records": 160, "abnormal": 70}' },
+      { at: fmtT(ago(3, 1)), name: "get_fault_types", input: {}, output: '{"unbalance_like": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)"}' },
+      { at: fmtT(ago(3, 2)), name: "search_parts", input: { query: "conveyor drive roller balancing" }, output: "lookup skipped: stand-in has no network" },
+    ],
+    report: { summary: "Stand-in report: possible unbalance on conveyor-07, alarm for 70 of 160 periods, once-per-turn vibration up about 7 spreads.", priority: "medium", cited_features: ["vib_1x"], recommended_action: "Check the drive roller for added mass or damage, then rebalance.", part_reference: "" } },
+];
+let selRun = runs[1], selCall = null, agentMode = "standin";
+const PRI = { none: C.muted, low: C.soft, medium: C.warn, high: C.alert };
+function renderAgent() {
+  $("a-runs").innerHTML = runs.slice().reverse().map((r) => {
+    const st = r.status === "running" ? `<span class="state pending">running</span>` : r.ok ? "report ready" : `<span class="state off">no report</span>`;
+    return `<tr class="click ${r === selRun ? "sel" : ""}" data-run="${r.id}"><td style="white-space:normal"><div class="strong" style="color:var(--text)">${fmtT(r.at).slice(0, 5)}</div><div class="muted" style="font-size:12px">${r.agent} · ${r.simulated ? "stand-in" : "Claude"}</div></td><td class="r">${st}</td></tr>`;
+  }).join("");
+  const r = selRun;
+  $("a-usage").textContent = `${r.agent} · ${r.model}${r.usage ? ` · ${r.usage.input_tokens} in / ${r.usage.output_tokens} out tokens` : ""}`;
+  $("a-calls").innerHTML = r.tool_calls.length ? r.tool_calls.map((c, i) => `<tr class="click ${selCall === i ? "sel" : ""}" data-call="${i}"><td>${c.at}</td><td class="strong code" style="color:var(--text)">${c.name}</td><td>${JSON.stringify(c.input)}</td><td>${c.output}</td></tr>`).join("") : `<tr><td colspan="4" class="empty">This run made no tool calls.</td></tr>`;
+  const c = r.tool_calls[selCall];
+  $("a-io").textContent = c ? `${c.name}\n\ninput\n${JSON.stringify(c.input, null, 2)}\n\noutput\n${c.output}` : "Select a tool call to see its full input and output.";
+  const rep = r.report;
+  $("a-flag").innerHTML = r.simulated ? `<span class="chip sim">Simulated</span>` : "";
+  $("a-report").innerHTML = rep
+    ? `<dt>priority</dt><dd class="big" style="color:${PRI[rep.priority]};text-transform:capitalize">${rep.priority}</dd><dt>summary</dt><dd>${rep.summary}</dd><dt>evidence</dt><dd>${rep.cited_features.map((x) => `${READ[x] || x} <span class="code">${x}</span>`).join(", ") || "none"}</dd><dt>action</dt><dd>${rep.recommended_action}</dd><dt>part</dt><dd>${rep.part_reference || '<span class="muted">none found</span>'}</dd><dt>checks</dt><dd>all passed</dd>`
+    : r.status === "running" ? `<dt>status</dt><dd class="state pending">running</dd>` : `<dt>status</dt><dd class="state off">no report</dd><dt>reason</dt><dd>${r.reason || "–"}</dd><dt>problems</dt><dd>${r.problems.join("; ") || "none"}</dd>`;
+  $("a-run").disabled = $("q-agent").disabled = runs.some((x) => x.status === "running");
+}
+function runAgent() {
+  const live = agentMode === "live", now = new Date();
+  const run = { id: "run-" + now.getTime(), agent: "maintenance_report", at: now, status: "running", ok: false, model: live ? "claude-opus-5-5" : "stand-in, no Claude call", simulated: true, usage: live ? { input_tokens: 0, output_tokens: 0 } : null, tool_calls: [], report: null, reason: "", problems: [] };
+  runs.push(run); selRun = run; selCall = null;
+  const abn = records.filter((r) => r.devAbn).length;
+  const steps = [
+    { name: "get_readings", input: { since: "" }, output: JSON.stringify({ records: records.length, abnormal: abn }) },
+    { name: "get_fault_types", input: {}, output: JSON.stringify({ unbalance_like: FT.unbalance_like.text, looseness_or_rattle: FT.looseness_or_rattle.text }) },
+    { name: "search_parts", input: { query: "conveyor drive roller balancing" }, output: live ? '{"results": [{"title": "Drive roller balancing weights", "url": "https://parts.example.test/roller"}]}' : "lookup skipped: stand-in has no network" },
+  ];
+  let k = 0;
+  const iv = setInterval(() => {
+    if (k < steps.length) { run.tool_calls.push({ at: fmtT(new Date()), ...steps[k++] }); if (run.usage) { run.usage.input_tokens += 700; run.usage.output_tokens += 90; } }
+    else {
+      clearInterval(iv); run.status = "done"; run.ok = true;
+      run.report = { summary: `${live ? "" : "Stand-in report: "}possible unbalance and possible looseness on conveyor-07: abnormal for ${abn} of ${records.length} periods, once-per-turn vibration up about 7 spreads and harmonics up about 7.`, priority: "medium", cited_features: ["vib_1x", "vib_harm_3_10"], recommended_action: "Check the drive roller for added mass, retighten the motor-mount screws, then calibrate again.", part_reference: live ? "Drive roller balancing weights" : "" };
+    }
+    renderChrome(); if (active === "agent") renderAgent();
+  }, 800);
+  renderChrome(); renderAgent();
+}
+
+// ---------- DEVICE & MODEL ----------
+let logPaused = false;
+function renderDevice() {
+  const last = records[records.length - 1];
+  $("d-devs").innerHTML = `<tr><td class="strong">effente-sim-01</td><td>${paused ? '<span class="muted">quiet</span>' : `<span class="pill" style="--c:${C.accent}">connected</span>`}</td><td>${mode}</td><td>${fmtT(last.at)}</td><td>conveyor-07</td><td class="code">conveyor-07-20261114</td><td class="r">${records.length}</td></tr>
+    <tr><td class="strong">effente-01</td><td><span class="muted">never seen</span></td><td>–</td><td>–</td><td>–</td><td>–</td><td class="r">0</td></tr>`;
+  $("d-model").innerHTML = `<div style="display:grid;gap:14px">${protBlock()}
+    <dl class="kv"><dt>library entry</dt><dd>conveyor <span class="muted">demo entry, trained on the demo conveyor</span></dd><dt>source</dt><dd>calibrated</dd><dt>model version</dt><dd>conveyor-07-20261114</dd><dt>features</dt><dd>278 readings · c985a0908a96</dd><dt>alarm line</dt><dd>score 1.0, about one false alarm a week by design</dd><dt>fault types</dt><dd>21 · 0 validated</dd><dt>calibration</dt><dd>5 min of running, the starting value</dd></dl></div>`;
+  if (!logPaused) $("d-log").innerHTML = events.concat(liveEvents().filter((e) => e.kind !== "Mode").map((e) => ({ at: e.at, ev: e.kind.toLowerCase(), text: e.text }))).sort((a, b) => b.at - a.at).slice(0, 200).map((e) => `<tr><td>${fmtT(e.at)}</td><td class="strong">${e.ev}</td><td>${e.text}</td></tr>`).join("");
+}
+function recalibrate() {
+  if (mode === "calibrating") return;
+  mode = "calibrating"; calProgress = 0; calEnd = Date.now() + 8000;
+  events.push({ at: new Date(), ev: "mode", text: "watching → calibrating (re-attached, learning levels again)" });
+  renderChrome(); RENDER[active]();
+}
+
+// ---------- THERMAL (optional sensor) ----------
+const TW = 32, TH = 24;
+const TLABELS = ["background", "floor", "cabinet", "fan cover", "motor", "bearing end", "coupling", "pump", "pipe", "base"];
+const tLab = (() => {
+  const lab = Array.from({ length: TH }, () => new Array(TW).fill(0));
+  const fill = (r0, r1, c0, c1, v) => { for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) lab[r][c] = v; };
+  fill(19, 24, 0, 32, 1); fill(0, 6, 0, 7, 2); fill(18, 20, 3, 31, 9); fill(9, 17, 4, 7, 3); fill(8, 18, 7, 21, 4);
+  [[8, 7], [8, 20], [17, 7], [17, 20]].forEach(([r, c]) => (lab[r][c] = 0));
+  fill(9, 17, 21, 23, 5); fill(10, 16, 23, 25, 6);
+  for (let r = 0; r < TH; r++) for (let c = 0; c < TW; c++) if (((r - 13) / 5.5) ** 2 + ((c - 27.5) / 3.5) ** 2 <= 1) lab[r][c] = 7;
+  fill(0, 8, 27, 30, 8);
+  return lab;
+})();
+const ROOM = 23;
+const tTarget = { normal: { bear: 0, motor: 0, fan: 0 }, bearing: { bear: 24, motor: 2, fan: 0 }, fan: { bear: 3, motor: 14, fan: -7 } };
+let tCase = "normal", tState = { bear: 0, motor: 0, fan: 0 }, tScale = "auto", tSmooth = true, tGrid = true, tFrame = null, tPrev = null, tRef = null, tHover = null, tStats = null, heatHigh = false, tScaleS = 1;
+const tHist = [];
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 0.45;
+function thermalBase(r, c) {
+  const s = tState;
+  switch (tLab[r][c]) {
+    case 0: return ROOM + 0.6 * (1 - Math.min(r, 18) / 18);
+    case 1: return ROOM - 0.8;
+    case 2: return ROOM + 6 + (r >= 1 && r < 3 && c >= 4 && c < 6 ? 2 : 0);
+    case 3: return ROOM + 7 + s.fan + s.motor * 0.3;
+    case 4: return ROOM + (22 + s.motor) * (1 + (-0.2 + 0.25 * (c - 7) / 13)) + (r % 2 ? -0.6 : 0.6);
+    case 5: return ROOM + 15 + s.bear;
+    case 6: return ROOM + 8 + s.bear * 0.3;
+    case 7: return ROOM + 11;
+    case 8: return ROOM + 2;
+    case 9: return ROOM + 3 + s.motor * 0.15;
+  }
+}
+function makeThermal() {
+  for (const k in tState) tState[k] += (tTarget[tCase][k] - tState[k]) * 0.012;
+  const raw = new Float32Array(TW * TH), out = new Float32Array(TW * TH);
+  for (let r = 0; r < TH; r++) for (let c = 0; c < TW; c++) raw[r * TW + c] = thermalBase(r, c);
+  for (let r = 0; r < TH; r++) for (let c = 0; c < TW; c++) {
+    let s = 0, n = 0;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) { const rr = r + dr, cc = c + dc; if (rr < 0 || cc < 0 || rr >= TH || cc >= TW) continue; const w = dr === 0 && dc === 0 ? 4 : 1; s += raw[rr * TW + cc] * w; n += w; }
+    out[r * TW + c] = s / n + gauss();
+  }
+  return out;
+}
+function thermalStats(f, prev) {
+  let max = -1e9, mi = 0, sum = 0, bgS = 0, bgN = 0, bear = -1e9, fan = -1e9, rate = 0;
+  for (let i = 0; i < f.length; i++) {
+    const v = f[i], L = tLab[(i / TW) | 0][i % TW];
+    sum += v; if (v > max) { max = v; mi = i; }
+    if (L === 0) { bgS += v; bgN++; }
+    if (L === 5) bear = Math.max(bear, v);
+    if (L === 3) fan = Math.max(fan, v);
+    if (prev) rate = Math.max(rate, Math.abs(v - prev[i]) * 4);
+  }
+  const bg = bgS / bgN, sorted = Array.from(f).sort((a, b) => a - b), hot = f.filter((v) => v >= bg + 15).length;
+  let match = 1;
+  if (tRef) {
+    const ma = sum / f.length, mb = tRef.reduce((a, b) => a + b, 0) / f.length;
+    let sab = 0, saa = 0, sbb = 0;
+    for (let i = 0; i < f.length; i++) { const a = f[i] - ma, b = tRef[i] - mb; sab += a * b; saa += a * a; sbb += b * b; }
+    match = sab / Math.sqrt(saa * sbb);
+  }
+  return { max, mi, avg: sum / f.length, bg, bear, fan, rate, hot, match, spread: sorted[Math.floor(f.length * 0.95)] - sorted[Math.floor(f.length * 0.05)] };
+}
+const INFERNO = ["#000004", "#1b0c41", "#4a0c6b", "#781c6d", "#a52c60", "#cf4446", "#ed6925", "#fb9b06", "#f7d13d", "#fcffa4"];
+const LUT = (() => { const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), st = INFERNO.map(hex), out = []; for (let i = 0; i < 256; i++) { const t = (i / 255) * (st.length - 1), k = Math.min(st.length - 2, Math.floor(t)), f = t - k; out.push(st[k].map((v, j) => Math.round(v + (st[k + 1][j] - v) * f))); } return out; })();
+$("t-bar").style.background = $("l-th-bar").style.background = `linear-gradient(to top, ${INFERNO.join(", ")})`;
+const tRange = (st) => (tScale === "fixed" ? [20, 60] : [Math.floor(st.bg - 1), Math.ceil(st.max + 1)]);
+const tColor = (v, lo, hi) => LUT[Math.max(0, Math.min(255, Math.round(((v - lo) / (hi - lo)) * 255)))];
+const offscreen = document.createElement("canvas"); offscreen.width = TW; offscreen.height = TH;
+const whereHot = () => TLABELS[tLab[(tStats.mi / TW) | 0][tStats.mi % TW]];
+function paintThermal(cv, host, full) {
+  const st = tStats, [lo, hi] = tRange(st), octx = offscreen.getContext("2d"), img = octx.createImageData(TW, TH);
+  for (let i = 0; i < tFrame.length; i++) { const [r, g, b] = tColor(tFrame[i], lo, hi); img.data.set([r, g, b, 255], i * 4); }
+  octx.putImageData(img, 0, 0);
+  const s = Math.max(3, Math.floor(Math.min(host.clientWidth / TW, host.clientHeight / TH)));
+  if (full) tScaleS = s;
+  cv.width = TW * s; cv.height = TH * s;
+  const ctx = cv.getContext("2d"); ctx.imageSmoothingEnabled = tSmooth; ctx.imageSmoothingQuality = "high"; ctx.drawImage(offscreen, 0, 0, cv.width, cv.height);
+  if (full && tGrid) { ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1; for (let k = 1; k < 8; k++) { ctx.beginPath(); ctx.moveTo(k * 4 * s + 0.5, 0); ctx.lineTo(k * 4 * s + 0.5, cv.height); ctx.stroke(); } for (let k = 1; k < 6; k++) { ctx.beginPath(); ctx.moveTo(0, k * 4 * s + 0.5); ctx.lineTo(cv.width, k * 4 * s + 0.5); ctx.stroke(); } }
+  const hx = (st.mi % TW + 0.5) * s, hy = (((st.mi / TW) | 0) + 0.5) * s;
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, Math.max(6, s * 0.9), 0, Math.PI * 2); ctx.stroke();
+  ctx.font = `600 ${full ? 13 : 12}px 'Geist', sans-serif`; ctx.fillStyle = "#fff"; ctx.shadowColor = "rgba(0,0,0,.8)"; ctx.shadowBlur = 3;
+  const lbl = `${st.max.toFixed(1)} °C`, lw = ctx.measureText(lbl).width, off = Math.max(9, s * 1.3);
+  ctx.fillText(lbl, hx + off + lw > cv.width ? hx - off - lw : hx + off, hy + 4); ctx.shadowBlur = 0;
+  if (full && tHover) { const [c, r] = tHover; ctx.strokeStyle = "rgba(82,168,255,.95)"; ctx.lineWidth = 1.5; ctx.strokeRect(c * s + 0.5, r * s + 0.5, s - 1, s - 1); $("t-hover").innerHTML = `Pixel ${c}, ${r} · <b>${tFrame[r * TW + c].toFixed(1)} °C</b> · ${(tFrame[r * TW + c] - st.bg).toFixed(1)} above room · ${TLABELS[tLab[r][c]]}`; }
+  return [lo, hi];
+}
+function drawThermal() { const [lo, hi] = paintThermal($("t-cv"), $("t-view-host"), true); $("t-hi").textContent = `${hi} °C`; $("t-mid").textContent = `${((lo + hi) / 2).toFixed(0)}`; $("t-lo").textContent = `${lo} °C`; }
+function drawLiveThermal() { if (!tFrame) return; const [lo, hi] = paintThermal($("l-th"), $("l-th-host"), false); $("l-th-hi").textContent = `${hi} °C`; $("l-th-lo").textContent = `${lo} °C`; $("l-th-sum").textContent = `optional sensor · bearing ${tStats.bear.toFixed(1)} °C · room ${tStats.bg.toFixed(1)} °C`; }
+function renderThermal() {
+  if (!tFrame) return;
+  const st = tStats;
+  $("tk-max").textContent = `${st.max.toFixed(1)} °C`; $("tk-where").textContent = `at the ${whereHot()}`;
+  $("tk-rise").textContent = `+${(st.max - st.bg).toFixed(1)} °C`; $("tk-rise").style.color = st.max - st.bg > 35 ? C.alert : ""; $("tk-bg").textContent = `room ${st.bg.toFixed(1)} °C`;
+  $("tk-avg").textContent = `${st.avg.toFixed(1)} °C`; $("tk-spread").textContent = `spread ${st.spread.toFixed(1)} °C`;
+  $("tk-hot").textContent = st.hot; $("tk-rate").textContent = `${st.rate.toFixed(1)} °C`;
+  $("tk-match").textContent = `${Math.round(st.match * 100)}%`; $("tk-match").style.color = st.match < 0.9 ? C.warn : "";
+  $("tk-match-s").textContent = st.match < 0.9 ? "possible camera moved or blocked" : "same view as usual";
+  drawThermal();
+  const host = $("t-trend"); host.innerHTML = "";
+  const top = Math.max(40, Math.ceil(Math.max(...tHist.slice(-480).map((x) => x.max)) / 10) * 10);
+  lineChart(host, Math.max(140, host.clientHeight - 26), [{ values: tHist.slice(-480).map((x) => x.max), color: C.accent }, { values: tHist.slice(-480).map((x) => x.bear), color: C.soft }, { values: tHist.slice(-480).map((x) => x.fan), color: C.muted, dash: "4 3" }],
+    { ymin: 0, ymax: top, ticks: [0, top / 2, top], fmt: (y) => `${y} °C`, axis: true, times: tHist.slice(-480).map((x) => x.at) });
+  const [lo, hi] = tRange(st);
+  let cells = "";
+  for (let gr = 0; gr < 6; gr++) for (let gc = 0; gc < 8; gc++) {
+    let s = 0, m = -1e9;
+    for (let r = gr * 4; r < gr * 4 + 4; r++) for (let c = gc * 4; c < gc * 4 + 4; c++) { const v = tFrame[r * TW + c]; s += v; m = Math.max(m, v); }
+    const [R, G, B] = tColor(m, lo, hi), dark = 0.299 * R + 0.587 * G + 0.114 * B > 150;
+    cells += `<div class="cell" style="background:rgb(${R},${G},${B})${dark ? ";color:#14161a;text-shadow:none" : ""}"><span>${(s / 16 - st.bg).toFixed(1)}</span><b>${(m - st.bg).toFixed(1)}</b></div>`;
+  }
+  $("t-cells").innerHTML = cells;
+}
+function thermalTick(at) { tPrev = tFrame; tFrame = makeThermal(); tStats = thermalStats(tFrame, tPrev); tHist.push({ at, max: tStats.max - tStats.bg, bear: tStats.bear - tStats.bg, fan: tStats.fan - tStats.bg }); if (tHist.length > 1200) tHist.shift(); }
+for (let i = 0; i < 1200; i++) { thermalTick(new Date(Date.now() - (1200 - i) * 250)); if (i === 40) tRef = tFrame; }
+
+// ---------- wiring ----------
+const RENDER = { live: renderLive, spectrum: renderSpectrum, thermal: renderThermal, history: renderHistory, evidence: renderEvidence, agent: renderAgent, device: renderDevice };
+let active = "live";
+function show(p) {
+  active = p;
+  document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.p === p));
+  document.querySelectorAll(".page").forEach((s) => s.classList.toggle("on", s.id === "p-" + p));
+  const child = p === "spectrum" || p === "thermal";
+  document.querySelector('#nav [data-p="live"]').classList.toggle("parent-on", child);
+  $("t-title").innerHTML = child ? `<span class="crumb" data-go="live">Live</span><span class="slash">/</span>${PAGES[p][0]}` : PAGES[p][0];
+  $("t-sub").textContent = PAGES[p][1];
+  RENDER[p]();
+}
+$("nav").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.p); });
+document.addEventListener("keydown", (e) => { if (e.target.matches("input, select")) return; const keys = Object.keys(PAGES), i = Number(e.key) - 1; if (i >= 0 && i < keys.length) show(keys[i]); });
+document.addEventListener("click", (e) => {
+  const go = e.target.closest("[data-go]"), ctl = e.target.closest("button, select, input, label");
+  if (go && (!ctl || ctl === go || !go.contains(ctl))) show(go.dataset.go);
+  const fo = e.target.closest("[data-focus]");
+  if (fo) { $(fo.dataset.focus).scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" }); $("sens").focus({ preventScroll: true }); }
+  const fb = e.target.closest("[data-fb]");
+  if (fb) {
+    const id = Number(fb.dataset.id);
+    if (fb.dataset.fb === "later") snoozed[id] = true; else feedback[id] = { verdict: fb.dataset.fb, at: new Date(), by: "technician" };
+    renderChrome(); RENDER[active]();
+  }
+  const run = e.target.closest("[data-run]");
+  if (run) { selRun = runs.find((r) => r.id === run.dataset.run); selCall = null; renderAgent(); }
+  const call = e.target.closest("[data-call]");
+  if (call) { selCall = Number(call.dataset.call); renderAgent(); }
+  const cs = e.target.closest("[data-case]");
+  if (cs) { liveCase = cs.dataset.case; document.querySelectorAll("[data-case]").forEach((b) => b.classList.toggle("on", b.dataset.case === liveCase)); }
+  const md = e.target.closest("[data-mode]");
+  if (md) { agentMode = md.dataset.mode; document.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b === md)); }
+  const sb = e.target.closest("[data-sens]");
+  if (sb) setSensitivity(sb.dataset.sens / 100);
+  const fl = e.target.closest("[data-flash]");
+  if (fl && !fl.dataset.busy) { const t = fl.textContent; fl.dataset.busy = 1; fl.textContent = fl.dataset.flash; setTimeout(() => { fl.textContent = t; delete fl.dataset.busy; }, 1400); }
+  const segPick = (attr, fn) => { const b = e.target.closest(`[data-${attr}]`); if (!b) return; document.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle("on", x.dataset[attr] === b.dataset[attr])); fn(b.dataset[attr]); renderThermal(); };
+  segPick("thcase", (v) => (tCase = v)); segPick("thscale", (v) => (tScale = v)); segPick("thview", (v) => (tSmooth = v === "smooth"));
+});
+$("sim-toggle").addEventListener("click", () => { paused = !paused; $("sim-toggle").textContent = paused ? "Start" : "Pause"; renderChrome(); RENDER[active](); });
+$("a-run").addEventListener("click", runAgent);
+$("q-agent").addEventListener("click", () => { if (!runs.some((x) => x.status === "running")) { show("agent"); runAgent(); } });
+$("q-mark").addEventListener("click", () => { const r = records[records.length - 1]; bookmarks.push({ at: new Date(), kind: "Bookmark", c: C.soft, text: `seq ${r.seq} · ${DLABEL(r.view)} · ${r.vel.toFixed(1)} mm/s` }); renderLive(); });
+$("q-cal").addEventListener("click", recalibrate);
+$("h-filter").addEventListener("change", renderHistory);
+$("s-base").addEventListener("click", () => { baseline = records[records.length - 1].spectrum.slice(); renderSpectrum(); });
+$("sens").addEventListener("input", (e) => setSensitivity(e.target.value / 100));
+$("d-pause").addEventListener("click", () => { logPaused = !logPaused; $("d-pause").classList.toggle("on", logPaused); });
+$("t-cv").addEventListener("mousemove", (e) => { tHover = [Math.min(TW - 1, Math.floor(e.offsetX / tScaleS)), Math.min(TH - 1, Math.floor(e.offsetY / tScaleS))]; drawThermal(); });
+$("t-cv").addEventListener("mouseleave", () => { tHover = null; $("t-hover").textContent = "Hover the image to read a pixel."; drawThermal(); });
+$("t-grid").addEventListener("click", () => { tGrid = !tGrid; $("t-grid").classList.toggle("on", tGrid); drawThermal(); });
+window.addEventListener("resize", () => RENDER[active]());
+
+setInterval(() => {
+  if (paused) { renderChrome(); return; }
+  if (mode === "calibrating") {
+    calProgress = Math.min(1, 1 - (calEnd - Date.now()) / 8000);
+    if (calProgress >= 1) { mode = "watching"; calibratedAt = new Date(); gen.warm = 5; events.push({ at: new Date(), ev: "mode", text: "calibrating → watching · fit check passed" }); }
+    renderChrome(); RENDER[active](); return;
+  }
+  records.push(makeRecord(liveCase, new Date(), ++seq));
+  renderChrome();
+  if (active !== "agent") RENDER[active]();
+}, 1000);
+setInterval(() => {
+  if (paused) return;
+  thermalTick(new Date());
+  const rise = tStats.max - tStats.bg;
+  if (rise > 35 && !heatHigh) { heatHigh = true; heatAlerts.push({ at: new Date(), kind: "Heat", c: C.warn, text: `possible local hot spot · ${tStats.max.toFixed(1)} °C at the ${whereHot()}` }); }
+  if (rise < 32) heatHigh = false;
+  if (active === "thermal") renderThermal();
+  if (active === "live") drawLiveThermal();
+}, 250);
+
+renderChrome();
+const q = new URLSearchParams(location.search);
+document.fonts.ready.then(() => { show(PAGES[q.get("p")] ? q.get("p") : "live"); if (q.get("s")) setSensitivity(q.get("s") / 100); });
+</script>
+</body>
+</html>
