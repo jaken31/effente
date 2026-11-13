@@ -16,8 +16,10 @@
 All the time, sensor data goes to the screen and to whoever connects to the live stream
 (device.intake.stream: results, feature rows, events, status). With an uploader
 (device.intake.uploader), it also goes to the laptop platform: the model, a record a second while
-watching, and a check-in otherwise; a sensitivity the platform sets is applied and saved. After a power cut it resumes what
-it was doing: still watching with the saved model, still recording into the same folder.
+watching, and a check-in otherwise; a sensitivity the platform sets is applied and saved. After a power cut it carries
+on watching with the saved model, or carries on training. It never carries on recording: recording starts only from a
+button press. A recording the power cut ended stays in its folder, and the app comes back not recording (watching
+with the saved model if there is one, else display).
 Until the button is wired, creating a file named `press` in the data folder counts as a press.
 """
 
@@ -69,7 +71,10 @@ def readings(x) -> dict:
     return {"vib_mg": round(1000 * total, 1) if math.isfinite(total) else None,
             "peak_g": None if peak is None else round(10 ** peak, 3),
             "speed_hz": _g(x, "vib_speed_hz"), "imu_temp_c": _g(x, "imu_temp_c"),
-            "tilt": [_g(x, f"vib_gravity_{a}") for a in "xyz"]}
+            "tilt": [_g(x, f"vib_gravity_{a}") for a in "xyz"],
+            # Not fitted yet: None until the INMP441 microphone and the MLX90640-D55 thermal camera send data
+            # (device.intake.source.UnoQSource, audio=True / thermal=True).
+            "sound_db": _g(x, "snd_level_db"), "thermal_max_c": _g(x, "th_max_c")}
 
 
 def _clock(seconds: float) -> str:
@@ -124,6 +129,7 @@ class DeviceApp:
         self._last_history_save = None
         self._screen_text, self._screen_event = None, threading.Event()
         self._stop = threading.Event()
+        self._resumed_training = False  # training picked up after a power cut: if it fails, don't record
         self._resume()
         if self.uploader is not None:
             self.uploader.on_settings = self.platform_settings
@@ -157,17 +163,27 @@ class DeviceApp:
                 self.watcher, self.model_path, self.model_version = None, None, C.NO_MODEL
                 self.early = None
         if mode == "watching" and self.watcher is not None:
-            self.mode = "watching"
-            self.safety.set_baseline(self.watcher.m.d.get("baseline"))
-        elif mode in ("recording", "training") and state.get("recording"):
+            self.mode = self._idle_mode()
+        elif mode == "training" and state.get("recording"):
             self.recording = Path(state["recording"])
             self.record_started = state.get("record_started") or self.clock()
-            if mode == "training":
-                self._begin_training()
-            else:
-                self._open_recorder()
-                self.mode = "recording"
-        self._event("mode", {"mode": self.mode, "resumed": mode != "display"})
+            self._resumed_training = True
+            self._begin_training()
+        elif mode == "recording":
+            # Recording starts only from a button press, never by itself after a power cut. What was kept
+            # stays in its folder; the next press starts a new recording.
+            self.mode = self._idle_mode()
+            self.message = "power cut ended the recording; press to record again"
+            self._save_state()
+        self._event("mode", {"mode": self.mode, "resumed": mode != "display", "was": mode})
+
+    def _idle_mode(self) -> str:
+        """Not recording: watching with the saved model if there is one, else display."""
+        self.recording, self.record_started = None, None
+        if self.watcher is not None:
+            self.safety.set_baseline(self.watcher.m.d.get("baseline"))
+            return "watching"
+        return "display"
 
     # ------------------------------------------------------------ the button
     def on_button(self, *_):
@@ -260,8 +276,12 @@ class DeviceApp:
         except Exception as e:  # noqa: BLE001  e.g. too little recorded: keep learning
             with self.lock:
                 self.message = str(e)[:80]
-                self._open_recorder()
-                self.mode = "recording"
+                if self._resumed_training:  # picked up after a power cut: no press started a recording
+                    self.mode = self._idle_mode()
+                else:
+                    self._open_recorder()
+                    self.mode = "recording"
+                self._resumed_training = False
                 self._save_state()
             self._event("training_failed", {"reason": str(e)})
 
