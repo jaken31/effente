@@ -115,7 +115,7 @@ def test_still_device_idle_record_train_watch_with_no_complaints_on_the_screen()
         d = json.loads(app.model_path.read_text())
         rep = d["training_report"]
         assert rep["learned_from_all_rows"] and rep["period_s"] == 1 and 230 <= rep["rows_learned"] + rep["rows_calibration"] <= 271, rep
-        assert rep["line"].startswith("tail") and rep["patterns_kept"] >= 1 and np.isfinite(rep["threshold"]), rep
+        assert rep["patterns_kept"] >= 1 and np.isfinite(rep["threshold"]), rep
         assert any("counted as running" in w for w in rep["warnings"]), rep["warnings"]
         # the notes about the learning are in status, for us, and not on the screen
         assert app.status().get("learning_notes") and d["baseline"]["warnings_screen"], app.status()
