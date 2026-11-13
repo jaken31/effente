@@ -180,3 +180,12 @@ def test_frame_time(page):
     median, worst = times[len(times) // 2], times[-1]
     print(f"\nthermal frame: median {median:.2f} ms, worst {worst:.2f} ms at {p.image.width()}x{p.image.height()}")
     assert median < 16
+
+
+def test_colours_are_the_mockup_ramp():
+    table = heat_image.lut()
+    assert len(table) == 256
+    assert table[0] == (0x0B, 0x0B, 0x0B)
+    assert table[255] == (0xFF, 0x4D, 0x2E)
+    # Pure grays up to white at 7/9 of the way, then red for the hottest.
+    assert all(r == g == b for r, g, b in table[: 255 * 7 // 9])

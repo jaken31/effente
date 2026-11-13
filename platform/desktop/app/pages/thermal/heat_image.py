@@ -1,13 +1,12 @@
 """The thermal image and its colour bar (the mockup's paintThermal and th-scale).
 
-Colours come from logic.heat_color, looked up once into a 256-entry table. Each
+Colours are the mockup's thermal ramp (gray to white to red), looked up once into a 256-entry table. Each
 new frame builds one small QImage and one scaled pixmap; paintEvent only blits
 it, so playing frames costs about a millisecond (see the timing test).
 """
 
 from __future__ import annotations
 
-from app.data import logic
 from app.pages.thermal import stats
 from app.theme import tokens as T
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
@@ -27,11 +26,27 @@ _LUT: list[tuple[int, int, int]] | None = None
 _LUT_BYTES: list[bytes] | None = None
 
 
+# The mockup's thermal stops, coldest first: gray to white, then red for the hottest.
+STOPS = (
+    "#0b0b0b", "#1f1f1f", "#383838", "#565656", "#7a7a7a",
+    "#a3a3a3", "#cfcfcf", "#f2f2f2", "#ff8a6a", T.RED,
+)
+
+
+def _ramp(i: int) -> tuple[int, int, int]:
+    """The mockup's LUT: stop colours blended linearly, i in 0..255."""
+    stops = [tuple(int(h[k : k + 2], 16) for k in (1, 3, 5)) for h in STOPS]
+    t = i / 255 * (len(stops) - 1)
+    k = min(len(stops) - 2, int(t))
+    f = t - k
+    return tuple(round(a + (b - a) * f) for a, b in zip(stops[k], stops[k + 1], strict=True))
+
+
 def lut() -> list[tuple[int, int, int]]:
-    """logic.heat_color sampled at 256 steps."""
+    """The thermal ramp sampled at 256 steps."""
     global _LUT, _LUT_BYTES
     if _LUT is None:
-        _LUT = [tuple(int(c) for c in logic.heat_color(i / 255)) for i in range(256)]
+        _LUT = [_ramp(i) for i in range(256)]
         # Format_RGB32 is 0xffRRGGBB, stored little endian: B, G, R, 0xff.
         _LUT_BYTES = [bytes((b, g, r, 255)) for r, g, b in _LUT]
     return _LUT
