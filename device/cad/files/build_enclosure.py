@@ -3,7 +3,7 @@
 Builds two components in a new Fusion design, following docs/mockup.svg and
 docs/research/physical-design.md:
 
-  Sensor Head    30 x 35 x 21.5 mm block. Magnet pocket flush in the base. The
+  Sensor Head    29 x 33.5 x 21.5 mm block. Magnet pocket flush in the base. The
                  MPU-9250/6500 breakout stands upright in a printed IMU cradle,
                  with its 10-pin header at the top and the jumper plugs lying
                  flat toward the cable slot in the +X end wall.
@@ -52,15 +52,16 @@ def plug_depth():
 
 # ---------------------------------------------------------------- parameters
 HEAD = dict(
-    length=31.0, width=35.0, height=21.5,  # outer size (cavity 26 x 30)
+    # smallest head that holds the board below plus its jumper plugs
+    length=29.0, width=33.5, height=21.5,  # outer size (cavity 24 x 28.5)
     wall=2.5,
     floor=4.5,                             # solid floor (magnet pocket below it)
     corner_r=2.0,
     magnet_d=12.2, magnet_depth=3.0,       # pocket for a 12 x 3 mm disc magnet
-    # MPU-9250/6500 breakout from your photo: 10-pin header along a long edge,
-    # header plastic and long pins on the back. Size UNVERIFIED (listing
-    # 26.16 x 15.57; your photo matches that shape): measure it.
-    board=(26.2, 15.6), board_t=1.6,       # long edge (along Y), short edge (up)
+    # MPU-9250/6500 breakout: 10-pin header along a long edge, header plastic
+    # and pins on the back. Measured by you: 25 x 15 mm, 10 mm thick with the
+    # header (board 1.6 + header plastic 2.5 + pins).
+    board=(25.0, 15.0), board_t=1.6,       # long edge (along Y), short edge (up)
     # the board stands upright in the cradle, chip side toward -X, header at
     # the TOP edge so the plugs point toward the cable slot in the +X wall
     chip_gap=3.0,                          # chip-side parts and header solder tails
@@ -84,9 +85,12 @@ BODY = dict(
     # SCAN button: 12 x 12 mm tactile switch (from you) with a round cap.
     # UNVERIFIED: cap 12 mm across; sw_total = bottom of the switch body to the
     # top of the cap. Wires are soldered to its 4 legs.
-    button_cy=64.0, sw_body=12.0, sw_body_h=3.5, sw_total=12.5, cap_d=12.0,
+    # button_cy 62 (was 64): the bigger snap lips need room for the fingers to
+    # bend out without touching the screen tray's hook
+    button_cy=62.0, sw_body=12.0, sw_body_h=3.5, sw_total=12.5, cap_d=12.0,
     cap_clear=0.4, cap_proud=1.5,
-    sleeve_clear=0.15, sleeve_t=1.5, sw_finger_w=6.0, sw_finger_t=1.2, sw_lip=0.6,
+    # sw_lip 1.8 (was 0.6): the ridge that holds the switch, 3x bigger
+    sleeve_clear=0.15, sleeve_t=1.5, sw_finger_w=6.0, sw_finger_t=1.2, sw_lip=1.8,
     dock_cy=30.0, dock_depth=6.0,          # head dock pocket (head + 1 mm)
     disc_d=20.1, disc_depth=2.0, disc_skin=1.0,
     # M3 screw bosses: top corners, and beside the USB gap above the bank
@@ -136,8 +140,10 @@ BODY = dict(
 SCREEN = dict(
     tray=(76.0, 50.0), tray_h=8.0,         # fixed outside, centred on the window
     plate_t=1.2, lip=1.5, min_wall=1.0,
-    # UNVERIFIED: 70 x 42 mm estimated from your photo's proportions; measure it.
-    pcb=(70.0, 42.0), module_t=4.0,        # PCB; glass face to PCB back
+    # Measured by you: 72 x 43 mm, 13 mm thick with the header pins.
+    # UNVERIFIED: module_t (glass face to PCB back, without the header) 4.5 mm
+    # is an estimate from that 13 mm; the rest is header plastic and pins.
+    pcb=(72.0, 43.0), module_t=4.5,        # PCB; glass face to PCB back
     active=(55.01, 27.49),
     # active-area centre minus PCB centre, header end at +X. UNVERIFIED: from
     # your photo the glass sits about 2.35 mm off centre, away from the wide strip.
@@ -373,7 +379,9 @@ def add_head_extras(comp):
     b.zbox(g['xb0'], -yb, g['xb1'], yb, g['zb0'], top, 'cut', cr)
     b.zbox(g['x0'] - 1.0, -yr, g['xb0'] + 0.1, yr, g['zb0'], top, 'cut', cr)
     b.zbox(g['xb1'] - 0.1, -yr, g['xc1'] + 1.0, yr, g['zb0'], top, 'cut', cr)
-    b.zbox(g['xb1'] - 0.1, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
+    # header band left open front and back: the 10-pin header runs almost the
+    # full length of the board, so its solder tails and plugs reach the ends
+    b.zbox(g['x0'] - 1.0, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
            g['zb1'] - H['header_band'], top, 'cut', cr)
 
 
@@ -725,7 +733,7 @@ def dummies():
         oled=tbox(sg['pcx'] - S['pcb'][0] / 2, sg['pcy'] - S['pcb'][1] / 2, sg['zback'],
                   sg['pcx'] + S['pcb'][0] / 2, sg['pcy'] + S['pcb'][1] / 2, sg['zp']),
         oled_plugs=tbox(sg['hdr_x'] - 1.3, sg['pcy'] - S['header_len'] / 2,
-                        sg['zback'] - hp - hs, sg['hdr_x'] + 1.3,
+                        sg['zback'] - plug_depth(), sg['hdr_x'] + 1.3,
                         sg['pcy'] + S['header_len'] / 2, sg['zback']),
         cam=tbox(B['cam_cx'] - cw / 2, cam_back, B['cam_cz'] - chh / 2,
                  B['cam_cx'] + cw / 2, cam_back + ct, B['cam_cz'] + chh / 2),
@@ -747,6 +755,15 @@ def dummies():
         imu=tbox(hg['xf'], -hg['bl'] / 2, hg['zb0'], hg['xbk'], hg['bl'] / 2, hg['zb1']),
         imu_tails=tbox(hg['xf'] - 2.5, -11.8, hg['zb1'] - 2.54, hg['xf'], 11.8, hg['zb1']),
         imu_plugs=tbox(hg['xbk'], -12.7, hg['zb1'] - 2.54, hg['plug_x1'], 12.7, hg['zb1']),
+        # room each snap finger needs to bend out while the switch goes in
+        finger_flex_lo=tbox(kg['cx'] - B['sw_finger_w'] / 2,
+                            kg['cy'] - kg['half'] - B['sw_finger_t'] - B['sw_lip'],
+                            kg['z_base'] - 1.0, kg['cx'] + B['sw_finger_w'] / 2,
+                            kg['cy'] - kg['half'] - B['sw_finger_t'] - 0.05, kg['zi']),
+        finger_flex_hi=tbox(kg['cx'] - B['sw_finger_w'] / 2,
+                            kg['cy'] + kg['half'] + B['sw_finger_t'] + 0.05,
+                            kg['z_base'] - 1.0, kg['cx'] + B['sw_finger_w'] / 2,
+                            kg['cy'] + kg['half'] + B['sw_finger_t'] + B['sw_lip'], kg['zi']),
     )
 
 
@@ -762,7 +779,7 @@ def run_checks(head_comp, body_comp):
     for name in ('oled', 'oled_plugs', 'cam_plugs', 'mic_plugs_l', 'mic_plugs_r', 'switch',
                  'switch_legs_l', 'switch_legs_r', 'cap', 'uno_hdr_left', 'uno_hdr_right',
                  'jspi', 'jctl',
-                 'qwiic', 'usb_plug', 'cam'):
+                 'qwiic', 'usb_plug', 'cam', 'finger_flex_lo', 'finger_flex_hi'):
         for pn, pb in printed:
             pairs.append((name, d[name], pn, pb))
     pairs += [('bank', d['bank'], 'front lid', lid), ('bank', d['bank'], 'screen tray', tray)]
