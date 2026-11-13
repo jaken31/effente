@@ -377,6 +377,22 @@ def test_the_laptop_command_runs_on_the_committed_entry_folder():
         assert code in (0, 2) and RT.Model.load(out).d["training_report"]["calibrated"] is True
 
 
+def test_the_measurements_hold_variant_copies_the_manifests_list_into_a_copy():
+    from training.calibration.measure import with_manifest_hold
+    from training.library.load import load_entry
+    manifest, model = load_entry(Path(__file__).resolve().parents[2] / "library" / "entries", "conveyor")
+    held = with_manifest_hold(model, manifest)
+    assert "calibration" not in model and held["calibration"] == {"hold": manifest["calibration"]["hold"]}
+    t, X = seconds(300, seed=23, start=8 * 3600.0, vib=0.3)
+    X[:, F.INDEX["imu_temp_c"]] = 30 + np.random.default_rng(1).normal(0, 0.05, len(t))
+    X[:, F.INDEX["time_hour_sin"]] = np.sin(2 * np.pi * t / 86400)
+    _, plain = C.calibrate(model, t, X, NAMES)
+    _, with_hold = C.calibrate(held, t, X, NAMES)
+    assert plain["readings_held"] == [] and "imu_temp_c" not in plain["readings_missing"]
+    assert {"imu_temp_c", "time_hour_sin"} <= set(with_hold["readings_held"])
+    assert all(c.startswith(("time_", "trend_")) or c == "imu_temp_c" for c in with_hold["readings_held"])
+
+
 # ----------------------------------------------------------------- the fit check
 
 def test_fit_check_passes_the_entrys_type_and_fails_another_type():

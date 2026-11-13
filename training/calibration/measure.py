@@ -26,6 +26,9 @@ What it does:
               300 s calibration: alarm or not, seconds to the alarm, what it was called. With
               --classifier, also what it is called when a fault classifier is fitted during
               calibration (calibrate does that only for an entry that carries one).
+  section 4   with --watch-hours only: a 300 s calibration at --start-hour, then a long watch of
+              simulated conveyors: alarm seconds by clock hour and the reading that moved most in
+              each. --hold-from-manifest adds the variant with the manifest's hold list in force.
 """
 
 from __future__ import annotations
@@ -82,7 +85,7 @@ def session(kind, seed, start, seconds, settings, faults=(), cache=None, sensors
         from effente.simulate_conveyor import ConveyorSim, Fault
         from effente.simulate_server import ServerRackSim
         from effente.site_noise import SiteNoise
-        days = int(start // DAY) + 1
+        days = int((start + seconds) // DAY) + 1  # a session may run past midnight
         fl = [Fault(k, start + a, days * DAY + DAY, f"{k} (simulated)", s) for k, a, s in faults]
         if kind == "conveyor":
             sim = ConveyorSim(days=days, seed=seed, faults=fl, start_s=start, end_s=start + seconds, realistic=True,
@@ -155,6 +158,42 @@ def share(d, t, X):
             "alarm_s_led_by_a_slow_reading": sum(n for k, n in moved.items() if slow_reading(k))}
 
 
+def with_manifest_hold(model: dict, manifest: dict) -> dict:
+    """A copy of an entry's model file carrying the manifest's calibration.hold list, so calibrate's
+    model-carried hold runs. For measuring only: the library keeps hold in the manifest, and
+    calibrate does not read the manifest."""
+    hold = list((manifest.get("calibration") or {}).get("hold") or [])
+    return dict(model, calibration={"hold": hold})
+
+
+def day_watch(d, t, X, t_zero):
+    """The Watcher over a long stretch: alarm seconds by clock hour, what they were called, and which
+    reading moved most in each alarm second. Clock hours count from Monday 00:00 (the simulators' zero)."""
+    w = RT.Watcher(RT.Model(d))
+    judged = alarm = 0
+    by_hour, names, moved, last = Counter(), Counter(), Counter(), None
+    for ti, x in zip(t, X):
+        r = w.predict_at(float(ti), x)
+        if r.get("minute") is None or r.get("minute") == last:
+            continue
+        last = r["minute"]
+        if r["diagnosis"] in ("warming_up", "stopped"):
+            continue
+        judged += 1
+        if r["diagnosis"] not in QUIET:
+            alarm += 1
+            by_hour[int(float(r["minute"]) // H) % 24] += 1
+            names[r["diagnosis"]] += 1
+            if r.get("features"):
+                moved[max(r["features"], key=lambda k: abs(r["features"][k]))] += 1
+    clock = sum(n for k, n in moved.items() if k.startswith("time_") or k == "imu_temp_c")
+    trend = sum(n for k, n in moved.items() if k.startswith("trend_"))
+    return {"judged_s": judged, "alarm_s": alarm, "alarm_share": round(alarm / max(judged, 1), 4),
+            "alarm_s_by_clock_hour": {f"{h:02d}": by_hour[h] for h in sorted(by_hour)},
+            "named": dict(names.most_common(4)), "moved_most": dict(moved.most_common(6)),
+            "alarm_s_led_by_clock_or_imu_temperature": clock, "alarm_s_led_by_a_trend": trend}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--entry", action="append", required=True, help="library entry folder; repeat for more")
@@ -167,13 +206,19 @@ def main(argv=None) -> int:
     ap.add_argument("--threshold-floor-share", type=float,
                     help="calibrate's threshold_floor_share (default: calibrate's own default)")
     ap.add_argument("--faults-only", action="store_true", help="section 3 only")
+    ap.add_argument("--watch-hours", type=float,
+                    help="section 4 only: calibrate on 300 s from --start-hour, then watch this many hours")
+    ap.add_argument("--start-hour", type=float, default=8.0, help="section 4: clock hour (Monday) the session starts")
+    ap.add_argument("--watch-machines", type=int, default=2, help="section 4: how many of the simulated conveyors")
+    ap.add_argument("--hold-from-manifest", action="store_true",
+                    help="section 4: also the variant with the manifest's calibration.hold copied into the model")
     ap.add_argument("--quick", action="store_true", help="one conveyor, one server rack, section 1 only")
     a = ap.parse_args(argv)
     global FLOOR_SHARE
     FLOOR_SHARE = a.threshold_floor_share
     t_start = time.time()
     machines = {k: MACHINES[k] for k in list(MACHINES)[1:2] + list(MACHINES)[5:6]} if a.quick else MACHINES
-    if a.faults_only:
+    if a.faults_only or a.watch_hours:
         machines = {}
     get = lambda kind, seed, start, seconds, settings, faults=(): session(
         kind, seed, start, seconds, settings, faults, cache=a.cache, sensors=a.sensors)
@@ -191,7 +236,7 @@ def main(argv=None) -> int:
            "calibrated_300s": [], "lengths": [], "faults": []}
 
     print(f"threshold_floor_share: {out['threshold_floor_share']}")
-    if not a.faults_only:
+    if not a.faults_only and not a.watch_hours:
         print(f"SIMULATED, sensors: {a.sensors}. 1. Calibrated on the first 300 s, then {WATCH_S} s of normal running.")
         print("   ratio = fit check (pass = no gross mismatch found, not proof of machine type); alarm = share of seconds alarming in the first 300 s / all 2400 s after calibration;")
         print("   alone = the same for a model trained on the same 300 s alone")
@@ -221,7 +266,7 @@ def main(argv=None) -> int:
               f"the floor (threshold_floor_share x the entry's threshold) was")
         out["threshold_fitted_used"] = {"used": above, "of": len(rows)}
 
-    if not a.quick and not a.faults_only:
+    if not a.quick and not a.faults_only and not a.watch_hours:
         print(f"\nSIMULATED, sensors: {a.sensors}. 2. Share of the {WATCH_S} s after calibration that alarm, "
               f"by calibration length")
         print(f"   {'':40s} " + " ".join(f"{str(n) + ' s':>7s}" for n in LENGTHS))
@@ -239,7 +284,7 @@ def main(argv=None) -> int:
                     cells.append(f"{row['alarm_share']:7.3f}")
                 print(f"   {mname:40s} " + " ".join(cells))
 
-    if not a.quick:
+    if not a.quick and not a.watch_hours:
         kind, seed, start, settings = FAULT_MACHINE
         print(f"\nSIMULATED, sensors: {a.sensors}. 3. Faults on 'conveyor, seed {seed}': calibrated on the first "
               f"{FAULT_CALIB_S} s, fault on from {FAULT_ONSET_S} s to the end ({FAULT_SESSION_S} s)")
@@ -267,6 +312,31 @@ def main(argv=None) -> int:
                     print(f"   {'':10s} with a fault classifier fitted during calibration: "
                           f"named {row['named_with_a_classifier_fitted_here']}")
                 out["faults"].append(row)
+
+    if a.watch_hours:
+        start, watch_s = a.start_hour * H, a.watch_hours * H
+        conveyors = [(k, v) for k, v in MACHINES.items() if v[0] == "conveyor"][1:1 + a.watch_machines]
+        out["day_watch"] = []
+        print(f"\nSIMULATED, sensors: {a.sensors}. 4. Calibrated on 300 s from {a.start_hour:g}:00 on Monday, then "
+              f"watched for {a.watch_hours:g} h. Alarm share is of the seconds the machine ran (06:00 to 22:00).")
+        for ename, (d, manifest) in entries.items():
+            variants = [("as merged", d)]
+            if a.hold_from_manifest:
+                variants.append(("with the manifest's hold", with_manifest_hold(d, manifest)))
+            for mname, (kind, seed, _, settings) in conveyors:
+                t, X = get(kind, seed, start, 300 + watch_s, settings)
+                sel = t < t[0] + 300
+                for vname, model in variants:
+                    cal, v = run_calibrate(model, manifest, t[sel], X[sel])
+                    row = {"entry": ename, "machine": mname, "variant": vname, **v, **day_watch(cal, t[~sel], X[~sel], t[0])}
+                    out["day_watch"].append(row)
+                    print(f" entry {ename}, {mname}, {vname}: threshold {v['threshold']:.2f}")
+                    print(f"   alarm share {row['alarm_share']:.4f} ({row['alarm_s']} of {row['judged_s']} s)")
+                    print(f"   alarm seconds by clock hour: {row['alarm_s_by_clock_hour']}")
+                    print(f"   named: {row['named']}")
+                    print(f"   reading that moved most, per alarm second: {row['moved_most']}")
+                    print(f"   led by the clock or the IMU temperature: {row['alarm_s_led_by_clock_or_imu_temperature']} s; "
+                          f"led by a trend: {row['alarm_s_led_by_a_trend']} s")
 
     out["seconds"] = round(time.time() - t_start, 1)
     if a.out:
