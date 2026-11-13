@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -148,8 +148,6 @@ class LivePage(QWidget):
         grid.addWidget(self.events_panel, 4, 0, 1, 7)
 
         self.controls_panel = Panel("Controls", "", content, padded=True)
-        # Panel centres a title that has no hint; a stretch keeps it on the left.
-        self.controls_panel.header_end.addStretch(1)
         self.controls = ControlsBody(self.controls_panel)
         self.controls.sensitivity_wanted.connect(self._set_sensitivity)
         self.controls.run_agent.connect(self._run_agent)
@@ -165,6 +163,12 @@ class LivePage(QWidget):
             pol.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
             panel.setSizePolicy(pol)
         grid.setRowStretch(5, 1)
+
+    def minimumSizeHint(self) -> QSize:
+        # The shell's scroll area squeezes a page to its minimum height; this page
+        # scrolls instead, so its minimum height is its natural height.
+        hint = super().minimumSizeHint()
+        return QSize(hint.width(), max(hint.height(), self.sizeHint().height()))
 
     # ---- binding --------------------------------------------------------------
 

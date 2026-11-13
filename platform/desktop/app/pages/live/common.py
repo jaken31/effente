@@ -26,8 +26,6 @@ KIND_COLORS = {
     "fault": t.WARN,
 }
 
-EVIDENCE_SPREADS = 6.0  # contract section 2: 6 spreads or more counts as evidence
-
 
 def diagnosis_color(diagnosis) -> str:
     return KIND_COLORS.get(logic.diagnosis_kind(diagnosis), t.MUTED)
@@ -79,7 +77,7 @@ def top_feature(record) -> tuple[str, float] | None:
 
 def evidence_count(record) -> int:
     feats = (record or {}).get("features") or {}
-    return sum(1 for v in feats.values() if isinstance(v, (int, float)) and abs(v) >= EVIDENCE_SPREADS)
+    return sum(1 for v in feats.values() if logic.is_evidence(v))
 
 
 def fault_group(model, diagnosis) -> str:
