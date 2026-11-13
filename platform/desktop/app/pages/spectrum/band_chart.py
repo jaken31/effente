@@ -61,10 +61,11 @@ class BandChart(QWidget):
 
     # ---- data -------------------------------------------------------------
 
-    def set_record(self, record: dict | None, model: dict | None = None) -> None:
+    def set_record(self, record: dict | None, model: dict | None) -> None:
+        """Show `record`'s spectrum on `model`'s band edges. A None model clears the
+        edges, so a machine without one never shows another machine's Hz labels."""
         self._spectrum = maths.spectrum_of(record)
-        if model is not None or self._edges is None:
-            self._edges = maths.edges_of(model)
+        self._edges = maths.edges_of(model)
         self.update()
         if self._hover >= 0:
             self.hovered.emit(self._hover)

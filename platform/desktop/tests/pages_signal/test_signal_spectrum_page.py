@@ -81,3 +81,13 @@ def test_band_chart_alone_for_the_live_page(qtbot):
     chart.set_record(None, None)
     chart.resize(600, 300)
     chart.grab()  # paints the "no spectrum" state without error
+
+
+def test_band_edges_clear_for_a_machine_without_a_model(qtbot):
+    st = state()
+    chart = BandChart(hover=False)
+    qtbot.addWidget(chart)
+    chart.set_record(st.latest(), st.model())
+    assert chart.edges() is not None
+    chart.set_record(st.latest(), None)  # e.g. a historical machine with no device assigned now
+    assert chart.edges() is None  # no Hz labels left over from the previous machine's model
