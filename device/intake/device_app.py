@@ -35,6 +35,7 @@ from effente import features as F
 from effente import early_warning as EW
 from effente import safety as SF
 from effente.history import History
+from effente.model_input import load_columns
 from effente.model_runtime import Model, Watcher
 from effente.trainer import load_for_training, train_model
 from device.intake import contract as C
@@ -231,6 +232,13 @@ class DeviceApp:
                 self.train_stage, self.train_share = stage, share
 
             d, report = train_model(t, X, names, period=period, source=str(self.recording), progress=progress)
+            try:  # the more_impacts check's levels, from the recording's one-a-second rows (an addition)
+                ts, cols = load_columns(self.recording, SF.SPIKE_FEATURES + ("trend_running",))
+                spikes = SF.learn_spike_levels(ts, cols, ~(cols["trend_running"] < 0.5))
+                if spikes:
+                    d["baseline"]["spikes"] = spikes
+            except Exception as e:  # noqa: BLE001  watching works without it
+                self._event("spike_levels_off", {"reason": str(e)[:200]})
             models = self.dir / "models"
             models.mkdir(exist_ok=True)
             path = models / f"{self.recording.name}.json"

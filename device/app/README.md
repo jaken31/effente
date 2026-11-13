@@ -30,6 +30,7 @@ The device answers two things only: is something wrong, and what. There are no s
   - 5 or more sudden jolts in 10 minutes
 - **After training, against this machine's own normal** (the highest while learning): vibration at 2× normal, 15 °C or 6 dB over normal, and the learned model's line. No one has to say what kind of machine it is.
   - Each reading is judged on its median over the period the normal was learned from (a minute after a long recording), so like is compared with like. A passing forklift's reversing beeper (15 s, far over normal) no longer counts; a lasting change shows after about 40 seconds. Models trained before this get their own period.
+- **More impacts than normal** (after training on an hour or more): more seconds of impulsive sound (2–7 kHz) or impulsive vibration in the last 30 minutes than twice the most seen while learning. It shows as `KNOCKING OR JOLTS`, and catches repeating knocks too short for the model (simulated conveyor only, unverified on a real machine).
 - Each check must hold for 10 seconds before it shows, so a bump doesn't count.
 - **Notes after training:** the screen shows notes for 2 minutes after training (status keeps them) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
 

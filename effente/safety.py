@@ -46,6 +46,13 @@ halves or doubles how far outside normal counts as wrong, so 1 flags a departure
 and 0 needs one four times as big. It changes only the outside-normal checks and the model, never
 the universal limits.
 
+More impacts than normal (more_impacts, an addition of 14 Nov, system C of the conveyor search): the seconds in
+the last SPIKE_WINDOW_S with an impulsiveness reading (SPIKE_FEATURES: 2-7 kHz sound, vibration kurtosis) over its
+99.9th percentile while learning, against SPIKE_FACTOR x the most any such window had while learning. It catches
+repeating knocks too short or too sparse for the minute model (on the simulated conveyor: splice damage, looseness).
+Its levels are learned from the recording's one-a-second rows (learn_spike_levels) and kept in the baseline
+("spikes"); a baseline without them has no such check. Sensitivity doesn't change it.
+
 A check counts once it has held for most of HOLD_S (80 % of the rows) and clears once it has mostly
 stopped (20 %), so a bump, a door slam or one odd reading never shows.
 
@@ -108,10 +115,16 @@ VIB_FLOOR = {"vib_velocity_mm_s": 0.3, "vib_total_g": 0.015}
 LEVELS = ("vib_velocity_mm_s", "vib_total_g", "imu_temp_c", "th_max_c", "snd_level_db")
 COVER_SHARE = 0.5  # judged once the values in the window span this share of the period
 
+# More impacts than normal: seconds over the learned 99.9th percentile in the last 30 minutes, against 2x the most
+# while learning (system C, simulated conveyor only: unverified on a real machine).
+SPIKE_FEATURES = ("snd_kurt_hf", "vib_kurtosis")
+SPIKE_Q, SPIKE_WINDOW_S, SPIKE_FACTOR = 99.9, 1800.0, 2.0
+
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
-CHECKS = SENSOR + UNIVERSAL + RELATIVE
+RATES = ("more_impacts",)
+CHECKS = SENSOR + UNIVERSAL + RELATIVE + RATES
 # Old names of checks, as older saved models still list them in their baseline's "dropped".
 # "vibration_too_high" is now only a model fault type (effente.fault_types).
 RENAMED = {"vibration_too_high": "vibration_over_limit"}
@@ -129,6 +142,7 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "vibration_above_normal": ("vibrating well beyond its normal", "VIB OVER NORMAL", "VIB {v:.1f}x NORMAL"),
     "hotter_than_normal": ("hotter than its normal", "HOTTER THAN NORMAL", "{v:+.0f} C OVER NORMAL"),
     "louder_than_normal": ("louder than its normal", "LOUDER THAN NORMAL", "{v:+.0f} dB OVER NORMAL"),
+    "more_impacts": ("more knocks or clicks than its normal", "MORE IMPACTS", None),
 }
 
 # What each check means for people, in the same words as the model's fault types (effente.fault_types
@@ -136,7 +150,8 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
 SYMPTOM = {"sensor_problem": "sensor_problem", "vibration_over_limit": "vibration_too_high",
            "knocking": "knocking_or_jolts", "too_hot": "too_hot", "heating_fast": "heating_fast",
            "repeated_jolts": "knocking_or_jolts", "vibration_above_normal": "vibration_too_high",
-           "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal"}
+           "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal",
+           "more_impacts": "knocking_or_jolts"}
 
 _NAN = float("nan")
 
@@ -242,7 +257,9 @@ class Safety:
         p = (baseline or {}).get("period_s")
         self.period_s = float(p) if p and float(p) > 1.0 else None  # None: judged a row at a time
         self.recent: dict[str, deque] = {n: deque() for n in LEVELS}  # (t, value) over the last period
-        for n in RELATIVE + tuple(self.dropped):
+        self.spikes = (baseline or {}).get("spikes") or None
+        self.spike_secs: dict[str, deque] = {n: deque() for n in SPIKE_FEATURES}  # whole seconds over the level
+        for n in RELATIVE + RATES + tuple(self.dropped):
             self.hist[n].clear()
             self.active.pop(n, None)
 
@@ -268,6 +285,24 @@ class Safety:
                 out[name] = _NAN
         return out
 
+    def _impacts(self, t0: float, x) -> tuple[bool, float]:
+        """(more impacts than normal, the highest count over its limit). One count per whole second, so the row
+        rate doesn't matter; running rows only (trend_running NaN counts as running)."""
+        sec, over, ratio = math.floor(t0 + 1e-6), False, 0.0
+        running = not (x[F.INDEX["trend_running"]] < 0.5)
+        window = float(self.spikes.get("window_s", SPIKE_WINDOW_S))
+        factor = float(self.spikes.get("factor", SPIKE_FACTOR))
+        for name, lv in self.spikes.get("features", {}).items():
+            d, v = self.spike_secs.setdefault(name, deque()), _f(x, name)
+            if running and math.isfinite(v) and v > lv["level"] and (not d or d[-1] != sec):
+                d.append(sec)
+            while d and d[0] <= t0 - window:
+                d.popleft()
+            limit = factor * max(float(lv["count"]), 1.0)
+            over |= len(d) > limit
+            ratio = max(ratio, len(d) / limit)
+        return over, ratio
+
     def _imu_rise(self, t0: float, temp: float) -> float:
         """IMU temperature rise over the last minute, in degC a minute (NaN for the first minute)."""
         if not math.isfinite(temp):
@@ -285,6 +320,8 @@ class Safety:
         m.update({k: v for k, v in _universal(r, self._imu_rise(t0, r["imu_temp_c"])).items() if k not in self.dropped})
         if self.levels:
             m.update(_relative(self._medians(t0, r), self.levels, self.margins))
+        if self.spikes:
+            m["more_impacts"] = self._impacts(t0, x)
         return m
 
     def update(self, t0: float, x) -> tuple[list[dict], list[str]]:
@@ -395,6 +432,34 @@ def learn_baseline(X, names, running=None, period_s=None) -> dict:
             "note": "levels are the 99th percentile while learning, of medians over period_s; readings are "
                     "judged on their median over the same period; how far outside counts as wrong is "
                     "effente.safety.OUTSIDE_NORMAL (starting values)"}
+
+
+def learn_spike_levels(t, values: dict, running) -> dict | None:
+    """The more_impacts check's levels from one-a-second rows (t in seconds, values {feature: array}, running per
+    row): per SPIKE_FEATURES reading its SPIKE_Q percentile while running, and the most seconds over it in any
+    SPIKE_WINDOW_S. None if under an hour of running seconds (too few to say what is rare)."""
+    t = np.asarray(t, float)
+    run = np.asarray(running, bool)
+    order = np.argsort(t, kind="stable")
+    t, run = t[order], run[order]
+    feats = {}
+    for name in SPIKE_FEATURES:
+        if name not in values:
+            continue
+        v = np.asarray(values[name], float)[order]
+        ok = run & np.isfinite(v)
+        if ok.sum() < 3600:
+            continue
+        level = float(np.percentile(v[ok], SPIKE_Q))
+        e = ok & (v > level)
+        cs = np.r_[0, np.cumsum(e)]
+        count = int((cs[1:] - cs[np.searchsorted(t, t - SPIKE_WINDOW_S, "right")]).max())
+        feats[name] = {"level": round(level, 4), "count": count}
+    if not feats:
+        return None
+    return {"features": feats, "window_s": SPIKE_WINDOW_S, "factor": SPIKE_FACTOR,
+            "note": f"seconds over the learned p{SPIKE_Q} in the last {SPIKE_WINDOW_S / 60:.0f} min, alert above "
+                    f"{SPIKE_FACTOR:g}x the most while learning"}
 
 
 def baseline_of(model: dict | None) -> dict | None:

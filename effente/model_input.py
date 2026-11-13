@@ -228,6 +228,24 @@ def load_minutes(folder, stats=STATS):
 
 # ----------------------------------------------------------------- training data
 
+def load_columns(folder, columns):
+    """Some columns of a learn-mode folder's one-a-second rows, an hour file at a time (so a week of them fits in
+    memory): (t0, {column: values}); a column the files don't have comes back all NaN."""
+    files = sorted(((int(m.group(1)), p) for p in (Path(folder) / "features").glob("features_*.npz")
+                    if (m := _HOUR_FILE.fullmatch(p.name))))
+    ts, out = [], {c: [] for c in columns}
+    for _, p in files:
+        with np.load(p) as d:
+            names = [str(n) for n in d["feature_names"]]
+            X = d["X"]
+            ts.append(np.asarray(d["t0"], float))
+            for c in columns:
+                out[c].append(np.asarray(X[:, names.index(c)], float) if c in names else np.full(len(X), np.nan))
+    if not ts:
+        raise FileNotFoundError(f"no hour files in {Path(folder) / 'features'}")
+    return np.concatenate(ts), {c: np.concatenate(v) for c, v in out.items()}
+
+
 def load_recording(folder, every_s: float = 1.0):
     """All feature rows of a learn-mode folder: (X float32, t0, names). Checks every hour file
     was made with the same features; thinned hours simply have fewer rows."""

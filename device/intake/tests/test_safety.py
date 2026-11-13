@@ -141,6 +141,41 @@ def test_baseline_of_gives_older_models_their_period():
     assert b["period_s"] == 60 and SF.learn_baseline(np.array([row()] * 50), F.FEATURE_NAMES)["period_s"] == 1
 
 
+def test_more_impacts_than_normal_is_learned_and_counted_once_a_second():
+    rng = np.random.default_rng(0)
+    n = 4 * 3600  # four hours of one-a-second rows, a rare spike now and then
+    t = np.arange(n, dtype=float)
+    snd = rng.normal(2.0, 1.0, n)
+    snd[rng.choice(n, 5, replace=False)] = 60.0
+    kurt = rng.normal(0.0, 0.3, n)
+    lv = SF.learn_spike_levels(t, {"snd_kurt_hf": snd, "vib_kurtosis": kurt}, np.ones(n, bool))
+    assert set(lv["features"]) == {"snd_kurt_hf", "vib_kurtosis"} and lv["window_s"] == 1800 and lv["factor"] == 2
+    assert lv["features"]["snd_kurt_hf"]["count"] >= 1
+    assert SF.learn_spike_levels(t[:1000], {"snd_kurt_hf": snd[:1000]}, np.ones(1000, bool)) is None  # under an hour
+    base = {"levels": {}, "spikes": lv}
+    limit = 2 * max(lv["features"]["snd_kurt_hf"]["count"], 1)
+
+    def make(spiky):
+        def f(tt):
+            x = row()
+            x[F.INDEX["trend_running"]] = 1
+            x[F.INDEX["snd_kurt_hf"]] = 60.0 if spiky(tt) else 2.0
+            x[F.INDEX["vib_kurtosis"]] = 0.0
+            return x
+        return f
+    s = SF.Safety(base)
+    # as many spike seconds as learning ever had in half an hour: nothing (4 rows a second, counted once a second)
+    started, _ = feed(s, 1800, make=make(lambda tt: int(tt) % 60 == 0 and int(tt) // 60 < limit // 2))
+    assert not started, started
+    # a knock every 20 s for 20 minutes: 60 seconds over, well past the limit
+    started, _ = feed(s, 1200, start=1800, make=make(lambda tt: int(tt) % 20 == 0))
+    assert started == ["more_impacts"], started
+    p = s.problems()[-1]
+    assert p["symptom"] == "knocking_or_jolts" and SF.screen_text(p) == "KNOCKING OR JOLTS"
+    assert "more_impacts" not in [p["name"] for p in SF.Safety({"levels": {}}).problems()]  # no levels: no check
+    assert SF.Safety({"levels": {}}).spikes is None
+
+
 def test_baseline_levels_dropped_limits_and_warnings():
     rng = np.random.default_rng(0)
     steady = np.array([row(vel=1.0 + 0.05 * rng.standard_normal(), imu=45.0) for _ in range(400)])
