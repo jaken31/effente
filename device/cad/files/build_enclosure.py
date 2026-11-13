@@ -166,8 +166,8 @@ SCREEN = dict(
 )
 
 # External power bank holder: a tray stuck to the outside of the right wall
-# with command strips, for an Anker Prime 12,000 mAh (A1335). Size from Anker's
-# spec page: 134.4 x 55 x 34.53 mm (not measured). The bank lies flat with its
+# with command strips, for an Anker Prime 12,000 mAh (A1335). Size measured by
+# you: 135 x 56 x 33 mm (Anker's spec page says 134.4 x 55 x 34.53). The bank lies flat with its
 # display (on the 134 x 55 face, near the USB-C end) facing up, USB-C end at
 # the top of the device so the battery screen sits beside the device's OLED.
 # Covers flush with the device's front face hide the rest of the face (and the
@@ -176,7 +176,7 @@ SCREEN = dict(
 # USB-C cable runs from the bank's port, down under the tray floor, through a
 # window in the back plate and the existing side slot to the UNO Q.
 BANK = dict(
-    size=(134.4, 55.0, 34.53),             # length (Y), width (X), thickness (Z)
+    size=(135.0, 56.0, 33.0),              # length (Y), width (X), thickness (Z), measured
     clear=0.4, wall=2.0, floor_t=2.0,
     strip_gap=2.0,                         # command strip thickness (UNVERIFIED)
     y0=6.0,                                # bank's far end (away from USB-C)
