@@ -24,7 +24,7 @@ def rows(n, period, seed=0):
 def test_long_recordings_use_the_crossfit_line_and_system_cs_settings():
     t, X = rows(2 * TR.MIN_ROWS + 50, 60)
     d, rep = TR.train_model(t, X, list(F.FEATURE_NAMES), period=60, time_limit_s=3)
-    assert rep["line"].startswith("crossfit") and rep["rows_calibration"] == len(t), rep
+    assert rep["rows_learned"] == rep["rows_calibration"] == len(t), rep  # crossfit: all rows, both ways
     assert d["smooth_minutes"] == TR.SMOOTH_LONG == 10
     assert rep["patterns_kept"] > TR.PCA_MAX_K  # no 40-pattern cap
     # the stored threshold is the out-of-sample line x the factor, so sensitivity 0.5 is system C's operating point
@@ -34,11 +34,11 @@ def test_long_recordings_use_the_crossfit_line_and_system_cs_settings():
 def test_short_recordings_keep_the_tail_line():
     t, X = rows(1800, 1)
     d, rep = TR.train_model(t, X, list(F.FEATURE_NAMES), period=1, time_limit_s=3)
-    assert rep["line"].startswith("tail") and "crossfit needs" in rep["line"], rep["line"]
+    assert rep["rows_learned"] + rep["rows_calibration"] == len(t), rep  # tail: the rows split
     assert d["smooth_minutes"] == TR.SMOOTH_SHORT == 5 and rep["patterns_kept"] <= TR.PCA_MAX_K
     t, X = rows(TR.MIN_ROWS + 50, 60)  # 1-minute periods but too few to split
     _, rep = TR.train_model(t, X, list(F.FEATURE_NAMES), period=60, time_limit_s=3)
-    assert rep["line"].startswith("tail"), rep["line"]
+    assert rep["rows_learned"] + rep["rows_calibration"] == len(t), rep
 
 
 if __name__ == "__main__":
