@@ -13,11 +13,19 @@ and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
                            (effente.safety) and, if the entry carries a fault classifier, that
                            too (injected patterns on this machine's own normal variation, as in
                            full training)
-  with the entry as guard  two deliberate floors and one switch-off (refit_prep, calibrate):
-                           - spreads: never below the entry's own spreads
-                           - threshold: never below threshold_floor_share (default 0.25) of the
-                             entry's own threshold
+  with the entry as guard  - spreads: never below the entry's own spreads (refit_prep)
                            - readings this machine did not give while calibrating are not judged
+
+The alarm threshold is this machine's own:
+
+    threshold = threshold_median_multiple x median(held-out smoothed scores)
+
+The held-out scores are the last 15 % of the calibration by time, scored with the calibrated model
+and smoothed as the runtime smooths before it compares with the threshold (the median of the last
+smooth_minutes scores). There is no gamma fit and no floor or ceiling from the entry: the entry's
+own threshold plays no part. The multiple (THRESHOLD_MEDIAN_MULTIPLE = 5.0) is PROVISIONAL and
+simulated only; the measurements behind it are in training/calibration/README.md. Unlike the
+trainer's rule, the threshold can be below the highest held-out score; the report says when.
 
 Only the model file is read, never the manifest. The library's entries (training/library) keep
 their calibration.widen factors and calibration.hold list in manifest.json, so neither is applied
@@ -25,23 +33,12 @@ to them: the entry's spreads are the floor, and the clock, trend and IMU tempera
 fitted and judged like any other. A model file that itself carries a "calibration" key with widen
 or hold is honoured (_entry_settings); no entry on master does.
 
-Why the floors, and what they cost (all SIMULATED, unverified; commands and numbers in
-training/calibration/README.md). A few minutes cannot show how far readings wander in an hour. A
-model fitted to 300 s alone, with no entry behind it, alarmed in 73 to 98 % of the following 40
-minutes of normal running. The library's two entries, calibrated, alarmed in 0 to 0.2 %.
-The threshold floor is the blunt one. In every simulated calibration the threshold fitted from this
-machine was far below the floor, so the floor decided the threshold: the refit itself is inert on
-the simulators, and a calibrated model alarms as high as share x the entry's threshold. How much
-sensitivity that costs depends on the entry's threshold. With the library's conveyor entry
-(threshold 50.84) four of four simulated faults raised an alarm at the default share; with an
-earlier entry (threshold 59.85, no longer in the library) only one of four did.
-The default of 0.25 is a starting value, simulated only, and tied to the entry's threshold: a
-different entry may need a different share. The rule is open and may be replaced.
+Calibration needs 5 minutes of running at the least (min_running_s). Ask for 10.
 
-It follows effente.trainer.train_model step for step and reuses its parts, so a calibrated model
-and one trained on the machine alone differ only in where the network came from: running rows
-only, per-period medians, the last 15 % of the time held out for the threshold (never a random
-split), a gamma fit set for one false alarm a week.
+It follows effente.trainer.train_model's steps and reuses its parts, so a calibrated model
+and one trained on the machine alone differ in where the network came from and in the threshold
+rule: running rows only, per-period medians, the last 15 % of the time held out for the threshold
+(never a random split).
 
     model, report = calibrate(entry_model, t, X, names)
     verdict = fit_check(report, manifest)   # a gross mismatch with the entry, or not
@@ -71,13 +68,12 @@ from effente import safety as SF
 from effente import trainer as TR
 from effente.model_input import MAX_NAN_FRAC, Prep, _transform_raw
 
-MIN_RUNNING_S = 300  # the trainer's minimum (TRD: starting value, 5 minutes of running)
-MIN_ROWS = 60  # below this there are too few held-out rows to fit a threshold at all, whatever min_running_s says
-# The alarm threshold is never set below this share of the entry's own threshold. 1.0: never below the
-# entry's. 0: the threshold fitted to this machine alone. STARTING VALUE, simulated only, and tied to
-# the entry's threshold: another entry may need another share (training/calibration/README.md has
-# the runs, and what 0.25 misses).
-THRESHOLD_FLOOR_SHARE = 0.25
+MIN_RUNNING_S = 300  # the hard minimum (the trainer's 5 minutes). Ask people for 10 minutes: RECOMMENDED_S
+RECOMMENDED_S = 600
+MIN_ROWS = 60  # below this there are too few held-out rows to set a threshold at all, whatever min_running_s says
+# The alarm threshold is this many times the median of this machine's own held-out smoothed scores.
+# PROVISIONAL, simulated only: 5.0 is a placeholder until it is set from measurements.
+THRESHOLD_MEDIAN_MULTIPLE = 5.0
 CALIB_SHARE = 0.15  # the last part of the calibration, held out for the threshold (as the trainer)
 
 # Fit check: ok is False when this machine's median held-out score is more than this many times the
@@ -167,19 +163,20 @@ def refit_prep(entry_prep: Prep, X_fit: np.ndarray, widen=None, held=None) -> tu
 
 
 def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNNING_S, seed: int = 0,
-              threshold_floor_share: float = THRESHOLD_FLOOR_SHARE):
+              threshold_median_multiple: float = THRESHOLD_MEDIAN_MULTIPLE):
     """Fit a library entry's model to this machine from feature rows of it running.
 
     entry_model: the entry's effente-model-1 dict (not changed). t, X, names: one-a-second feature
     rows with their times and feature names, as for effente.trainer.train_model. Returns
     (model file dict, report). Raises ValueError if the entry is not a model this device can run,
-    or the machine ran for less than min_running_s seconds in the rows given.
-    threshold_floor_share: the alarm threshold is never set below this share of the entry's own
-    (THRESHOLD_FLOOR_SHARE; 0 uses the threshold fitted here alone, 1 never goes below the
-    entry's). Any floor costs sensitivity: see the module notes."""
-    if not (isinstance(threshold_floor_share, (int, float)) and math.isfinite(threshold_floor_share)
-            and threshold_floor_share >= 0):
-        raise ValueError("threshold_floor_share must be a number of 0 or more")
+    the machine ran for less than min_running_s seconds in the rows given, or no threshold can be
+    set from the held-out rows (fewer of them than the entry's smoothing window, or a median score
+    that is zero or not a number).
+    threshold_median_multiple: the alarm threshold is this many times the median of the held-out
+    smoothed scores (THRESHOLD_MEDIAN_MULTIPLE, provisional)."""
+    if not (isinstance(threshold_median_multiple, (int, float)) and not isinstance(threshold_median_multiple, bool)
+            and math.isfinite(threshold_median_multiple) and threshold_median_multiple > 0):
+        raise ValueError("threshold_median_multiple must be a number above 0")
     entry = RT.Model(entry_model)  # refuses another format or another feature list
     X = TR.to_current(X, names)
     names = list(F.FEATURE_NAMES)
@@ -199,7 +196,7 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     need = max(float(min_running_s), MIN_ROWS * period)
     if running_s < need:
         raise ValueError(f"too little recorded: {running_s} s of the machine running; "
-                         f"calibration needs at least {math.ceil(need)} s")
+                         f"calibration needs at least {math.ceil(need)} s, and 10 minutes is asked for")
     baseline = SF.learn_baseline(X, names, running=ran)
     cut = t[0] + (t[-1] - t[0]) * (1 - CALIB_SHARE)
     fit, held = t < cut, t >= cut
@@ -216,13 +213,19 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     s, r, Z = model.score(X)
     scale = np.std(r[fit], 0)
     d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
-    # The threshold: fitted to this machine's held-out scores as the trainer does, then kept at or
-    # above threshold_floor_share of the entry's own. A few dozen held-out seconds can show this machine
-    # is noisier than the entry's machines; they cannot show a week of it would be quieter.
-    # (Only a lower bound today. An upper bound would go here too: clip fitted between two shares.)
-    fitted = TR.gamma_threshold(TR._causal_median(s[held], model.smooth), 7 * 86400 / period)
-    lowest = float(threshold_floor_share) * float(entry_model["threshold"])
-    d["threshold"] = max(fitted, lowest)
+    # The threshold: threshold_median_multiple times the median of this machine's own held-out scores,
+    # smoothed as the runtime smooths them before comparing with the threshold (Watcher: the median of
+    # the last `smooth` scores, fewer at the start; effente.trainer._causal_median is the same thing).
+    # No gamma fit, no floor and no ceiling from the entry.
+    if int(held.sum()) < model.smooth:
+        raise ValueError(f"too little recorded: {int(held.sum())} held-out rows, fewer than the entry's smoothing "
+                         f"window of {model.smooth}; calibrate for longer")
+    smoothed = TR._causal_median(s[held], model.smooth)
+    median = float(np.median(smoothed))
+    if not (math.isfinite(median) and median > 0):
+        raise ValueError(f"no threshold can be set: the median held-out score is {median}; check the sensor "
+                         f"and calibrate again")
+    d["threshold"] = float(threshold_median_multiple) * median
     model = RT.Model(d)
 
     # The fault classifier, as in full training (this machine's own normal deviations with the fault-type
@@ -252,8 +255,10 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
               "normal_model": d.get("normal_model", "autoencoder"),
               "period_s": int(period), "running_s": int(running_s),
               "rows_fit": int(fit.sum()), "rows_held_out": int(held.sum()),
-              "threshold": round(d["threshold"], 4), "threshold_fitted_here": round(fitted, 4),
-              "threshold_floor_share": float(threshold_floor_share),
+              "threshold": round(d["threshold"], 4), "held_out_smoothed_median": round(median, 6),
+              "threshold_median_multiple": float(threshold_median_multiple),
+              "held_out_smoothed_max": round(float(np.max(smoothed)), 6),
+              "threshold_below_highest_held_out": bool(d["threshold"] < float(np.max(smoothed))),
               "entry_threshold": round(float(entry_model["threshold"]), 4),
               "score_quantiles_held_out": _quantiles(s[held]), "score_quantiles_fit": _quantiles(s[fit]),
               "score_quantiles_before_calibration": _quantiles(s_before),

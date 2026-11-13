@@ -17,8 +17,9 @@ What it does:
               design; if an entry was built from the same simulator they are not a new design to
               it, only new seeds, loads and rooms. With --sensors device (the default) the rows
               keep only what the device has today: the sound, heat and room readings are missing.
-  section 1   every entry on every machine, calibrated on the first 300 s: the fit check's ratio
-              and verdict, the threshold used and the one fitted from this machine alone, and the share of the 40 minutes of normal running that
+  section 1   every entry on every machine, calibrated on the first --calibration-s seconds (300):
+              the fit check's ratio and verdict, the threshold with the held-out median and
+              highest score behind it, and the share of the 40 minutes of normal running that
               follow in which the device's Watcher alarms (and of the first 5 of them). Beside it,
               a model trained on the same 300 s alone (effente.trainer.train_model).
   section 2   the same alarm share for calibrations of 60 s to 20 minutes.
@@ -68,7 +69,7 @@ MACHINES = {
 }
 FAULT_RUNS = (("unbalance", 1.0), ("unbalance", 0.3), ("looseness", 1.0), ("looseness", 0.3))
 FAULT_MACHINE = ("conveyor", 2, 10 * H, dict(load_scale=1.2, ambient_offset_c=5.0))
-FAULT_CALIB_S, FAULT_ONSET_S, FAULT_SESSION_S = 300, 900, 1800
+FAULT_ONSET_S, FAULT_SESSION_S = 900, 1800
 
 
 def session(kind, seed, start, seconds, settings, faults=(), cache=None, sensors="device"):
@@ -105,16 +106,19 @@ def session(kind, seed, start, seconds, settings, faults=(), cache=None, sensors
     return t, X
 
 
-FLOOR_SHARE = None  # --threshold-floor-share; None leaves calibrate's default
+MULTIPLE = None  # --threshold-median-multiple; None leaves calibrate's default
 
 
 def run_calibrate(model, manifest, t, X, min_running_s=300):
     """Calibrate and fit-check: (calibrated model, {"ratio", "ok", "threshold", ...})."""
-    extra = {} if FLOOR_SHARE is None else {"threshold_floor_share": FLOOR_SHARE}
+    extra = {} if MULTIPLE is None else {"threshold_median_multiple": MULTIPLE}
     cal, rep = calibrate(model, t, X, NAMES, min_running_s=min_running_s, **extra)
     v = fit_check(rep, manifest)
     return cal, {"ratio": round(v["ratio"], 3), "ok": v["ok"], "threshold": rep["threshold"],
-                 "threshold_fitted_here": rep["threshold_fitted_here"], "entry_threshold": rep["entry_threshold"]}
+                 "held_out_smoothed_median": rep["held_out_smoothed_median"],
+                 "held_out_smoothed_max": rep["held_out_smoothed_max"],
+                 "threshold_below_highest_held_out": rep["threshold_below_highest_held_out"],
+                 "entry_threshold": rep["entry_threshold"]}
 
 
 def watch(d, t, X):
@@ -203,8 +207,10 @@ def main(argv=None) -> int:
     ap.add_argument("--cache", help="folder to keep the simulated rows in between runs")
     ap.add_argument("--classifier", action="store_true",
                     help="section 3: also name the faults with a fault classifier fitted during calibration")
-    ap.add_argument("--threshold-floor-share", type=float,
-                    help="calibrate's threshold_floor_share (default: calibrate's own default)")
+    ap.add_argument("--threshold-median-multiple", type=float,
+                    help="calibrate's threshold_median_multiple (default: calibrate's own default)")
+    ap.add_argument("--calibration-s", type=int, default=300,
+                    help="sections 1 and 3: seconds of calibration (default 300, the minimum; 600 is what people are asked for)")
     ap.add_argument("--faults-only", action="store_true", help="section 3 only")
     ap.add_argument("--watch-hours", type=float,
                     help="section 4 only: calibrate on 300 s from --start-hour, then watch this many hours")
@@ -214,8 +220,11 @@ def main(argv=None) -> int:
                     help="section 4: also the variant with the manifest's calibration.hold copied into the model")
     ap.add_argument("--quick", action="store_true", help="one conveyor, one server rack, section 1 only")
     a = ap.parse_args(argv)
-    global FLOOR_SHARE
-    FLOOR_SHARE = a.threshold_floor_share
+    global MULTIPLE
+    MULTIPLE = a.threshold_median_multiple
+    cs = a.calibration_s
+    if not 60 <= cs < FAULT_ONSET_S:
+        ap.error(f"--calibration-s must be from 60 to {FAULT_ONSET_S - 1}")
     t_start = time.time()
     machines = {k: MACHINES[k] for k in list(MACHINES)[1:2] + list(MACHINES)[5:6]} if a.quick else MACHINES
     if a.faults_only or a.watch_hours:
@@ -232,39 +241,39 @@ def main(argv=None) -> int:
         entries[name] = (json.loads((folder / "model.json").read_text()), manifest)
     out = {"label": "simulated (effente.simulate_conveyor, effente.simulate_server, effente.site_noise); "
                     "unverified on real machines", "sensors": a.sensors, "entries": list(entries),
-           "threshold_floor_share": "default" if FLOOR_SHARE is None else FLOOR_SHARE,
+           "threshold_median_multiple": "default" if MULTIPLE is None else MULTIPLE, "calibration_s": cs,
            "calibrated_300s": [], "lengths": [], "faults": []}
 
-    print(f"threshold_floor_share: {out['threshold_floor_share']}")
+    print(f"threshold_median_multiple: {out['threshold_median_multiple']}, calibration: {cs} s")
     if not a.faults_only and not a.watch_hours:
-        print(f"SIMULATED, sensors: {a.sensors}. 1. Calibrated on the first 300 s, then {WATCH_S} s of normal running.")
+        print(f"SIMULATED, sensors: {a.sensors}. 1. Calibrated on the first {cs} s, then {WATCH_S} s of normal running.")
         print("   ratio = fit check (pass = no gross mismatch found, not proof of machine type); alarm = share of seconds alarming in the first 300 s / all 2400 s after calibration;")
-        print("   alone = the same for a model trained on the same 300 s alone")
+        print(f"   alone = the same for a model trained on the same {cs} s alone; threshold = multiple x median of the")
+        print("   held-out smoothed scores; highest = the highest of those scores (the trainer never goes below it)")
         for ename, (d, manifest) in entries.items():
             print(f" entry {ename}")
             for mname, (kind, seed, start, settings) in machines.items():
                 t, X = get(kind, seed, start, SESSION_S, settings)
-                sel = t < t[0] + 300
-                first5 = (t >= t[0] + 300) & (t < t[0] + 600)
-                after = (t >= t[0] + 300) & (t < t[0] + 300 + WATCH_S)
-                cal, v = run_calibrate(d, manifest, t[sel], X[sel])
+                sel = t < t[0] + cs
+                first5 = (t >= t[0] + cs) & (t < t[0] + cs + 300)
+                after = (t >= t[0] + cs) & (t < t[0] + cs + WATCH_S)
+                cal, v = run_calibrate(d, manifest, t[sel], X[sel], min_running_s=cs - 1)
                 alone, _ = train_model(t[sel], X[sel], NAMES)
                 row = {"entry": ename, "machine": mname, **v, "first_300s": share(cal, t[first5], X[first5]),
                        "all_2400s": share(cal, t[after], X[after]), "trained_alone_2400s": share(alone, t[after], X[after])}
                 out["calibrated_300s"].append(row)
                 print(f"   {mname:40s} ratio {v['ratio']:5.2f} {'pass' if v['ok'] else 'FAIL'} threshold "
-                      f"{v['threshold']:7.2f} (fitted here {v.get('threshold_fitted_here', float('nan')):7.2f})  alarm {row['first_300s']['alarm_share']:.3f} / "
+                      f"{v['threshold']:7.2f} (median {v.get('held_out_smoothed_median', float('nan')):5.2f}, highest {v.get('held_out_smoothed_max', float('nan')):5.2f})  alarm {row['first_300s']['alarm_share']:.3f} / "
                       f"{row['all_2400s']['alarm_share']:.3f}  alone {row['trained_alone_2400s']['alarm_share']:.3f}")
                 if row["all_2400s"]["alarm_s"]:
                     a2 = row["all_2400s"]
                     print(f"      of its {a2['alarm_s']} alarm seconds, {a2['alarm_s_led_by_a_slow_reading']} were led by a clock, "
                           f"trend or IMU temperature reading; moved most: {a2['moved_most']}")
 
-        rows = [r for r in out["calibrated_300s"] if "threshold_fitted_here" in r]
-        above = sum(r["threshold_fitted_here"] >= r["threshold"] for r in rows)
-        print(f"   the threshold fitted here was the one used in {above} of {len(rows)} calibrations; in the others "
-              f"the floor (threshold_floor_share x the entry's threshold) was")
-        out["threshold_fitted_used"] = {"used": above, "of": len(rows)}
+        rows = [r for r in out["calibrated_300s"] if "threshold_below_highest_held_out" in r]
+        below = sum(bool(r["threshold_below_highest_held_out"]) for r in rows)
+        print(f"   the threshold was below the highest held-out smoothed score in {below} of {len(rows)} calibrations")
+        out["threshold_below_highest_held_out"] = {"below": below, "of": len(rows)}
 
     if not a.quick and not a.faults_only and not a.watch_hours:
         print(f"\nSIMULATED, sensors: {a.sensors}. 2. Share of the {WATCH_S} s after calibration that alarm, "
@@ -287,18 +296,18 @@ def main(argv=None) -> int:
     if not a.quick and not a.watch_hours:
         kind, seed, start, settings = FAULT_MACHINE
         print(f"\nSIMULATED, sensors: {a.sensors}. 3. Faults on 'conveyor, seed {seed}': calibrated on the first "
-              f"{FAULT_CALIB_S} s, fault on from {FAULT_ONSET_S} s to the end ({FAULT_SESSION_S} s)")
+              f"{cs} s, fault on from {FAULT_ONSET_S} s to the end ({FAULT_SESSION_S} s)")
         for ename, (d, manifest) in entries.items():
             print(f" entry {ename}")
             for fault, sev in FAULT_RUNS:
                 t, X = get(kind, seed, start, FAULT_SESSION_S, settings, faults=((fault, FAULT_ONSET_S, sev),))
-                sel = t < t[0] + FAULT_CALIB_S
-                cal, _ = run_calibrate(d, manifest, t[sel], X[sel])
-                before = (t >= t[0] + FAULT_CALIB_S) & (t < t[0] + FAULT_ONSET_S)
+                sel = t < t[0] + cs
+                cal, cv = run_calibrate(d, manifest, t[sel], X[sel], min_running_s=cs - 1)
+                before = (t >= t[0] + cs) & (t < t[0] + FAULT_ONSET_S)
                 during = t >= t[0] + FAULT_ONSET_S
                 jb, ab = watch(cal, t[before], X[before])[:2]
                 jd, ad, _, first, names, _ = watch(cal, t[during], X[during])
-                row = {"entry": ename, "fault": fault, "severity": sev,
+                row = {"entry": ename, "fault": fault, "severity": sev, "threshold": cv["threshold"],
                        "alarm_share_before": round(ab / max(jb, 1), 4), "alarm_share_during": round(ad / max(jd, 1), 4),
                        "seconds_to_alarm": None if first is None else round(first - (t[0] + FAULT_ONSET_S), 1),
                        "named": dict(names.most_common(3))}
@@ -307,7 +316,7 @@ def main(argv=None) -> int:
                       f"named {row['named']}")
                 if not d.get("fault_classifier") and a.classifier:
                     # the same entry asking for a classifier (calibrate fits one to an entry that carries the key)
-                    cal, _ = run_calibrate(dict(d, fault_classifier=None), manifest, t[sel], X[sel])
+                    cal, _ = run_calibrate(dict(d, fault_classifier=None), manifest, t[sel], X[sel], min_running_s=cs - 1)
                     row["named_with_a_classifier_fitted_here"] = dict(watch(cal, t[during], X[during])[4].most_common(3))
                     print(f"   {'':10s} with a fault classifier fitted during calibration: "
                           f"named {row['named_with_a_classifier_fitted_here']}")

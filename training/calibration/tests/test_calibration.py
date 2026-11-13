@@ -148,7 +148,11 @@ def test_levels_come_from_the_first_part_and_the_threshold_from_the_held_out_par
     m = RT.Model(cal)
     s = m.score(X[held])[0]
     smoothed = [float(np.median(s[max(0, i - m.smooth + 1):i + 1])) for i in range(len(s))]
-    assert cal["threshold"] >= max(smoothed) - 1e-9  # never below the highest held-out (smoothed) score
+    # the threshold: the multiple times the median of the held-out scores, smoothed as the Watcher smooths
+    assert math.isclose(cal["threshold"], C.THRESHOLD_MEDIAN_MULTIPLE * float(np.median(smoothed)), rel_tol=1e-9)
+    assert math.isclose(report["held_out_smoothed_median"], float(np.median(smoothed)), abs_tol=1e-6)
+    assert math.isclose(report["held_out_smoothed_max"], max(smoothed), abs_tol=1e-6)
+    assert report["threshold_below_highest_held_out"] == (cal["threshold"] < max(smoothed))
     assert report["score_quantiles_held_out"]["p50"] > report["score_quantiles_fit"]["p50"]  # the louder part shows
 
 
@@ -250,7 +254,7 @@ def test_rows_recorded_with_an_older_feature_list_are_mapped_by_name():
 
 # ----------------------------------------------------------------- the entry as guard
 
-def test_spreads_never_go_below_the_entrys_and_the_threshold_keeps_its_floor():
+def test_spreads_never_go_below_the_entrys():
     d, _ = entry()
     t, X = seconds(300, seed=17, start=45_000, vib=0.3)
     j = d["prep"]["columns"].index("env_room_c")
@@ -258,31 +262,59 @@ def test_spreads_never_go_below_the_entrys_and_the_threshold_keeps_its_floor():
     cal, report = C.calibrate(d, t, X, NAMES)
     assert all(a >= b for a, b in zip(cal["prep"]["scale"], d["prep"]["scale"]))  # no spread below the entry's
     assert cal["prep"]["scale"][j] == d["prep"]["scale"][j]
-    floor = C.THRESHOLD_FLOOR_SHARE * d["threshold"]  # and the threshold never below that share of the entry's
-    assert cal["threshold"] >= floor and math.isclose(cal["threshold"], max(report["threshold_fitted_here"], floor),
-                                                      abs_tol=1e-4)
     assert report["entry_threshold"] == round(d["threshold"], 4) and report["spreads"] == "never below the entry's"
 
 
-def test_the_threshold_floor_share_sets_how_much_of_the_entrys_threshold_is_kept():
+def test_the_threshold_is_a_multiple_of_this_machines_held_out_median():
     d, _ = entry()
-    high = dict(d, threshold=10 * d["threshold"])  # an entry whose own threshold is far above this machine's
     t, X = seconds(300, seed=20, start=75_000, vib=0.2)
-    out = {share: C.calibrate(high, t, X, NAMES, threshold_floor_share=share) for share in (0.0, 0.25, 0.5, 1.0)}
-    fitted = out[0.0][1]["threshold_fitted_here"]
-    assert fitted < 0.25 * high["threshold"]
-    assert math.isclose(out[0.0][0]["threshold"], fitted, abs_tol=1e-4)  # 0: the threshold fitted here alone
-    assert out[1.0][0]["threshold"] == high["threshold"]  # 1: never below the entry's
-    assert out[0.5][0]["threshold"] == 0.5 * high["threshold"]  # 0.5: between the two
-    assert out[0.0][0]["threshold"] < out[0.5][0]["threshold"] < out[1.0][0]["threshold"]
-    assert [out[s][1]["threshold_floor_share"] for s in (0.0, 0.5, 1.0)] == [0.0, 0.5, 1.0]
-    default = C.calibrate(high, t, X, NAMES)  # the default is the module constant, 0.25
-    assert C.THRESHOLD_FLOOR_SHARE == 0.25 and default[0]["threshold"] == out[0.25][0]["threshold"]
-    assert default[0]["threshold"] == 0.25 * high["threshold"] and default[1]["threshold_floor_share"] == 0.25
-    low = dict(d, threshold=1e-3)  # a fitted threshold above the floor is used whatever the share
-    assert C.calibrate(low, t, X, NAMES, threshold_floor_share=1.0)[0]["threshold"] == out[0.0][0]["threshold"]
-    raises(lambda: C.calibrate(d, t, X, NAMES, threshold_floor_share=-0.1), "threshold_floor_share")
-    raises(lambda: C.calibrate(d, t, X, NAMES, threshold_floor_share=float("nan")), "threshold_floor_share")
+    out = {m: C.calibrate(d, t, X, NAMES, threshold_median_multiple=m) for m in (1.0, 5.0, 7.5)}
+    median = out[1.0][1]["held_out_smoothed_median"]
+    assert median > 0 and len({out[m][1]["held_out_smoothed_median"] for m in out}) == 1  # the same median each time
+    for m in out:  # the threshold scales with the multiple and nothing else
+        assert math.isclose(out[m][0]["threshold"], m * out[1.0][0]["threshold"], rel_tol=1e-9)
+        assert math.isclose(out[m][0]["threshold"], m * median, rel_tol=1e-5)
+        assert out[m][1]["threshold_median_multiple"] == m and out[m][1]["threshold"] == round(out[m][0]["threshold"], 4)
+    default = C.calibrate(d, t, X, NAMES)  # the agreed signature, and the provisional default
+    assert C.THRESHOLD_MEDIAN_MULTIPLE == 5.0 and default[0]["threshold"] == out[5.0][0]["threshold"]
+    assert default[1]["threshold_median_multiple"] == 5.0
+    for entry_threshold in (1e-3, 1e3):  # the entry's own threshold plays no part: no floor, no ceiling
+        other = C.calibrate(dict(d, threshold=entry_threshold), t, X, NAMES)
+        assert other[0]["threshold"] == default[0]["threshold"]
+    assert not hasattr(C, "THRESHOLD_FLOOR_SHARE")
+    for bad in (0, -1.0, float("nan"), float("inf"), True, "5"):
+        raises(lambda: C.calibrate(d, t, X, NAMES, threshold_median_multiple=bad), "threshold_median_multiple")
+    try:
+        C.calibrate(d, t, X, NAMES, threshold_floor_share=0.25)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("the old keyword is still accepted")
+
+
+def test_no_threshold_is_set_from_too_few_or_meaningless_held_out_scores():
+    d, _ = entry()
+    t, X = seconds(300, seed=24, start=77_000, vib=0.2)
+    wide = dict(d, smooth_minutes=60)  # an entry that smooths over 60 rows: 300 s hold out only 45
+    raises(lambda: C.calibrate(wide, t, X, NAMES), "45 held-out rows, fewer than the entry's smoothing window of 60")
+    cal, _ = C.calibrate(dict(d, smooth_minutes=45), t, X, NAMES)  # exactly enough is accepted
+    assert cal["threshold"] > 0
+
+    class Scores:  # a model whose scores are all zero, then all NaN: no median to multiply
+        def __init__(self, value):
+            self.value = value
+
+        def __call__(self, model, X):
+            Z = model.prep.transform(X)
+            return np.full(len(Z), self.value), np.zeros_like(Z), Z
+
+    real = RT.Model.score
+    for value, text in ((0.0, "median held-out score is 0.0"), (float("nan"), "median held-out score is nan")):
+        RT.Model.score = lambda self, X, v=value: Scores(v)(self, X)
+        try:
+            raises(lambda: C.calibrate(d, t, X, NAMES), text)
+        finally:
+            RT.Model.score = real
 
 
 def library_style_entry():
@@ -319,7 +351,7 @@ def test_a_library_entrys_widen_factors_and_held_readings_are_used():
     assert report["fault_classes"] == 0 and report["classifier_exact_match"] is None
     assert cal["source"] == "calibrated" and cal["library_entry"] == "fixture_conveyor" and cal["entry_version"] == "0.1.0"
     assert cal["calibration"] == lib["calibration"] and m.classifier is None
-    assert cal["threshold"] >= C.THRESHOLD_FLOOR_SHARE * lib["threshold"]
+    assert math.isclose(cal["threshold"], 5.0 * report["held_out_smoothed_median"], rel_tol=1e-5)
     v = C.fit_check(report, man)  # the library's manifest spelling of the held-out median
     assert v["ok"] is True and v["ratio"] > 0
     held = np.array(X[:200])  # a held reading far from anything seen does not alarm: it is not judged
@@ -358,7 +390,8 @@ def test_the_committed_conveyor_entry_calibrates_with_its_own_spreads_as_the_flo
     here = (q3 - q1) / 1.349
     assert math.isclose(cal["prep"]["scale"][j], max(here, model["prep"]["scale"][j]), rel_tol=1e-9)
     assert manifest["calibration"]["widen"]["vib_1x"] > 1  # the manifest has a factor; it was not used
-    assert cal["threshold"] >= C.THRESHOLD_FLOOR_SHARE * model["threshold"]
+    assert math.isclose(cal["threshold"], 5.0 * report["held_out_smoothed_median"], rel_tol=1e-5)
+    assert cal["threshold"] != model["threshold"]  # the entry's own threshold plays no part
     v = C.fit_check(report, manifest)
     assert set(v) == {"ok", "ratio", "reason"} and math.isfinite(v["ratio"]) and v["ratio"] > 0
     assert "not checked" not in v["reason"]

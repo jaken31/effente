@@ -2,11 +2,13 @@
 """Calibrate a library entry to one machine on a laptop and write the model file.
 
     python3 -m training.calibration.calibrate --entry training/library/entries/conveyor --run <recording folder> --out models/conveyor-07.json
-    python3 -m training.calibration.calibrate --entry training/library/entries/conveyor --rows rows.npz --seconds 300 --out models/conveyor-07.json
+    python3 -m training.calibration.calibrate --entry training/library/entries/conveyor --rows rows.npz --seconds 600 --out models/conveyor-07.json
 
 The same code the device runs (effente.calibration, NumPy only): the entry's network is kept, and
 the preparation statistics and alarm threshold are fitted to the machine in the rows given. Then the fit check, against the entry's manifest.json. This is the laptop route of the
 TRD's fallback table: calibrate here and copy the model file to the device.
+
+Give it 10 minutes of the machine running. 5 minutes (300 s) is the least it accepts.
 
 --entry is a library entry folder (model.json and manifest.json). --run is a learn-mode recording
 folder (its one-a-second rows); --rows is any file with t, X and feature_names.
@@ -25,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from effente.calibration import MIN_RUNNING_S, calibrate, fit_check
+from effente.calibration import MIN_RUNNING_S, RECOMMENDED_S, calibrate, fit_check
 from effente.model_input import load_recording
 
 
@@ -37,7 +39,7 @@ def main(argv=None) -> int:
     src.add_argument("--rows", help="a rows file with t, X and feature_names")
     ap.add_argument("--seconds", type=float, help="use only the first N seconds of the rows")
     ap.add_argument("--min-running-s", type=float, default=MIN_RUNNING_S,
-                    help=f"refuse less running than this (default {MIN_RUNNING_S})")
+                    help=f"refuse less running than this (default {MIN_RUNNING_S}); give it {RECOMMENDED_S} s if you can")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
@@ -65,6 +67,8 @@ def main(argv=None) -> int:
           f"(status: {manifest.get('status', 'unverified')})")
     for k, v in report.items():
         print(f"  {k}: {v}")
+    if report["running_s"] < RECOMMENDED_S:
+        print(f"note: calibrated on {report['running_s']} s of running; {RECOMMENDED_S} s (10 minutes) is asked for")
     verdict = fit_check(report, manifest)
     print(f"fit check: {'passed' if verdict['ok'] else 'FAILED'} - {verdict['reason']}")
     return 0 if verdict["ok"] else 2
