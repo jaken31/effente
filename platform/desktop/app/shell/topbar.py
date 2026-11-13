@@ -1,5 +1,6 @@
 """The top bar: "machine / Title" (with a Live crumb for Spectrum and Thermal), the
-subtitle, the Simulated data chip and freshness."""
+subtitle, the Simulated data chip and freshness. In a narrow window the subtitle
+goes first, so the names and freshness are never cut."""
 
 from __future__ import annotations
 
@@ -95,16 +96,32 @@ class TopBar(QWidget):
 
     def set_machine(self, name: str | None) -> None:
         self.machine.setText(name or "No machine yet")
+        self._fit()
 
     def set_page(self, title: str, subtitle: str, child: bool) -> None:
         self.title.setText(title)
         self.subtitle.setText(subtitle)
-        self.subtitle.setVisible(bool(subtitle))
         self.crumb.setVisible(child)
         self._slash2.setVisible(child)
+        self._fit()
 
     def set_simulated(self, simulated: bool) -> None:
         self.sim_chip.setVisible(bool(simulated))
+        self._fit()
+
+    def _fit(self) -> None:
+        """Show the subtitle only when everything else still fits beside it."""
+        lay = self.layout()
+        self.subtitle.hide()
+        lay.invalidate()
+        rest = lay.minimumSize().width()
+        need = rest + lay.spacing() + self.subtitle.sizeHint().width()
+        self.subtitle.setVisible(bool(self.subtitle.text()) and need <= self.width())
+        lay.activate()
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._fit()
 
     def set_fresh(self, text: str, look: str) -> None:
         """look is format.LIVE, STALE or IDLE. Stale reads in white, medium weight,
@@ -115,6 +132,7 @@ class TopBar(QWidget):
         self.fresh.setStyleSheet(f"color: {t.TEXT if stale else t.SOFT};")
         self.fresh_dot.set_color(t.DOT if look == "live" else t.MUTED)
         self.look = look
+        self._fit()
 
     @property
     def stale(self) -> bool:

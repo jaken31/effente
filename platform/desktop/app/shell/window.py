@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import ClassVar
 
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
-from PySide6.QtGui import QKeySequence, QPainter, QRadialGradient, QShortcut, QTransform
+from PySide6.QtGui import QPainter, QRadialGradient, QTransform
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -24,14 +24,23 @@ from PySide6.QtWidgets import (
 from ..theme import schemes
 from ..theme import tokens as t
 from . import format as fmt
+from . import shortcuts
 from .notices import Notices
 from .pages import CHILDREN, KEYS, make_page
+from .search import Entry, Search
 from .sidebar import Sidebar
 from .topbar import TopBar
 
 log = logging.getLogger("effente.desktop.shell")
 
-MIN_W, MIN_H = 1440, 900
+# The smallest size the sidebar and top bar still lay out cleanly: half of a 1920px
+# screen, so the window can sit beside a terminal. Pages narrower than their content
+# scroll sideways.
+MIN_W, MIN_H = 960, 660
+DEFAULT_W, DEFAULT_H = 1440, 900  # the mockup's size
+
+# What the window remembers between runs: keys in the settings store.
+GEOMETRY, PAGE, MACHINE = "window/geometry", "window/page", "window/machine"
 
 
 class _Backdrop(QWidget):
@@ -116,15 +125,19 @@ class MainWindow(QMainWindow):
     `pages` maps a key to a ready page widget, for tests; missing keys are built from
     app.pages or shown as placeholders. `placeholders=True` uses placeholders only.
     `receiver_address` is shown on the device card, for example "0.0.0.0:8000".
+    `settings` is a QSettings the window keeps its size, page and machine in, so the
+    next run opens where this one closed; without it nothing is remembered.
     """
 
     def __init__(self, state=None, *, pages: Mapping[str, QWidget] | None = None,
-                 placeholders: bool = False, receiver_address: str | None = None):
+                 placeholders: bool = False, receiver_address: str | None = None, settings=None):
         super().__init__()
         self.state = state
         self.receiver_address = receiver_address
+        self.settings = settings
         self.setWindowTitle("effente")
         self.setMinimumSize(MIN_W, MIN_H)
+        self.resize(DEFAULT_W, DEFAULT_H)
 
         root = _Backdrop(self)
         self.setCentralWidget(root)
@@ -154,18 +167,21 @@ class MainWindow(QMainWindow):
         self.topbar.navigate.connect(self.navigate)
         self.sidebar.machine_changed.connect(self._machine_picked)
         self.sidebar.scheme_changed.connect(schemes.save)
-        self.shortcuts = []
-        for i, key in enumerate(KEYS):
-            sc = QShortcut(QKeySequence(str(i + 1)), self)
-            sc.setContext(Qt.ShortcutContext.WindowShortcut)
-            sc.activated.connect(lambda k=key: self.navigate(k))
-            self.shortcuts.append(sc)
+        self.shortcuts = shortcuts.install(self)
 
         self.notices = Notices(root)  # last child of root, so it paints above the pages
+        self.shortcut_help = shortcuts.ShortcutHelp(root)
+        self.search = Search(root)
 
         self.current = ""
         self._closing_after_agent = False
-        self.navigate("live")
+        geometry = self._remembered(GEOMETRY)
+        if geometry:
+            self.restoreGeometry(geometry)
+        # Picked again once the machine list is known: see refresh().
+        self._wanted_machine = self._remembered(MACHINE)
+        page = self._remembered(PAGE)
+        self.navigate(page if page in self.pages else "live")
 
         # Freshness ages even when nothing arrives.
         self._tick = QTimer(self)
@@ -186,6 +202,14 @@ class MainWindow(QMainWindow):
         holder.setAutoFillBackground(False)
         return area
 
+    # remembering
+    def _remembered(self, key: str):
+        return self.settings.value(key) if self.settings is not None else None
+
+    def _remember(self, key: str, value) -> None:
+        if self.settings is not None:
+            self.settings.setValue(key, value)
+
     # closing
     STOP, WAIT, CANCEL = "stop", "wait", "cancel"
 
@@ -193,6 +217,7 @@ class MainWindow(QMainWindow):
         """Closing during a report run this app started asks first: the receiver the
         run reads and writes to lives in this app, so quitting would cut it off."""
         s = self.state
+        self._remember(GEOMETRY, self.saveGeometry())
         if self._closing_after_agent or s is None or not getattr(s, "own_agent_running", lambda: False)():
             event.accept()
             return
@@ -237,12 +262,78 @@ class MainWindow(QMainWindow):
             return
         page = self.pages[key]
         self.current = key
+        self._remember(PAGE, key)
         self.stack.setCurrentIndex(KEYS.index(key))
         self.sidebar.set_active(key)
         self.topbar.set_page(getattr(page, "title", key), getattr(page, "subtitle", ""), child=key in CHILDREN)
 
     def current_page(self) -> QWidget:
         return self.pages[self.current]
+
+    # shortcut actions (shortcuts.ACTIONS)
+    def go_back(self) -> None:
+        """Esc: close the search or the shortcut list if one is up, else leave
+        Spectrum or Thermal for Live."""
+        if self.search.isVisible():
+            self.search.close_search()
+        elif self.shortcut_help.isVisible():
+            self.shortcut_help.hide()
+        elif self.current in CHILDREN:
+            self.navigate("live")
+
+    def previous_machine(self) -> None:
+        self._step_machine(-1)
+
+    def next_machine(self) -> None:
+        self._step_machine(1)
+
+    def _step_machine(self, step: int) -> None:
+        if self.state is None:
+            return
+        machines = list(self.state.machines())
+        current = self.state.current_machine()
+        if len(machines) > 1 and current in machines:
+            self._machine_picked(machines[(machines.index(current) + step) % len(machines)])
+
+    def run_report(self) -> None:
+        """As the Agents page's Run Report Agent button, in the mode picked there."""
+        run = getattr(self.pages["agent"], "run_agent", None)
+        if callable(run):
+            run()
+
+    def export_page(self) -> None:
+        export = getattr(self.current_page(), "export_dialog", None)
+        if callable(export):
+            export()
+
+    def toggle_full_screen(self) -> None:
+        self.setWindowState(self.windowState() ^ Qt.WindowState.WindowFullScreen)
+
+    def toggle_shortcut_help(self) -> None:
+        self.shortcut_help.toggle()
+
+    def toggle_search(self) -> None:
+        if self.search.isVisible():
+            self.search.close_search()
+        else:
+            self.shortcut_help.hide()
+            self.search.open(self.search_entries())
+
+    # Actions the search leaves out: it is one of them, and the others only make
+    # sense as keys.
+    NOT_SEARCHED = ("toggle_search", "go_back", "previous_machine", "next_machine")
+
+    def search_entries(self) -> list[Entry]:
+        """What Ctrl+K can find: every page, every other machine, and the actions."""
+        entries = [Entry(getattr(self.pages[key], "title", key), f"Page \u00b7 {i + 1}", lambda k=key: self.navigate(k))
+                   for i, key in enumerate(KEYS)]
+        if self.state is not None:
+            current = self.state.current_machine()
+            entries += [Entry(m, "Machine", lambda m=m: self._machine_picked(m))
+                        for m in self.state.machines() if m != current]
+        entries += [Entry(what, shown, getattr(self, method))
+                    for _, shown, what, method in shortcuts.ACTIONS if method not in self.NOT_SEARCHED]
+        return entries
 
     # state
     def bind(self, state) -> None:
@@ -264,6 +355,8 @@ class MainWindow(QMainWindow):
 
     def _machine_picked(self, machine: str) -> None:
         if self.state is not None and machine and machine != self.state.current_machine():
+            self._wanted_machine = None
+            self._remember(MACHINE, machine)
             self.state.set_machine(machine)
             self.refresh()
 
@@ -290,7 +383,14 @@ class MainWindow(QMainWindow):
     def refresh(self) -> None:
         if self.state is None:
             return
-        self.sidebar.set_machines(list(self.state.machines()), self.state.current_machine())
+        machines = list(self.state.machines())
+        if self._wanted_machine and machines:
+            # The machine picked last run, if it is still there the first time the
+            # list is known. If it is gone it is dropped, not waited for.
+            wanted, self._wanted_machine = self._wanted_machine, None
+            if wanted in machines and wanted != self.state.current_machine():
+                self.state.set_machine(wanted)
+        self.sidebar.set_machines(machines, self.state.current_machine())
         self.refresh_chrome()
         self.refresh_badges()
 

@@ -5,11 +5,13 @@
     python3 platform/desktop/main.py --fake     # no receiver: fixed sample data (FakeState)
 
 Arguments match platform/run.py. Closing the window stops everything.
+`python3 platform/desktop/install_launcher.py` adds it to the app launcher (Linux).
 """
 
 from __future__ import annotations
 
 import argparse
+import errno
 import logging
 import shutil
 import signal
@@ -40,6 +42,7 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
+    from app import settings
     from app.theme import apply_theme, schemes
 
     # Before app.shell is imported: some widgets read colour tokens at import.
@@ -47,10 +50,13 @@ def main(argv=None) -> int:
 
     from app.shell import MainWindow
     from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QApplication, QMessageBox
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName("effente")
+    app.setDesktopFileName("effente")  # the launcher entry's name: see install_launcher.py
+    app.setWindowIcon(QIcon(str(HERE / "app" / "theme" / "effente.svg")))
     apply_theme(app)
 
     host = state = None
@@ -70,13 +76,18 @@ def main(argv=None) -> int:
         try:
             host.start()
         except OSError as e:
-            print(f"The receiver did not start on port {args.port}: {e}", file=sys.stderr)
+            text = f"The receiver did not start on port {args.port}: {e}"
+            print(text, file=sys.stderr)
+            # Started from the launcher there is no terminal to read that in.
+            busy = e.errno == errno.EADDRINUSE
+            QMessageBox.critical(None, "effente did not start",
+                                 text + ("\n\neffente may already be running." if busy else ""))
             return 1
         state = DashboardState(host.url, host=host)
         state.start()
         address = f"{host.host}:{host.port}"
 
-    window = MainWindow(state, receiver_address=address)
+    window = MainWindow(state, receiver_address=address, settings=settings.store())
     window.show()
 
     # Ctrl-C, a kill or a closed terminal quit through Qt, so the cleanup below runs.
