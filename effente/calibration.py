@@ -13,12 +13,25 @@ and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
                            (effente.safety) and, if the entry carries a fault classifier, that
                            too (injected patterns on this machine's own normal variation, as in
                            full training)
-  with the entry as guard  a few minutes cannot show how far slow readings wander in a day, so the
-                           fitted spreads are widened by the entry's factors (or never taken below
-                           the entry's own spreads), the threshold is never below the entry's, and
-                           readings the entry holds or this machine did not give are not judged
-                           (refit_prep). Without these guards the simulated machines alarmed most
-                           of the time in the 40 minutes after a 5-minute calibration.
+  with the entry as guard  two deliberate floors and one switch-off (refit_prep, calibrate):
+                           - spreads: widened by the entry's calibration.widen factors, or, for
+                             an entry without them, never below the entry's own spreads
+                           - threshold: never below threshold_floor_share (default 1.0) of the
+                             entry's own threshold
+                           - readings the entry holds, or this machine did not give while
+                             calibrating, are not judged
+
+Why the floors, and what they cost (all SIMULATED, unverified; commands and numbers in
+training/calibration/README.md). A few minutes cannot show how far readings wander in an hour. A
+model fitted to 300 s alone, with no entry behind it, alarmed in 73 to 98 % of the following 40
+minutes of normal running. With the floors the calibrated entries alarmed in 0 to 0.2 %.
+The threshold floor is the blunt one. In every simulated calibration (28 of 28) the threshold fitted
+from this machine was below the entry's, so the entry's was used: with the default share the
+threshold refit is inert on the simulators, and a calibrated model alarms exactly as high as its
+entry allows. That costs sensitivity. With an entry whose own threshold is high (the conveyor entry
+of branch feat/model-library, 59.85) none of four simulated faults raised an alarm at share 1.0 or
+0.5, while share 0 alarmed in 80 % of normal seconds. threshold_floor_share is a parameter so the
+default can be set from measurements; 1.0 is a starting value, not a recommendation.
 
 It follows effente.trainer.train_model step for step and reuses its parts, so a calibrated model
 and one trained on the machine alone differ only in where the network came from: running rows
@@ -26,7 +39,7 @@ only, per-period medians, the last 15 % of the time held out for the threshold (
 split), a gamma fit set for one false alarm a week.
 
     model, report = calibrate(entry_model, t, X, names)
-    verdict = fit_check(report, manifest)   # does this machine look like the entry's type?
+    verdict = fit_check(report, manifest)   # a gross mismatch with the entry, or not
 
 The result is a valid effente-model-1 dict: effente.model_runtime.Model loads it unchanged. The
 file format is not changed: "created" is the calibration time, "training_report" is the calibration
