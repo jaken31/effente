@@ -4,6 +4,7 @@
   python3 device/app/board_monitor.py                      # until Ctrl-C
   python3 device/app/board_monitor.py --until recording    # stop when the mode is reached
   python3 device/app/board_monitor.py --log run.jsonl      # also keep every status and event
+  python3 device/app/board_monitor.py --capture rows.jsonl # also keep every feature row and results line
 
 It sets up `adb forward tcp:8765 tcp:8765` itself, then reads /latest once a second and the events
 from /stream. Every --every seconds it prints one line:
@@ -62,27 +63,38 @@ def get(url: str, timeout: float = 4.0):
 
 
 class Events(threading.Thread):
-    """The stream's events topic, kept in a list; reconnects by itself (adb forwards drop)."""
+    """Topics of the stream (the events, by default), kept in a list or, with `sink`, written to a file as
+    they come: one JSON object a line, with its topic. Reconnects by itself (adb forwards drop)."""
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, topics: str = "events", sink=None):
         super().__init__(daemon=True)
-        self.url, self.items, self.last_id, self.lock = url + "/stream?topics=events", [], None, threading.Lock()
+        self.url, self.items, self.last_id, self.lock = f"{url}/stream?topics={topics}", [], None, threading.Lock()
+        self.sink, self.count = sink, 0
 
     def run(self):
         while True:
             try:
                 req = urllib.request.Request(self.url, headers={"Last-Event-ID": self.last_id} if self.last_id else {})
                 with urllib.request.urlopen(req, timeout=40) as r:
+                    topic = None
                     for raw in r:
                         line = raw.decode().rstrip("\n")
                         if line.startswith("id: "):
                             self.last_id = line[4:]
+                        elif line.startswith("event: "):
+                            topic = line[7:]
                         elif line.startswith("data: "):
                             try:
-                                with self.lock:
-                                    self.items.append(json.loads(line[6:]))
+                                item = json.loads(line[6:])
                             except ValueError:
-                                pass
+                                continue
+                            self.count += 1
+                            if self.sink is not None:
+                                self.sink.write(json.dumps({"topic": topic, "got": time.time(), **item}) + "\n")
+                                self.sink.flush()
+                            else:
+                                with self.lock:
+                                    self.items.append(item)
             except Exception:  # noqa: BLE001
                 time.sleep(2)
 
@@ -124,6 +136,8 @@ def main(argv=None) -> int:
     ap.add_argument("--stall", type=float, default=15.0, help="seconds without the app or new samples before exit 4")
     ap.add_argument("--stay", action="store_true", help="never exit with 4; just say what was odd")
     ap.add_argument("--log", help="append every status and event to this file, one JSON object a line")
+    ap.add_argument("--capture", help="append every feature row (one a second, all features) and every results "
+                    "line (while detecting) to this file: what the device saw, for looking at afterwards")
     ap.add_argument("--no-forward", action="store_true")
     args = ap.parse_args(argv)
 
@@ -138,6 +152,8 @@ def main(argv=None) -> int:
         adb(["forward", "tcp:8765", "tcp:8765"])
     events = Events(args.url)
     events.start()
+    if args.capture:
+        Events(args.url, "features,results", open(args.capture, "a")).start()
     started = time.time()
     first = prev = None  # (uptime, sensors, published) at the start and at the last printed line
     last_ok = last_print = last_folder = 0.0
