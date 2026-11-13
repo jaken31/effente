@@ -333,6 +333,50 @@ def test_a_library_entrys_widen_factors_and_held_readings_are_used():
     raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
 
 
+def test_the_committed_conveyor_entry_calibrates_with_its_own_spreads_as_the_floor():
+    """The real library entry (training/library/entries/conveyor). Its widen factors and held readings
+    are in manifest.json only; calibrate takes the model file alone, so it applies neither."""
+    from training.library.load import load_entry
+    manifest, model = load_entry(Path(__file__).resolve().parents[2] / "library" / "entries", "conveyor")
+    assert "calibration" not in model and "widen" in manifest["calibration"] and "hold" in manifest["calibration"]
+    before = copy.deepcopy(model)
+    t, X = seconds(300, seed=21, start=85_000, vib=0.3)
+    cal, report = C.calibrate(model, t, X, NAMES)
+    assert model == before and set(cal) == set(model)
+    RT.Model(json.loads(json.dumps(cal)))
+    assert report["spreads"] == "never below the entry's" and report["readings_held"] == []
+    cols = model["prep"]["columns"]
+    off = set(report["readings_missing"])
+    fitted = [c for c in cols if c not in off]
+    assert "vib_1x" in fitted and len(fitted) >= 5
+    fit = t < t[0] + (t[-1] - t[0]) * 0.85
+    for c in fitted:  # the entry's spread or this machine's, whichever is larger: no widen factor applied
+        j = cols.index(c)
+        assert cal["prep"]["scale"][j] >= model["prep"]["scale"][j]
+    j = cols.index("vib_1x")
+    q1, q3 = np.percentile(X[fit, F.INDEX["vib_1x"]], [25, 75])
+    here = (q3 - q1) / 1.349
+    assert math.isclose(cal["prep"]["scale"][j], max(here, model["prep"]["scale"][j]), rel_tol=1e-9)
+    assert manifest["calibration"]["widen"]["vib_1x"] > 1  # the manifest has a factor; it was not used
+    assert cal["threshold"] >= C.THRESHOLD_FLOOR_SHARE * model["threshold"]
+    v = C.fit_check(report, manifest)
+    assert set(v) == {"ok", "ratio", "reason"} and math.isfinite(v["ratio"]) and v["ratio"] > 0
+    assert "not checked" not in v["reason"]
+    assert math.isclose(v["ratio"], report["score_quantiles_held_out"]["p50"] / manifest["heldout_score_quantiles"]["p50"])
+
+
+def test_the_laptop_command_runs_on_the_committed_entry_folder():
+    from training.calibration.calibrate import main
+    entry_folder = Path(__file__).resolve().parents[2] / "library" / "entries" / "conveyor"
+    with tempfile.TemporaryDirectory() as tmp:
+        t, X = seconds(320, seed=22, start=95_000, vib=0.2)
+        np.savez(Path(tmp) / "rows.npz", t=t, X=X, feature_names=np.array(NAMES))
+        out = Path(tmp) / "model.json"
+        code = main(["--entry", str(entry_folder), "--rows", str(Path(tmp) / "rows.npz"), "--seconds", "300",
+                     "--out", str(out)])
+        assert code in (0, 2) and RT.Model.load(out).d["training_report"]["calibrated"] is True
+
+
 # ----------------------------------------------------------------- the fit check
 
 def test_fit_check_passes_the_entrys_type_and_fails_another_type():
