@@ -10,7 +10,7 @@ from device.agent.harness import run_agent
 from device.agent.standin import MODEL_NAME, stand_in_call
 
 LOGS = Path(__file__).parent / "logs"
-FEATURES = ["once_per_turn", "rattle"]
+FEATURES = ["vib_1x", "vib_harm_3_10"]
 
 
 def cases():
@@ -43,7 +43,7 @@ def run_case(name, model_file, machine_id, tmp_path, call=stand_in_call):
 
 def test_there_are_about_ten_logs_and_every_record_is_marked_simulated():
     logs = sorted(LOGS.glob("*.jsonl"))
-    assert len(logs) == 11
+    assert len(logs) == 12
     for log in logs:
         for line in log.read_text().splitlines():
             record = json.loads(line)
@@ -112,16 +112,16 @@ def test_a_report_citing_a_feature_it_may_not_cite_is_rejected(name, model_file,
     assert len(result.problems) == 1 and result.problems[0].endswith(f": {feature}")
 
 
-def test_unknown_case_is_rejected_by_the_normal_or_unknown_rule(tmp_path):
-    # rattle does peak above the threshold here, but only in unknown windows.
-    result = run_case("unknown", "model.json", "conveyor-07", tmp_path, call=citing(["rattle"]))
-    assert result.problems == ["cites feature that was only active in normal or unknown windows: rattle"]
+def test_unrecognised_case_cites_nothing(tmp_path):
+    # vib_harm_3_10 does move past 6 spreads here, but only in unrecognised_pattern windows.
+    result = run_case("unknown", "model.json", "conveyor-07", tmp_path, call=citing(["vib_harm_3_10"]))
+    assert result.problems == ["cites feature that moved only in windows with no fault type: vib_harm_3_10"]
 
 
 def test_masked_feature_is_mentioned_but_not_cited(tmp_path):
     result = run_case("masked", "model.json", "conveyor-07", tmp_path)
     assert result.report["cited_features"] == []
-    assert "with once_per_turn switched off in some windows" in result.report["summary"]
+    assert "with vib_1x switched off in some windows" in result.report["summary"]
 
 
 def test_mixed_session_reports_every_finding_in_three_sentences(tmp_path):
@@ -129,11 +129,12 @@ def test_mixed_session_reports_every_finding_in_three_sentences(tmp_path):
     report = result.report
     summary = report["summary"]
     assert summary == (
-        "Stand-in report: demo-fan-1, 45 windows: 25 loose mount, 6 imbalance, 5 unknown, 9 normal. "
-        "Fix loose mount first, then imbalance. "
-        "The cause of the 5 unknown windows is not known: inspect the machine."
+        "Stand-in report: demo-fan-1, 45 windows: 25 looseness or rattle, 6 unbalance-like, "
+        "5 unrecognised pattern, 9 normal. "
+        "Fix looseness or rattle first, then unbalance-like. "
+        "The cause of the 5 unrecognised pattern windows is not known: inspect the machine."
     )
-    assert report["cited_features"] == ["rattle", "once_per_turn"]
+    assert report["cited_features"] == ["vib_harm_3_10", "vib_1x"]
     assert report["priority"] == "high"
     action = report["recommended_action"]
     assert action.index("tighten the bolts") < action.index("rebalance") < action.index("Inspect the machine")
@@ -154,7 +155,7 @@ def test_old_four_argument_call_still_works_and_is_marked_simulated(tmp_path):
     report = {
         "summary": "Imbalance.",
         "priority": "medium",
-        "cited_features": ["once_per_turn"],
+        "cited_features": ["vib_1x"],
         "recommended_action": "Rebalance.",
         "part_reference": "",
     }
@@ -173,7 +174,7 @@ def test_simulated_is_false_only_for_the_real_call_on_real_readings(tmp_path, mo
     log.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
     def fake_claude(machine_id, records, features, schema, tools=None):
-        return citing(["once_per_turn"])(machine_id, records, features, schema, tools)
+        return citing(["vib_1x"])(machine_id, records, features, schema, tools)
 
     # Stands in for the real function so run_agent treats it as the live call. No API is used.
     monkeypatch.setattr(harness, "call_claude", fake_claude)

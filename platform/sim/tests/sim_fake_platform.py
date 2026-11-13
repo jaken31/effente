@@ -34,6 +34,7 @@ class FakePlatform:
         self.log = []  # ("model",) | ("records", n) | ("check_in", mode), in arrival order
         self.known_models = set()
         self.force_need_model_once = False
+        self.settings = None  # {"sensitivity": x} once "the dashboard" set one (contract section 7)
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -74,14 +75,15 @@ class FakePlatform:
                             owner.force_need_model_once = False
                             owner.known_models.clear()
                             need = True
-                        return self._reply(200, {"ok": True, "stored": len(recs), "need_model": need})
+                        return self._reply(200, owner._with_settings({"ok": True, "stored": len(recs),
+                                                                      "need_model": need}))
                     if len(parts) == 4 and parts[1:3] == ["api", "devices"] and parts[3]:
                         problems = check_in_problems(body)
                         if problems:
                             return self._reply(400, {"ok": False, "error": "; ".join(problems)})
                         owner.check_ins.append((parts[3], body))
                         owner.log.append(("check_in", body["mode"]))
-                        return self._reply(200, {"ok": True})
+                        return self._reply(200, owner._with_settings({"ok": True}))
                 return self._reply(404, {"ok": False, "error": "no such path"})
 
         ThreadingHTTPServer.allow_reuse_address = True
@@ -89,6 +91,11 @@ class FakePlatform:
         self.port = self.server.server_address[1]
         self.url = f"http://127.0.0.1:{self.port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def _with_settings(self, reply: dict) -> dict:
+        if self.settings is not None:
+            reply["settings"] = dict(self.settings)
+        return reply
 
     def __enter__(self):
         self.thread.start()

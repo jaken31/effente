@@ -117,4 +117,4 @@ def test_module_runs_from_the_command_line(tmp_path):
     done = subprocess.run([sys.executable, "-m", "device.agent", *args(tmp_path, "--stand-in")],
                           cwd=REPO, env=env, capture_output=True, text=True, timeout=30)
     assert done.returncode == 0, done.stderr
-    assert json.loads(done.stdout)["report"]["cited_features"] == ["once_per_turn"]
+    assert json.loads(done.stdout)["report"]["cited_features"] == ["vib_1x"]

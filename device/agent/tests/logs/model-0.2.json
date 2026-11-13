@@ -2,18 +2,18 @@
   "model_version": "fake-0.2",
   "class_names": [
     "normal",
-    "imbalance",
-    "loose_mount"
+    "unbalance_like",
+    "looseness_or_rattle"
   ],
   "unknown_threshold": 0.5,
   "features": [
     {
-      "name": "once_per_turn",
-      "sentence": "once-per-turn vibration"
+      "name": "vib_1x",
+      "sentence": "vibration once per turn"
     },
     {
-      "name": "rattle",
-      "sentence": "rattling pattern"
+      "name": "vib_harm_3_10",
+      "sentence": "vibration at 3-10x running speed (rattle)"
     }
   ],
   "simulated": true

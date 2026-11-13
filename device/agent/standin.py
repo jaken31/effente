@@ -11,18 +11,18 @@ from __future__ import annotations
 
 import json
 
-from .report import ACTIVE_THRESHOLD
+from .report import EVIDENCE_SPREADS, NOT_FAULT_DIAGNOSES
 from .tools import Tools
 
 MODEL_NAME = "stand-in (no Claude call)"
+UNRECOGNISED = "unrecognised_pattern"
+CITE_PER_FAULT = 3  # at most this many readings cited for each fault type
 
-# Which verified feature backs each fault diagnosis.
-FAULT_FEATURE = {"imbalance": "once_per_turn", "loose_mount": "rattle"}
-
+# PLACEHOLDER actions, not engineering advice. Other fault types get a generic one.
 ACTIONS = {
-    "imbalance": "Check the rotor for imbalance: clean and rebalance the blades.",
-    "loose_mount": "Check the mounting and tighten the bolts.",
-    "unknown": "Inspect the machine: some readings match no known fault.",
+    "unbalance_like": "Check the rotor for unbalance: clean and rebalance it.",
+    "looseness_or_rattle": "Check the mounting and tighten the bolts.",
+    UNRECOGNISED: "Inspect the machine: some readings match no known fault type.",
     "normal": "No action needed.",
 }
 
@@ -35,21 +35,24 @@ def stand_in_call(
     windows = summary.get("windows", 0)
     counts = {d: n for d, n in summary.get("diagnoses", {}).items() if n > 0}
     peaks = summary.get("peak_by_diagnosis", {})
-    unknown = counts.get("unknown", 0)
+    unknown = counts.get(UNRECOGNISED, 0)
 
     # PLACEHOLDER RULE, not engineering advice: fix the fault seen in the most
     # windows first; ties go alphabetically.
-    faults = sorted(
-        (d for d in counts if d not in ("normal", "unknown")), key=lambda d: (-counts[d], d)
-    )
+    faults = sorted((d for d in counts if d not in NOT_FAULT_DIAGNOSES), key=lambda d: (-counts[d], d))
 
-    # Cite each fault's feature if it was active in a window diagnosed as that
-    # fault, the same rule check_report applies.
+    # Cite, for each fault, the readings in the feature table that moved most
+    # in its windows, if they moved enough: the same rule check_report applies.
     cited = []
     for fault in faults:
-        feature = FAULT_FEATURE.get(fault)
-        if feature in table and peaks.get(fault, {}).get(feature, 0.0) >= ACTIVE_THRESHOLD:
-            cited.append(feature)
+        moved = sorted(
+            ((peak, feature) for feature, peak in peaks.get(fault, {}).items()
+             if feature in table and peak >= EVIDENCE_SPREADS),
+            key=lambda pair: (-pair[0], pair[1]),
+        )
+        for _, feature in moved[:CITE_PER_FAULT]:
+            if feature not in cited:
+                cited.append(feature)
 
     # PLACEHOLDER RULE, not engineering advice: none if every window is normal;
     # high if more than one kind of finding (each fault, and unknown) was seen;
@@ -65,7 +68,7 @@ def stand_in_call(
     else:
         priority = "medium"
 
-    order = faults + (["unknown"] if unknown else []) + (["normal"] if "normal" in counts else [])
+    order = faults + ([UNRECOGNISED] if unknown else []) + [d for d in ("normal", "stopped", "warming_up") if d in counts]
     seen = ", ".join(f"{counts[d]} {name(d)}" for d in order)
     masked = sorted(summary.get("masked_windows", {}))
     if masked:
@@ -77,16 +80,16 @@ def stand_in_call(
         if cleared:
             fix += "; the latest window reads normal"
         if not cited:
-            fix += "; no verified feature was clearly active, so none is cited"
+            fix += "; no reading in the feature table moved enough, so none is cited"
         sentences.append(fix + ".")
     if unknown:
-        sentences.append(f"The cause of the {unknown} unknown windows is not known: inspect the machine.")
+        sentences.append(f"The cause of the {unknown} unrecognised pattern windows is not known: inspect the machine.")
     if not faults and not unknown:
         sentences.append("No fault found.")
 
-    actions = [ACTIONS.get(f, ACTIONS["unknown"]) for f in faults]
+    actions = [ACTIONS.get(f, f"Inspect the machine for {name(f)}.") for f in faults]
     if unknown or not actions:
-        actions.append(ACTIONS["unknown"] if unknown else ACTIONS["normal"])
+        actions.append(ACTIONS[UNRECOGNISED] if unknown else ACTIONS["normal"])
 
     report = {
         "summary": "Stand-in report: " + " ".join(sentences),
@@ -99,7 +102,8 @@ def stand_in_call(
 
 
 def name(diagnosis: str) -> str:
-    return diagnosis.replace("_", " ")
+    """A diagnosis for people: `unbalance_like` reads "unbalance-like"."""
+    return diagnosis.replace("_like", "-like").replace("_", " ")
 
 
 stand_in_call.model_name = MODEL_NAME

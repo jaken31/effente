@@ -20,10 +20,13 @@ def load_log(path: str | Path, machine_id: str) -> list[dict]:
 
 
 def load_feature_table(path: str | Path) -> dict[str, str]:
-    """Return verified feature name -> explanation sentence, from the model file."""
+    """Return verified feature name -> explanation sentence, from the model file.
+
+    The sentence is `sentence` (the TRD model file) or `text` (contract message 1).
+    """
     with open(path, encoding="utf-8") as model_file:
         model = json.load(model_file)
-    return {feature["name"]: feature["sentence"] for feature in model.get("features", [])}
+    return {feature["name"]: feature.get("sentence", feature.get("text", "")) for feature in model.get("features", [])}
 
 
 def load_model_version(path: str | Path) -> str:
@@ -49,7 +52,13 @@ def newest_model_version(records: list[dict]) -> tuple[list[dict], str, list[str
 
 
 def summarize_readings(records: list[dict]) -> dict:
-    """Condense log records into what the agent needs. Spectra are left out."""
+    """Condense log records into what the agent needs. Spectra and heat images are left out.
+
+    Readings are in spreads from this machine's normal, signed (contract
+    message 2). A peak is the largest move either way, as a size. Records
+    list only the readings that moved most, so a reading's mean is over the
+    windows that list it.
+    """
     if not records:
         return {"windows": 0}
     activity: dict[str, list[float]] = {}
@@ -57,10 +66,14 @@ def summarize_readings(records: list[dict]) -> dict:
     peak_by_diagnosis: dict[str, dict[str, float]] = {}
     for record in records:
         peaks = peak_by_diagnosis.setdefault(record.get("diagnosis"), {})
-        for name, value in record.get("features", {}).items():
+        for name, value in (record.get("features") or {}).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
             activity.setdefault(name, []).append(value)
-            peaks[name] = max(peaks.get(name, 0.0), round(value, 3))
+            peaks[name] = max(peaks.get(name, 0.0), round(abs(value), 3))
         masked.update(record.get("mask", []))
+    # null while warming_up or stopped (contract message 2)
+    scores = [r["unknown_score"] for r in records if isinstance(r.get("unknown_score"), (int, float))]
     return {
         "windows": len(records),
         "first_at": records[0].get("at"),
@@ -72,9 +85,9 @@ def summarize_readings(records: list[dict]) -> dict:
         "masked_windows": dict(masked),
         # Diagnosis -> feature -> highest activity in windows with that diagnosis.
         "peak_by_diagnosis": peak_by_diagnosis,
-        "max_unknown_score": max(r.get("unknown_score", 0.0) for r in records),
+        "max_unknown_score": max(scores) if scores else None,
         "feature_activity": {
-            name: {"mean": round(sum(values) / len(values), 3), "peak": round(max(values), 3)}
+            name: {"mean": round(sum(values) / len(values), 3), "peak": round(max(abs(v) for v in values), 3)}
             for name, values in activity.items()
         },
     }

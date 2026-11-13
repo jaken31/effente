@@ -1,17 +1,17 @@
 {
-  "note": "Clear imbalance. Must cite once_per_turn; rattle is quiet and must not be cited.",
+  "note": "Clear unbalance-like. Must cite vib_1x; vib_harm_3_10 is quiet and must not be cited.",
   "model_file": "model.json",
   "runs": [
     {
       "machine_id": "conveyor-07",
       "diagnoses": {
-        "imbalance": 20
+        "unbalance_like": 20
       },
       "may_cite": [
-        "once_per_turn"
+        "vib_1x"
       ],
       "must_cite": [
-        "once_per_turn"
+        "vib_1x"
       ],
       "priority": [
         "medium",

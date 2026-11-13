@@ -1,17 +1,17 @@
 {
-  "note": "Loose mount. Must cite rattle.",
+  "note": "Looseness or rattle. Must cite vib_harm_3_10.",
   "model_file": "model.json",
   "runs": [
     {
       "machine_id": "conveyor-07",
       "diagnoses": {
-        "loose_mount": 20
+        "looseness_or_rattle": 20
       },
       "may_cite": [
-        "rattle"
+        "vib_harm_3_10"
       ],
       "must_cite": [
-        "rattle"
+        "vib_harm_3_10"
       ],
       "priority": [
         "medium",

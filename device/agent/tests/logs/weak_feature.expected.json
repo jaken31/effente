@@ -1,11 +1,11 @@
 {
-  "note": "Device says imbalance, but once_per_turn peaks at 0.44, below the 0.5 threshold. It must not be cited.",
+  "note": "Device says unbalance_like, but vib_1x peaks at 5.28 spreads, below the 6 that counts as moved. It must not be cited.",
   "model_file": "model.json",
   "runs": [
     {
       "machine_id": "conveyor-07",
       "diagnoses": {
-        "imbalance": 20
+        "unbalance_like": 20
       },
       "may_cite": [],
       "must_cite": [],

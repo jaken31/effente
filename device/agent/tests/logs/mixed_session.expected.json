@@ -1,22 +1,22 @@
 {
-  "note": "One demo session with every case: normal, imbalance, loose mount, then unknown last. The report must name all of them, cite both features, fix loose mount first and say the unknown windows need inspection.",
+  "note": "One demo session with every case: normal, unbalance-like, looseness or rattle, then an unrecognised pattern last. The report must name all of them, cite both readings, fix looseness or rattle first and say the unrecognised pattern windows need inspection.",
   "model_file": "model.json",
   "runs": [
     {
       "machine_id": "demo-fan-1",
       "diagnoses": {
         "normal": 9,
-        "imbalance": 6,
-        "loose_mount": 25,
-        "unknown": 5
+        "unbalance_like": 6,
+        "looseness_or_rattle": 25,
+        "unrecognised_pattern": 5
       },
       "may_cite": [
-        "once_per_turn",
-        "rattle"
+        "vib_1x",
+        "vib_harm_3_10"
       ],
       "must_cite": [
-        "once_per_turn",
-        "rattle"
+        "vib_1x",
+        "vib_harm_3_10"
       ],
       "priority": [
         "high"

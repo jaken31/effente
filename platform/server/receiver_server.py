@@ -1,5 +1,5 @@
 """HTTP side of the effente receiver: API routes, the event stream and the
-dashboard's static files. Routes follow platform/CONTRACT.md sections 1 to 5.
+dashboard's static files. Routes follow platform/CONTRACT.md sections 1 to 7.
 """
 
 import http.server
@@ -209,11 +209,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (("model",), {"POST": self.post_model}),
             (("records",), {"POST": self.post_records}),
             (("devices", None), {"POST": self.post_check_in}),
+            (("devices", None, "settings"), {"PUT": self.put_settings}),
+            (("alarms", None, "answers"), {"POST": self.post_answer}),
             (("agent", "runs", None), {"PUT": self.put_run}),
             (("state",), {"GET": self.get_state}),
             (("stream",), {"GET": self.get_stream}),
             (("machines", None, "records"), {"GET": self.get_machine_records}),
             (("machines", None, "agent-runs"), {"GET": self.get_machine_runs}),
+            (("machines", None, "alarms"), {"GET": self.get_machine_alarms}),
         ]
         for pattern, methods in routes:
             if len(pattern) != len(parts):
@@ -256,8 +259,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._json(200, self.server.store.add_records(self._body()))
 
     def post_check_in(self, query, device_id):
-        self.server.store.check_in(device_id, self._body())
-        self._json(200, {"ok": True})
+        self._json(200, self.server.store.check_in(device_id, self._body()))
+
+    def put_settings(self, query, device_id):
+        settings = self.server.store.put_settings(device_id, self._body())
+        self._json(200, {"ok": True, "settings": settings})
+
+    def post_answer(self, query, alarm_id):
+        alarm = self.server.store.answer_alarm(alarm_id, self._body())
+        self._json(200, {"ok": True, "alarm": alarm})
 
     def put_run(self, query, run_id):
         self.server.store.put_run(run_id, self._body())
@@ -276,6 +286,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def get_machine_runs(self, query, machine_id):
         limit = _limit(query, 20)
         self._json(200, {"ok": True, "runs": self.server.store.machine_runs(machine_id, limit)})
+
+    def get_machine_alarms(self, query, machine_id):
+        limit = _limit(query, 20)
+        self._json(200, {"ok": True, "alarms": self.server.store.machine_alarm_list(machine_id, limit)})
 
     def get_stream(self, query):
         hub = self.server.hub
