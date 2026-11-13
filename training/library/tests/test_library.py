@@ -84,7 +84,8 @@ def check_manifest(m: dict, model: dict):
     assert isinstance(m["built"]["seed"], int) and m["built"]["git_commit"]
     assert m["model_sha1"] == hashlib.sha1(json.dumps(model, separators=(",", ":")).encode()).hexdigest()
     cal = m["calibration"]
-    assert list(cal) == ["min_s", "hold", "widen", "prep", "threshold"]
+    assert list(cal) == ["min_s", "hold", "widen", "widen_use", "prep", "threshold"]
+    assert cal["widen_use"].startswith("recorded only")
     assert cal["min_s"] == 300 and cal["hold"] == list(B.HOLD)
     first = next(s["name"] for s in m["sources"] if s["used_for"] == "training")
     assert first in cal["prep"] and "held-out" in cal["threshold"]  # what the file's own numbers stand for

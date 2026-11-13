@@ -45,7 +45,9 @@ How an entry is built:
               others were re-expressed onto, step 2): its medians are one machine's levels, not a
               type's, and its spreads are in that machine's units. The threshold is the trainer's,
               from the held-out rows of every machine.
-     Calibration (effente/calibration.py) decides what to do with these; nothing here applies them.
+     These are recorded data. Nothing here applies them, and calibration does not read the widen
+     factors: on simulated conveyors they gave more false alarms than keeping the entry's own
+     spreads as the floor (README.md, "Calibration notes").
   8. Scorecard: each fault check in the catalog switches a simulated fault on in the first
      training machine and runs the device's own Watcher. A fault type is "simulated only" if the
      Watcher stayed quiet before the fault and named that type at the end; otherwise "not validated".
@@ -97,6 +99,8 @@ QUIET = ("normal", "warming_up", "stopped")
 CALIBRATION_S = 300  # the calibration length the entries are built for (the trainer's 300 rows at 1 s)
 HOLD = ("time_", "trend_", "imu_temp_c")  # readings 5 minutes cannot refit: name prefixes, or a whole name
 WIDEN_RANGE = (1.0, 5.0)
+WIDEN_USE = ("recorded only: effente.calibration does not read these factors. On simulated conveyors they gave "
+             "more false alarms than keeping the entry's own spreads as the floor (training/library/README.md)")
 
 
 # ----------------------------------------------------------------- rows
@@ -323,6 +327,7 @@ def build(entry: Entry, seed: int = 0, out_dir=ENTRIES_DIR, jobs: int | None = N
         "model_sha1": hashlib.sha1(raw).hexdigest(),
         "calibration": {
             "min_s": CALIBRATION_S, "hold": list(HOLD), "widen": widen_factors(machines, d["prep"]["columns"]),
+            "widen_use": WIDEN_USE,
             # What the model file's own numbers stand for, for anything that uses them as a floor.
             "prep": (f"the medians and spreads of {training[0].name}, the first training source; the other "
                      f"{len(training) - 1} were re-expressed onto them before pooling" if len(training) > 1 else
