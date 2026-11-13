@@ -27,9 +27,10 @@ _LUT_BYTES: list[bytes] | None = None
 
 
 # The mockup's thermal stops, coldest first: gray to white, then red for the hottest.
+# Fixed colours, not tokens: hot stays red whatever the colour scheme.
 STOPS = (
     "#0b0b0b", "#1f1f1f", "#383838", "#565656", "#7a7a7a",
-    "#a3a3a3", "#cfcfcf", "#f2f2f2", "#ff8a6a", T.RED,
+    "#a3a3a3", "#cfcfcf", "#f2f2f2", "#ff8a6a", "#ff4d2e",
 )
 
 
