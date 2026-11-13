@@ -10,11 +10,15 @@ from __future__ import annotations
 import getpass
 import math
 import os
+import sys
+import threading
 import time
+from urllib.parse import urlsplit
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, Signal
 
-from . import logic
+from . import logic, paths
+from .api import ApiClient, ApiError, StreamReader
 
 
 def _slim(record: dict, spectrum: bool, frames: bool) -> dict:
@@ -40,9 +44,10 @@ class StateReads(QObject):
     problems_changed = Signal()
     settings_changed = Signal()
     connection_changed = Signal(bool)
-    # Additions (see the report): a sentence about the agent run for the
-    # Agents page, such as a refusal or report.py's own message.
+    # Additions to INTERFACES.md: a sentence about the agent run for the Agents
+    # page (a refusal, or report.py's own message), and why an action failed.
     agent_message = Signal(str)
+    action_failed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,7 +132,7 @@ class StateReads(QObject):
     def problems(self) -> list:
         """The shown device's problems now, limits first as sent. [] while not connected."""
         d = self._device()
-        return d["problems"] if d else []
+        return logic.problem_order(d["problems"]) if d else []
 
     def freshness(self) -> dict:
         """{"status": logic.device_status, "age_s": seconds since the newest record or None,
@@ -221,3 +226,260 @@ class StateReads(QObject):
     def sim(self):
         """None, or the running simulated device: `.key(k)` and `.status()`."""
         return
+
+
+LIVE_KEY = "ANTHROPIC_API_KEY"
+NO_KEY_MESSAGE = (
+    "Live mode needs ANTHROPIC_API_KEY in the laptop's environment. Set it before starting the app, "
+    "or run the stand-in."
+)
+
+
+class DashboardState(StateReads):
+    """The live state: GET /api/state and /api/stream from the receiver, and
+    the actions. `start()` begins reading; `stop()` ends it and any agent run.
+
+    `api` is an ApiClient or a base URL. `host` is the ReceiverHost, when the
+    app runs one, for `sim()`. `report_script` is platform/report.py unless a
+    test passes a copy.
+    """
+
+    _done = Signal(object)  # a callable to run on the Qt thread, from a worker thread
+
+    def __init__(self, api, host=None, report_script=None, parent=None):
+        super().__init__(parent)
+        self.api = api if isinstance(api, ApiClient) else ApiClient(api)
+        self.host = host
+        self.report_script = str(report_script or paths.REPORT_SCRIPT)
+        self.reader = StreamReader(self.api, self)
+        self.reader.connected.connect(self._on_connected, Qt.QueuedConnection)
+        self.reader.snapshot.connect(self._on_snapshot, Qt.QueuedConnection)
+        self.reader.event.connect(self._on_event, Qt.QueuedConnection)
+        self._done.connect(self._run_done, Qt.QueuedConnection)
+        self._loaded_machine = None
+        self._loading = None  # machine whose history is being fetched
+        self._agent = None  # QProcess of the agent run this app started
+        self._agent_output = b""
+
+    # ---- lifecycle --------------------------------------------------------
+
+    def start(self) -> None:
+        self.reader.start()
+
+    def stop(self) -> None:
+        self.reader.stop()
+        if self._agent is not None and self._agent.state() != QProcess.NotRunning:
+            self._agent.kill()
+            self._agent.waitForFinished(3000)
+
+    # ---- background work --------------------------------------------------
+
+    def _background(self, work, done) -> None:
+        """Run `work()` on a worker thread, then `done(result, error)` on the Qt thread."""
+
+        def run():
+            try:
+                result, error = work(), None
+            except ApiError as e:
+                result, error = None, str(e)
+            self._done.emit(lambda: done(result, error))
+
+        threading.Thread(target=run, name="effente-api", daemon=True).start()
+
+    def _run_done(self, fn) -> None:
+        fn()
+
+    # ---- the stream -------------------------------------------------------
+
+    def _on_connected(self, up: bool) -> None:
+        self._s["platform_up"] = up
+        self._s["platform_lost"] = not up
+        self.connection_changed.emit(up)
+        self.snapshot_changed.emit()
+
+    def _on_snapshot(self, snap) -> None:
+        logic.apply_snapshot(self._s, snap, self.now_ms())
+        logic.apply_laptop_snapshot(self._s, snap)
+        self._load_machine(force=True)
+        self.snapshot_changed.emit()
+        self.alarms_changed.emit()
+        self.problems_changed.emit()
+        self.settings_changed.emit()
+        self.runs_changed.emit()
+
+    def _on_event(self, name: str, data) -> None:
+        shown = self.device_id()
+        before = self._problem_key()
+        logic.apply_event(self._s, name, data, self.now_ms(), slim=False)
+        logic.apply_laptop_event(self._s, name, data)
+        if self.current_machine() != self._loaded_machine:
+            self._load_machine()
+        if name == "record":
+            if data.get("machine_id") == self.current_machine():
+                self.record_added.emit(data)
+            if data.get("device_id") != shown:
+                self.snapshot_changed.emit()  # the shown device may have changed
+        elif name == "alarm":
+            self.alarms_changed.emit()
+        elif name == "agent_run":
+            self.runs_changed.emit()
+        elif name == "settings":
+            self.settings_changed.emit()
+        elif name in ("model", "device"):
+            self.snapshot_changed.emit()
+        if self._problem_key() != before:
+            self.problems_changed.emit()
+
+    def _problem_key(self):
+        d = self._device()
+        if not d:
+            return None
+        return d["wrong"], tuple((p.get("name"), p.get("value")) for p in d["problems"])
+
+    def _machine_picked(self) -> None:
+        self._load_machine()
+
+    def _load_machine(self, force=False) -> None:
+        """Fetch the current machine's records (with spectrum and images) and runs, merged with what streamed in."""
+        machine = self.current_machine()
+        if not machine or (not force and machine in (self._loaded_machine, self._loading)):
+            return
+        self._loading = machine
+        self._s["history"].setdefault(machine, [])  # streamed records are kept from now and merged in
+
+        def work():
+            return (self.api.machine_records(machine, logic.HISTORY_CAP, spectrum=True, frames=True),
+                    self.api.machine_runs(machine))
+
+        def done(result, error):
+            if self._loading == machine:
+                self._loading = None
+            if error:
+                self._loaded_machine = None  # try again on the next event
+                return
+            records, runs = result
+            logic.set_history(self._s, machine, records, slim=False)
+            logic.add_runs(self._s, runs)
+            self._loaded_machine = machine
+            if machine == self.current_machine():
+                self.snapshot_changed.emit()
+                self.runs_changed.emit()
+
+        self._background(work, done)
+
+    # ---- actions ----------------------------------------------------------
+
+    def answer_alarm(self, alarm_id, verdict, finding=None) -> None:
+        """Send an answer (contract section 6) with `by` from answerer(). alarms_changed fires once stored."""
+        if verdict not in logic.VERDICT_TEXT:
+            self.action_failed.emit(f"Unknown verdict: {verdict}")
+            return
+        by = self.answerer()
+
+        def done(alarm, error):
+            if error:
+                self.action_failed.emit(f"Answer not saved: {error}")
+                return
+            # The stream may already have brought this answer, or a later one.
+            have = self._s["alarms"].get(alarm_id)
+            if have is None or len(alarm.get("answers") or []) > len(have.get("answers") or []):
+                logic.apply_laptop_event(self._s, "alarm", alarm)
+            self.alarms_changed.emit()
+
+        self._background(lambda: self.api.answer_alarm(alarm_id, verdict, by, finding=finding), done)
+
+    def set_sensitivity(self, value) -> None:
+        """Ask the shown device for a sensitivity from 0 to 1, or None to clear (contract section 7).
+        settings_changed fires when the receiver has it, and again when the device reports it."""
+        device_id = self.device_id()
+        if device_id is None:
+            self.action_failed.emit("No device to set the sensitivity of.")
+            return
+        if value is not None and logic._sensitivity_or_none(value) is None:
+            self.action_failed.emit("Sensitivity must be from 0 to 1.")
+            return
+        value = None if value is None else float(value)
+
+        def done(settings, error):
+            if error:
+                self.action_failed.emit(f"Sensitivity not set: {error}")
+                return
+            d = logic.ensure_device(self._s, device_id)
+            d["settings"] = settings
+            d.setdefault("sensitivity", None)
+            self.settings_changed.emit()
+
+        self._background(lambda: self.api.put_settings(device_id, value), done)
+
+    def start_agent(self, mode="standin") -> bool:
+        """Run `python3 platform/report.py` for the current machine, as a local process.
+        Live mode needs ANTHROPIC_API_KEY in the environment and is refused without it;
+        the key is never asked for. Returns whether a run started. The run's tool calls
+        arrive over the stream (runs_changed); agent_message says why a run did not start or failed."""
+        machine = self.current_machine()
+        if mode not in ("standin", "live"):
+            raise ValueError("mode is 'standin' or 'live'")
+        if machine is None:
+            self._say("No machine to report on yet.")
+            return False
+        if self.agent_running():
+            self._say(f"A report for {machine} is already running.")
+            return False
+        if mode == "live" and not os.environ.get(LIVE_KEY, "").strip():
+            self._say(NO_KEY_MESSAGE)
+            return False
+        args = [self.report_script, "--machine", machine, "--port", str(self._port())]
+        if mode == "live":
+            args.append("--live")
+        proc = QProcess(self)
+        proc.setProcessEnvironment(QProcessEnvironment.systemEnvironment())
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        proc.readyReadStandardOutput.connect(self._agent_read)
+        proc.finished.connect(self._agent_finished)
+        proc.errorOccurred.connect(self._agent_error)
+        self._agent = proc
+        self._agent_output = b""
+        self._say("")
+        proc.start(sys.executable, args)
+        self.runs_changed.emit()
+        return True
+
+    def _port(self) -> int:
+        return urlsplit(self.api.base).port or 80
+
+    def _agent_process_alive(self) -> bool:
+        return self._agent is not None and self._agent.state() != QProcess.NotRunning
+
+    def _agent_read(self) -> None:
+        if self._agent is not None:
+            self._agent_output += bytes(self._agent.readAllStandardOutput())
+
+    def _agent_error(self, error) -> None:
+        if error == QProcess.FailedToStart:
+            self._say(f"Could not start {self.report_script}.")
+            self._agent = None
+            self.runs_changed.emit()
+
+    def _agent_finished(self, code, status) -> None:
+        self._agent_read()
+        text = self._agent_output.decode("utf-8", errors="replace")
+        self._agent = None
+        if status != QProcess.NormalExit:
+            self._say("The report agent stopped before it finished.")
+        elif code != 0:
+            self._say(_agent_failure(text))
+        self.runs_changed.emit()
+
+    # ---- simulator --------------------------------------------------------
+
+    def sim(self):
+        return self.host.sim if self.host is not None else None
+
+
+def _agent_failure(output: str) -> str:
+    """The line worth showing from a failed report.py run: its own message, as written."""
+    lines = [x.strip() for x in output.splitlines() if x.strip()]
+    for line in reversed(lines):
+        if not line.startswith(("{", "}", "[", "]", '"')) and not line.endswith((",", "{", "[")):
+            return line
+    return "The report agent did not write a report."
