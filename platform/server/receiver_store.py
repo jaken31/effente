@@ -4,6 +4,8 @@ Holds everything in memory and appends each change to a JSON lines file in
 the data dir, so history survives a restart. Check-ins (platform/CONTRACT.md
 message 3) and each device's mode and problems are not stored: after a restart
 no device is connected, so they start empty until the device is heard from.
+Alarms (section 6) are not stored either: they are worked out again from the
+stored records at start, and the stored answers are put back on them.
 
 Every public method takes the one lock, so the HTTP handler threads can call
 them freely. Events go out through `emit(name, data)`, which must not block.
@@ -11,6 +13,7 @@ them freely. Events go out through `emit(name, data)`, which must not block.
 
 import datetime as dt
 import json
+import math
 import os
 import re
 import sys
@@ -25,6 +28,9 @@ QUIET_REASON = "device quiet"
 REQUIRED_RUN_FIELDS = ("run_id", "machine_id", "at", "status")
 RUN_STATUSES = ("running", "done")
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+NOT_ABNORMAL = ("normal", "stopped", "warming_up")  # any other diagnosis is abnormal (section 6)
+ALARMS_PER_MACHINE = 20  # newest alarms of each machine in /api/state, besides every open one
+VERDICTS = ("real", "false")
 
 DEFAULT_HISTORY_LIMIT = 300
 MAX_HISTORY_LIMIT = 2000
@@ -33,6 +39,8 @@ QUIET_AFTER_S = 5.0
 RECORDS_FILE = "records.jsonl"
 MODELS_FILE = "models.jsonl"
 RUNS_FILE = "agent_runs.jsonl"
+ANSWERS_FILE = "alarm_answers.jsonl"
+SETTINGS_FILE = "settings.jsonl"
 
 
 class BadRequest(Exception):
@@ -67,6 +75,19 @@ def _parse_time(text):
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt.timezone.utc)
     return value.timestamp()
+
+
+def _number(value):
+    """`value` if it is a finite number (not a bool), else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _sensitivity(value):
+    """`value` if it is a sensitivity, a number from 0 to 1, else None."""
+    value = _number(value)
+    return value if value is not None and 0 <= value <= 1 else None
 
 
 def _require_strings(obj, names, what):
@@ -153,6 +174,7 @@ class Device:
         self.machine_id = None  # from the newest record or check-in
         self.wrong = False  # from the newest record or check-in, this run only
         self.problems = []  # likewise; [] while not connected
+        self.sensitivity = None  # last value the device reported; kept while not connected
         self.latest = None
 
 
@@ -167,6 +189,8 @@ class Store:
         self.records_file = JsonLines(os.path.join(data_dir, RECORDS_FILE))
         self.models_file = JsonLines(os.path.join(data_dir, MODELS_FILE))
         self.runs_file = JsonLines(os.path.join(data_dir, RUNS_FILE))
+        self.answers_file = JsonLines(os.path.join(data_dir, ANSWERS_FILE))
+        self.settings_file = JsonLines(os.path.join(data_dir, SETTINGS_FILE))
         self.records = []  # every record, in seq order
         self.by_machine = {}  # machine_id -> list of records
         self.models = {}  # model_version -> announcement
@@ -174,6 +198,12 @@ class Store:
         self.run_order = {}  # run_id -> order of last update, breaks ties in sorting
         self._run_counter = 0
         self.devices = {}
+        self.settings = {}  # device_id -> {"sensitivity": x}, what the dashboard set
+        self.alarms = {}  # alarm_id -> alarm
+        self.alarm_seq = {}  # alarm_id -> seq of the record that opened it
+        self.machine_alarms = {}  # machine_id -> its alarms, oldest first
+        self.open_alarms = {}  # machine_id -> its open alarm
+        self.last_minutes = {}  # machine_id -> abnormal_minutes of the open alarm's newest record
         self.next_seq = 1
         self._load()
 
@@ -190,6 +220,7 @@ class Store:
                 device = self._device(device_id)
                 device.announced_version = version
                 device.model_version = version
+                self._note_sensitivity(device, model.get("sensitivity"), emit=False)
         for record in self.records_file.load():
             if not isinstance(record.get("device_id"), str) or not isinstance(record.get("machine_id"), str):
                 continue
@@ -205,13 +236,37 @@ class Store:
             device.last_seen = record.get("received_at", device.last_seen)
             if isinstance(record.get("model_version"), str):
                 device.model_version = record["model_version"]
+            self._note_sensitivity(device, record.get("sensitivity"), emit=False)
         self.records.sort(key=lambda r: r["seq"])
         for history in self.by_machine.values():
             history.sort(key=lambda r: r["seq"])
+        for record in self.records:
+            if isinstance(record.get("diagnosis"), str):
+                self._track_alarm(record, emit=False)
         for run in self.runs_file.load():
             run_id = run.get("run_id")
             if isinstance(run_id, str):
                 self._put_run(run)
+        lost = 0
+        for answer in self.answers_file.load():
+            alarm = self.alarms.get(answer.get("alarm_id"))
+            if alarm is None:
+                lost += 1
+                continue
+            alarm["answers"].append(answer)
+            alarm["answer"] = answer
+        if lost:
+            print(f"warning: {lost} stored answer(s) belong to alarms no stored record opens", file=sys.stderr)
+        for entry in self.settings_file.load():
+            device_id = entry.get("device_id")
+            if not isinstance(device_id, str):
+                continue
+            self._device(device_id)
+            value = _sensitivity(entry.get("sensitivity"))
+            if value is None:
+                self.settings.pop(device_id, None)
+            else:
+                self.settings[device_id] = {"sensitivity": value}
 
     def _device(self, device_id):
         device = self.devices.get(device_id)
@@ -283,6 +338,35 @@ class Store:
                     {"device_id": device.device_id, "machine_id": device.machine_id, "at": message["at"], "problem": problem},
                 )
 
+    def _note_sensitivity(self, device, value, emit=True):
+        """Keep the sensitivity a device reported, if it reported one, and
+        emit `settings` when it changed. Caller holds the lock."""
+        value = _sensitivity(value)
+        if value is None or value == device.sensitivity:
+            return
+        device.sensitivity = value
+        if emit:
+            self.emit("settings", self._settings_event(device.device_id))
+
+    def _settings_event(self, device_id):
+        device = self.devices.get(device_id)
+        return {
+            "device_id": device_id,
+            "sensitivity": device.sensitivity if device else None,
+            "settings": self._wanted(device_id),
+        }
+
+    def _wanted(self, device_id):
+        wanted = self.settings.get(device_id)
+        return dict(wanted) if wanted else None
+
+    def _reply_settings(self, reply, device_id):
+        """Add the dashboard's settings to a reply to message 2 or 3, once set."""
+        wanted = self._wanted(device_id)
+        if wanted:
+            reply["settings"] = wanted
+        return reply
+
     @staticmethod
     def _cleared_event(device, at, name, reason=None):
         event = {"device_id": device.device_id, "machine_id": device.machine_id, "at": at, "name": name}
@@ -325,7 +409,13 @@ class Store:
             device = self._touch(model["device_id"])
             device.announced_version = model["model_version"]
             device.model_version = model["model_version"]
+            library_entry = model.get("library_entry")
+            if isinstance(library_entry, str):
+                for alarm in self.alarms.values():
+                    if alarm["model_version"] == model["model_version"] and alarm["library_entry"] is None:
+                        alarm["library_entry"] = library_entry
             self.emit("model", model)
+            self._note_sensitivity(device, model.get("sensitivity"))
 
     # ---- message 2: records -----------------------------------------------
 
@@ -356,7 +446,10 @@ class Store:
                     need_model = True
                 self.emit("record", record)
                 self._set_problems(device, record)
-            return {"ok": True, "stored": len(batch), "need_model": need_model}
+                self._note_sensitivity(device, record.get("sensitivity"))
+                self._track_alarm(record)
+            reply = {"ok": True, "stored": len(batch), "need_model": need_model}
+            return self._reply_settings(reply, batch[-1]["device_id"]) if batch else reply
 
     # ---- message 3: check-in ----------------------------------------------
 
@@ -371,6 +464,8 @@ class Store:
         with self.lock:
             device = self._touch(device_id, body["mode"])
             self._set_problems(device, body)
+            self._note_sensitivity(device, body.get("sensitivity"))
+            return self._reply_settings({"ok": True}, device_id)
 
     # ---- message 4: agent runs --------------------------------------------
 
@@ -395,6 +490,136 @@ class Store:
             runs.sort(key=lambda r: (_parse_time(r.get("at")), self.run_order[r["run_id"]]), reverse=True)
             return runs[:limit]
 
+    # ---- section 6: alarms ------------------------------------------------
+
+    def _track_alarm(self, record, emit=True):
+        """Open, grow or close the machine's alarm with one record, taken in
+        `seq` order. Caller holds the lock."""
+        machine_id = record["machine_id"]
+        alarm = self.open_alarms.get(machine_id)
+        minutes = _number(record.get("abnormal_minutes"))
+        if record["diagnosis"] in NOT_ABNORMAL:
+            if alarm is not None:
+                self._close_alarm(alarm, emit)
+            return
+        if alarm is not None:
+            last = self.last_minutes.get(machine_id)
+            restarted = minutes is not None and last is not None and minutes < last
+            if restarted or alarm["device_id"] != record["device_id"] or alarm["model_version"] != record["model_version"]:
+                self._close_alarm(alarm, emit)
+                alarm = None
+        if minutes is not None:
+            self.last_minutes[machine_id] = minutes
+        score = _number(record.get("unknown_score"))
+        if alarm is None:
+            alarm = {
+                "alarm_id": f"alarm-{record['seq']}",
+                "machine_id": machine_id,
+                "device_id": record["device_id"],
+                "model_version": record["model_version"],
+                "library_entry": self._library_entry(record["model_version"]),
+                "start": record["at"],
+                "end": record["at"],
+                "open": True,
+                "diagnosis": record["diagnosis"],
+                "periods": minutes,
+                "peak_unknown_score": score,
+                "sensitivity": _sensitivity(record.get("sensitivity")),
+                "alarm_line": _number(record.get("alarm_line")),
+                "simulated": record.get("simulated") is True,
+                "answer": None,
+                "answers": [],
+            }
+            self.alarms[alarm["alarm_id"]] = alarm
+            self.alarm_seq[alarm["alarm_id"]] = record["seq"]
+            self.machine_alarms.setdefault(machine_id, []).append(alarm)
+            self.open_alarms[machine_id] = alarm
+            if emit:
+                self.emit("alarm", _alarm_copy(alarm))
+            return
+        changed = record["diagnosis"] != alarm["diagnosis"]
+        alarm["diagnosis"] = record["diagnosis"]
+        alarm["end"] = record["at"]
+        if minutes is not None and (alarm["periods"] is None or minutes > alarm["periods"]):
+            alarm["periods"] = minutes
+            changed = True
+        if score is not None and (alarm["peak_unknown_score"] is None or score > alarm["peak_unknown_score"]):
+            alarm["peak_unknown_score"] = score
+        if record.get("simulated") is True:
+            alarm["simulated"] = True
+        if changed and emit:
+            self.emit("alarm", _alarm_copy(alarm))
+
+    def _close_alarm(self, alarm, emit):
+        alarm["open"] = False
+        self.open_alarms.pop(alarm["machine_id"], None)
+        self.last_minutes.pop(alarm["machine_id"], None)
+        if emit:
+            self.emit("alarm", _alarm_copy(alarm))
+
+    def _library_entry(self, model_version):
+        entry = self.models.get(model_version, {}).get("library_entry")
+        return entry if isinstance(entry, str) else None
+
+    def _newest_first(self, alarms):
+        return sorted(alarms, key=lambda a: (_parse_time(a["start"]), self.alarm_seq[a["alarm_id"]]), reverse=True)
+
+    def machine_alarm_list(self, machine_id, limit):
+        with self.lock:
+            alarms = self._newest_first(self.machine_alarms.get(machine_id, []))
+            return [_alarm_copy(a) for a in alarms[:limit]]
+
+    def answer_alarm(self, alarm_id, body):
+        """Add a person's answer to an alarm. Returns the alarm with it."""
+        if not isinstance(body, dict):
+            raise BadRequest("answer must be a JSON object")
+        if body.get("verdict") not in VERDICTS:
+            raise BadRequest("answer 'verdict' must be 'real' or 'false'")
+        by = body.get("by")
+        if not isinstance(by, str) or not by.strip():
+            raise BadRequest("answer is missing required field 'by' (the name the person gave)")
+        if "at" in body and body["at"] is not None and not isinstance(body["at"], str):
+            raise BadRequest("answer 'at' must be an ISO time string")
+        if "finding" in body and body["finding"] is not None and not isinstance(body["finding"], str):
+            raise BadRequest("answer 'finding' must be text")
+        with self.lock:
+            alarm = self.alarms.get(alarm_id)
+            if alarm is None:
+                raise BadRequest(f"no such alarm: {alarm_id}")
+            answer = dict(body)
+            if not answer.get("at"):
+                answer["at"] = utc_now()
+            answer["alarm_id"] = alarm_id
+            answer["machine_id"] = alarm["machine_id"]
+            answer["model_version"] = alarm["model_version"]
+            answer["library_entry"] = alarm["library_entry"]
+            answer["received_at"] = utc_now()
+            self.answers_file.append([answer])
+            alarm["answers"].append(answer)
+            alarm["answer"] = answer
+            copy = _alarm_copy(alarm)
+            self.emit("alarm", copy)
+            return copy
+
+    # ---- section 7: settings ----------------------------------------------
+
+    def put_settings(self, device_id, body):
+        """Set or clear the sensitivity the dashboard wants. Returns the settings, or None once cleared."""
+        if not isinstance(body, dict) or "sensitivity" not in body:
+            raise BadRequest("settings must be a JSON object with 'sensitivity' (0 to 1, or null to clear)")
+        value = body["sensitivity"]
+        if value is not None and _sensitivity(value) is None:
+            raise BadRequest("'sensitivity' must be a number from 0 to 1, or null to clear")
+        with self.lock:
+            self.settings_file.append([{"device_id": device_id, "sensitivity": value, "at": utc_now()}])
+            self._device(device_id)
+            if value is None:
+                self.settings.pop(device_id, None)
+            else:
+                self.settings[device_id] = {"sensitivity": value}
+            self.emit("settings", self._settings_event(device_id))
+            return self._wanted(device_id)
+
     # ---- section 5: reads -------------------------------------------------
 
     def machine_records(self, machine_id, limit, spectrum, frames=False):
@@ -416,12 +641,25 @@ class Store:
                     "model_version": device.model_version,
                     "wrong": device.wrong if connected else False,
                     "problems": list(device.problems) if connected else [],
+                    "sensitivity": device.sensitivity,
+                    "settings": self._wanted(device.device_id),
                     "latest": device.latest,
                 }
+            alarms = {}
+            for history in self.machine_alarms.values():
+                newest = self._newest_first(history)
+                for alarm in newest[:ALARMS_PER_MACHINE] + [a for a in newest[ALARMS_PER_MACHINE:] if a["open"]]:
+                    alarms[alarm["alarm_id"]] = _alarm_copy(alarm)
             return {
                 "ok": True,
                 "now": utc_now(),
                 "devices": devices,
                 "models": dict(self.models),
                 "machines": sorted(self.by_machine),
+                "alarms": alarms,
             }
+
+
+def _alarm_copy(alarm):
+    """A copy safe to hand out of the lock: the answers list keeps growing."""
+    return dict(alarm, answers=list(alarm["answers"]))
