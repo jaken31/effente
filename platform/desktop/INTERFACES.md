@@ -89,6 +89,9 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
 9. **History reads its whole range** (PR #30 adds `since` and `after_seq` to the records route). `range_records(span_s=None)` returns the current machine's records from `span_s` seconds before its newest one, or all; `range_loaded()` fires once the range is read. `FakeState` answers from its fixed records.
 10. **New alarms and failed actions show as notices.** `alarm_opened(dict)` fires for an open alarm on any machine that was not there at the first look. The window stacks notices for it and for `action_failed`.
 11. **Closing during a report run asks.** `own_agent_running()` and `stop_agent()`: the run starts in its own session so stopping ends `report.py` and the agent it started. The window offers stop and close, close when it finishes, or cancel.
+12. **The window shrinks to 960x660** and opens at 1440x900. In a narrow window the top bar drops the subtitle; a page narrower than its content scrolls sideways.
+13. **The window opens where the last run closed.** `MainWindow(settings=...)` keeps its size, page and hand-picked machine in the store from `app/settings.py`, which also holds the colour scheme. Tests pass no store, so they remember nothing.
+14. **More shortcuts, listed by `?`.** `app/shell/shortcuts.py` holds one table that registers the keys and fills the list: Esc, `[` and `]` for the machine, Ctrl+R, Ctrl+E, F11, `?` or F1, Ctrl+Q. A page takes part in Ctrl+E by having `export_dialog()`; Ctrl+R calls the Agents page's `run_agent()`.
 
 ## Rules
 
