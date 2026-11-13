@@ -24,7 +24,6 @@ from ...theme import tokens as t
 from ...widgets import Button, DataTable, Panel
 from ..live.charts import DiagnosisBand, LineChart, LineChartSpec, RefLine, Series
 from ..live.common import (
-    EVIDENCE_SPREADS,
     clock,
     diagnosis_color,
     fault_group,
@@ -190,7 +189,6 @@ class HistoryPage(QWidget):
         self.range.currentIndexChanged.connect(lambda _i: self.refresh())
         self.btn_export = Button("Export CSV", "secondary", self.trends, small=True)
         self.btn_export.clicked.connect(self._export_dialog)
-        self.trends.header_end.addStretch(1)
         self.trends.header_end.addWidget(self.range)
         self.trends.header_end.addWidget(self.btn_export)
         charts = QWidget(self.trends)
@@ -226,7 +224,6 @@ class HistoryPage(QWidget):
             self.filter.addItem(text, k)
         self.filter.setMinimumWidth(124)
         self.filter.currentIndexChanged.connect(lambda _i: self._show_records())
-        self.records_panel.header_end.addStretch(1)
         self.records_panel.header_end.addWidget(self.filter)
         self.records_table = _FitTable(RECORDS_MAX_H, self.records_panel)
         self.records_model = QStandardItemModel(0, 8, self.records_table)
@@ -240,10 +237,12 @@ class HistoryPage(QWidget):
         self.records_panel.add(self.records_table)
         col.addWidget(self.records_panel)
         col.addStretch(1)
-        # A header holding a 32px select is 53px in the mockup (10 + 32 + 10 + a 1px rule);
-        # Panel keeps its header at 44 whatever it holds.
-        for panel in (self.trends, self.records_panel):
-            panel.head.setMinimumHeight(53)
+
+    def minimumSizeHint(self) -> QSize:
+        # The shell's scroll area squeezes a page to its minimum height; this page
+        # scrolls instead, so its minimum height is its natural height.
+        hint = super().minimumSizeHint()
+        return QSize(hint.width(), max(hint.height(), self.sizeHint().height()))
 
     def _alarm_cols(self, widths: list[int]) -> None:
         hh = self.alarms_table.horizontalHeader()
@@ -306,8 +305,8 @@ class HistoryPage(QWidget):
         self.legend.set_items([(n, t.DOT if i == 0 else t.SOFT, i == 1) for i, n in enumerate(names)])
         self.spread_chart.set_data(
             series,
-            LineChartSpec("Spreads", -2, 10, [0, EVIDENCE_SPREADS, 10], 0,
-                          [RefLine(EVIDENCE_SPREADS, t.MUTED, f"evidence at {EVIDENCE_SPREADS:g}", (2, 4))],
+            LineChartSpec("Spreads", -2, 10, [0, logic.EVIDENCE_SPREADS, 10], 0,
+                          [RefLine(logic.EVIDENCE_SPREADS, t.MUTED, f"evidence at {logic.EVIDENCE_SPREADS:g}", (2, 4))],
                           [clock(r.get("at")) for r in rs]))
 
     @staticmethod
