@@ -277,7 +277,7 @@ The agents run on the laptop. An agent sends the whole run each time something h
   "machine_id": "conveyor-07",
   "at": "2026-11-14T16:03:00Z",
   "status": "done",
-  "model": "claude-opus-5-5",
+  "model": "local: small.gguf",
   "usage": {"input_tokens": 2140, "output_tokens": 310},
   "ok": true,
   "reason": "",
@@ -306,13 +306,13 @@ The agents run on the laptop. An agent sends the whole run each time something h
 | `report` | `null` unless `ok` is `true`. Shape is fixed as shown. `cited_features` holds only readings that appear in `features` of the records the agent read. It may be empty, and must be for `normal`. |
 | `reason`, `problems` | Why there is no report: for example `agent unavailable: no connection`, or the list of failed checks. These `problems` are the agent's, not the device's of message 2. |
 | `tool_calls` | In order. `output` is a string, cut to 2,000 characters. |
-| `simulated` | `true` if the report did not come from a real Claude call, or was written from simulated readings. |
+| `simulated` | `true` if the report did not come from a real model call, or was written from simulated readings. |
 
 Reply: `{"ok": true}`
 
 If the platform's HTTP endpoint cannot be reached the agent still writes its own log and carries on.
 
-The desktop app starts at most one run per machine at a time: its button is disabled while that machine's latest run is `running`. The live Claude call is opt-in; the default is the stand-in.
+The desktop app starts at most one run per machine at a time: its button is disabled while that machine's latest run is `running`. The local model call is opt-in; the default is the stand-in.
 
 ## 5. What the dashboard reads
 
@@ -476,7 +476,7 @@ The device's own `/settings` on port 8765 and `data/settings.json` stay for benc
 
 ## Not in version 3.3
 
-- No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The API key comes from the laptop's environment and is never sent to or through the platform.
+- No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The model runs on the laptop or elsewhere on the site, so there is no key, and nothing is sent off the site.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
 - Answering an alarm on the device, reminders for unanswered alarms, and any use of answers by training or thresholds. Also planned there.
 - More than one platform, or any security.
