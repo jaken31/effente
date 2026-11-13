@@ -259,7 +259,7 @@ def test_one_sudden_impact_shows_at_once_holds_30_s_and_follows_the_sensitivity(
         return on, off
 
     for sens in (0.5, 0.75):  # 10 clean minutes: nothing
-        assert run(SF.Safety({"levels": {}, "spikes": lv}, sensitivity=sens), 600, 0, {}) == ([], []), sens
+        assert run(SF.Safety({"levels": {}, "spikes": lv}, spike_sensitivity=sens), 600, 0, {}) == ([], []), sens
     s = SF.Safety({"levels": {}, "spikes": lv})
     on, off = run(s, 60, 1000, {1010: 2.5})
     assert [t for t, _ in on] == [1010.0] and off == [1040.0], (on, off)  # with the second's own row; 30 s later
@@ -267,10 +267,13 @@ def test_one_sudden_impact_shows_at_once_holds_30_s_and_follows_the_sensitivity(
     assert p["name"] == "sudden_impact" and SF.screen_text(p) == "KNOCKING OR JOLTS" and p["symptom"] == "knocking_or_jolts"
     assert abs(p["value"] - 2.5) < 0.05 and abs(p["peak_g"] - 2.5 * top) < 0.01, p  # how big, for the event
     assert run(s, 60, 2000, {2010: 1.6}) == ([], [])  # 1.6x: not at the default sensitivity
-    s.set_sensitivity(0.75)  # what POST /settings does
+    s.set_sensitivity(1.0)  # the main dial doesn't move it
+    assert run(s, 60, 2500, {2510: 1.6}) == ([], [])
+    s.set_sensitivity(0.5)
+    s.set_spike_sensitivity(0.75)  # its own dial does (what POST /settings {"spike_sensitivity": 0.75} does)
     on, off = run(s, 60, 3000, {3010: 1.6})
     assert [t for t, _ in on] == [3010.0] and off == [3040.0], (on, off)  # but at 0.75 (1.5x) it is
-    s.set_sensitivity(0.5)
+    s.set_spike_sensitivity(0.5)
     on, off = run(s, 80, 4000, {4010: 3.0, 4025: 4.0})  # a second one inside the hold: still one alert, held from it
     assert [t for t, _ in on] == [4010.0] and off == [4055.0] and s.problems() == [], (on, off)
     assert run(s, 60, 5000, {5010: 5.0}, running=0) == ([], [])  # a stopped machine's seconds don't count
@@ -402,7 +405,7 @@ def test_device_shows_problems_and_takes_sensitivity_from_the_stream_and_the_fil
                                          headers={"Content-Type": "application/json"})
             got = json.loads(urllib.request.urlopen(req, timeout=5).read())
             assert got["sensitivity"] == 0.75 and app.safety.margins["vibration"] == 1.5
-            assert json.loads((Path(tmp) / "settings.json").read_text()) == {"sensitivity": 0.75}
+            assert json.loads((Path(tmp) / "settings.json").read_text()) == {"sensitivity": 0.75, "spike_sensitivity": 0.5}
             bad = urllib.request.Request(url, data=b'{"sensitivity": 1.5}', method="POST")
             try:
                 urllib.request.urlopen(bad, timeout=5)

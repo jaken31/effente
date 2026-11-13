@@ -221,7 +221,7 @@ def test_a_coin_after_a_five_minute_recording_shows_as_knocking_and_clears():
 def test_something_falling_off_shows_at_once_and_the_sensitivity_decides_how_big():
     """After a 5-minute recording at 30 mg (peaks of about 0.05 g): a 0.2 g knock (3x the highest while learning)
     shows within 2 s as KNOCKING OR JOLTS and clears about 30 s later; a 0.11 g one (about 1.6x) doesn't at the
-    default sensitivity, and does once the sensitivity is set to 0.75 through the settings (POST /settings)."""
+    default spike sensitivity, and does once it is set to 0.75 through the settings (POST /settings)."""
     from device.intake.stream import Stream
     with tempfile.TemporaryDirectory() as tmp:
         stream = Stream(port=0).start()
@@ -230,7 +230,7 @@ def test_something_falling_off_shows_at_once_and_the_sensitivity_decides_how_big
             big, small, change, small2, end = rec1 + 60, rec1 + 130, rec1 + 180, rec1 + 200, rec1 + 260
             knock = lambda s: {big: 0.2, small: 0.11, small2: 0.11}.get(s, 0.0)
             app, board, headers = flow(tmp, end, lambda s: 30.0, presses=(20, rec1), knock_g=knock, stream=stream,
-                                       at={change: lambda app: app.settings({"sensitivity": 0.75})})
+                                       at={change: lambda app: app.settings({"spike_sensitivity": 0.75})})
             assert "peak_max" in json.loads(app.model_path.read_text())["baseline"]["spikes"]
             on = {s: "sudden_impact" in names for s, names in board.problems}
             first = next(s for s in range(rec1, end) if on[s])

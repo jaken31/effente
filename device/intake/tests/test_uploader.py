@@ -255,7 +255,7 @@ def test_a_sensitivity_set_on_the_platform_is_applied_and_survives_a_restart():
                 app._row(1000.0 + 0.25 * k, row())
             assert until(lambda: app.sensitivity == 0.7), app.sensitivity
             assert app.safety.sensitivity == 0.7
-            assert json.loads((Path(tmp) / "settings.json").read_text()) == {"sensitivity": 0.7}
+            assert json.loads((Path(tmp) / "settings.json").read_text())["sensitivity"] == 0.7
             app._row(1005.0, row())  # the next check-in reports the new value
             assert until(lambda: any(c.get("sensitivity") == 0.7 for _, c in fp.checkins)), fp.checkins
             fp.settings = {"sensitivity": 2.0}  # not a valid value: ignored, the device keeps its own

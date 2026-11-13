@@ -120,6 +120,7 @@ class DeviceApp:
         self.history = History.load(self.dir / "history.npz")
         self.settings_path = self.dir / "settings.json"
         self.sensitivity, self._settings_seen = SF.DEFAULT_SENSITIVITY, None
+        self.spike_sensitivity = SF.DEFAULT_SENSITIVITY  # the second dial: single spikes only (added 13 Nov)
         self.safety = SF.Safety(gravity_check=bool(getattr(getattr(source, "info", None), "accel_measures_gravity", True)))
         self.problems: list[dict] = []
         self.notes: list[str] = []
@@ -279,7 +280,8 @@ class DeviceApp:
 
     def _watcher(self, model, calib) -> Watcher:
         """A Watcher for the model, with its early warning fed every period the Watcher judges."""
-        w = Watcher(model, margin=SF.margins(self.sensitivity)["model"])
+        w = Watcher(model, margin=SF.margins(self.sensitivity)["model"],
+                    spike_margin=SF.margins(self.spike_sensitivity)["model"])
         early = EW.EarlyWarning(model, calib, sensitivity=self.sensitivity)
         judge = w._judge
 
@@ -361,28 +363,33 @@ class DeviceApp:
         """The device's settings; with changes, apply and save them first (raises ValueError if bad).
         Used by POST /settings on the stream; editing data/settings.json by hand works too."""
         if changes:
-            unknown = sorted(set(changes) - {"sensitivity"})
+            unknown = sorted(set(changes) - set(DIALS))
             if unknown:
-                raise ValueError(f"unknown settings {unknown}; there is only sensitivity")
-            v = changes.get("sensitivity")
-            lo, hi = SF.SENSITIVITY_RANGE
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
-                raise ValueError(f"sensitivity must be a number from {lo:g} to {hi:g} ({SF.DEFAULT_SENSITIVITY:g} is the default)")
-            self._set_sensitivity(float(v))
+                raise ValueError(f"unknown settings {unknown}; there are only {' and '.join(DIALS)}")
+            for name in DIALS:  # check both before applying either
+                if name in changes:
+                    _check_dial(name, changes[name])
+            for name in DIALS:
+                if name in changes:
+                    self._set_dial(name, float(changes[name]))
             tmp = self.settings_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"sensitivity": self.sensitivity}))
+            tmp.write_text(json.dumps({"sensitivity": self.sensitivity, "spike_sensitivity": self.spike_sensitivity}))
             tmp.replace(self.settings_path)
             self._settings_seen = self.settings_path.stat().st_mtime_ns
-        m = SF.margins(self.sensitivity)
+        m, sp = SF.margins(self.sensitivity), SF.margins(self.spike_sensitivity)
         return {"sensitivity": self.sensitivity, "sensitivity_range": list(SF.SENSITIVITY_RANGE),
+                "spike_sensitivity": self.spike_sensitivity,
                 "counts_as_wrong": {"vibration_times_normal": round(m["vibration"], 2),
                                     "degrees_over_normal": round(m["temperature"], 1),
                                     "db_over_normal": round(m["sound"], 1),
                                     "model_score_over": round(m["model"], 2),
-                                    "sudden_impact_times_highest_while_learning": round(m["vibration"], 2)},
+                                    "sudden_impact_times_highest_while_learning": round(sp["vibration"], 2),
+                                    "model_spike_line_times": round(sp["model"], 2)},
                 "default": SF.DEFAULT_SENSITIVITY,
                 "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
-                        "counts as wrong; the universal limits never change"}
+                        "counts as wrong; the universal limits never change. spike_sensitivity (same range and "
+                        "default) sizes only single spikes: one sudden impact, and one second of the model "
+                        "over its spike line; sensitivity sizes everything else"}
 
     def platform_settings(self, settings: dict) -> None:
         """Settings in a reply from the platform (CONTRACT.md section 7): a sensitivity that differs
@@ -394,6 +401,19 @@ class DeviceApp:
             self.settings({"sensitivity": v})
         except ValueError as e:
             self.message = f"platform setting not used: {e}"[:80]
+
+    def _set_dial(self, name: str, v: float):
+        (self._set_sensitivity if name == "sensitivity" else self._set_spike_sensitivity)(v)
+
+    def _set_spike_sensitivity(self, v: float):
+        with self.lock:
+            changed = v != self.spike_sensitivity
+            self.spike_sensitivity = v
+            self.safety.set_spike_sensitivity(v)
+            if self.watcher is not None:
+                self.watcher.spike_margin = SF.margins(v)["model"]
+        if changed:
+            self._event("settings", {"spike_sensitivity": v})
 
     def _set_sensitivity(self, v: float):
         with self.lock:
@@ -417,11 +437,12 @@ class DeviceApp:
             return
         self._settings_seen = seen
         try:
-            v = json.loads(self.settings_path.read_text()).get("sensitivity", SF.DEFAULT_SENSITIVITY)
-            lo, hi = SF.SENSITIVITY_RANGE
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
-                raise ValueError(f"sensitivity must be from {lo:g} to {hi:g}")
-            self._set_sensitivity(float(v))
+            d = json.loads(self.settings_path.read_text())
+            values = {name: d.get(name, SF.DEFAULT_SENSITIVITY) for name in DIALS}
+            for name, v in values.items():
+                _check_dial(name, v)
+            for name, v in values.items():
+                self._set_dial(name, float(v))
         except (ValueError, AttributeError) as e:
             self.message = f"settings.json not used: {e}"[:80]
 
@@ -510,7 +531,8 @@ class DeviceApp:
             if self.result:
                 s["diagnosis"] = self.result.get("diagnosis")
             s.update(SF.verdict(self.result if self.mode == "watching" else None, self.problems),
-                     problems=list(self.problems), sensitivity=self.sensitivity)
+                     problems=list(self.problems), sensitivity=self.sensitivity,
+                     spike_sensitivity=self.spike_sensitivity)
             if self.mode == "watching" and self.early is not None:
                 s["early_warning"] = self.early.state()
             if self.watcher is not None and (self.watcher.m.d.get("baseline") or {}).get("warnings"):
@@ -522,6 +544,15 @@ class DeviceApp:
     def _event(self, name, details):
         if self.stream is not None:
             self.stream.publish_event(self.clock(), name, details)
+
+
+DIALS = ("sensitivity", "spike_sensitivity")  # the settings; the second sizes single spikes only
+
+
+def _check_dial(name: str, v) -> None:
+    lo, hi = SF.SENSITIVITY_RANGE
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+        raise ValueError(f"{name} must be a number from {lo:g} to {hi:g} ({SF.DEFAULT_SENSITIVITY:g} is the default)")
 
 
 def _early_path(model_path: Path) -> Path:

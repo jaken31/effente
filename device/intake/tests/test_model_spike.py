@@ -38,12 +38,13 @@ def trained(seed=0):
     return TR.train_model(t[t < LEARN], X[t < LEARN], F.FEATURE_NAMES)[0]
 
 
-def watch(d, t, X, sensitivity=0.5, spike_rule=True):
-    """Replay through the real Watcher: per row (second, wrong, state)."""
+def watch(d, t, X, sensitivity=0.5, spike_rule=True, spike=0.5):
+    """Replay through the real Watcher, as the device builds it: per row (second, wrong, state). sensitivity is the
+    main dial, spike the spike dial (spike_sensitivity)."""
     m = Model(d)
     if not spike_rule:
         m.spike_line = None
-    w = Watcher(m, margin=SF.margins(sensitivity)["model"])
+    w = Watcher(m, margin=SF.margins(sensitivity)["model"], spike_margin=SF.margins(spike)["model"])
     out = []
     for k, x in zip(t, X):
         st = w.predict_at(float(k), x)
@@ -71,7 +72,7 @@ def test_ten_clean_minutes_give_no_spike_alarm_at_0_5_or_0_75():
         d = trained(seed)
         t, X = rows(LEARN + 600, seed=seed)
         for sens in (0.5, 0.75):
-            got = watch(d, t[t >= LEARN], X[t >= LEARN], sens)
+            got = watch(d, t[t >= LEARN], X[t >= LEARN], spike=sens)
             assert not any(st.get("spike") or st.get("spike_held") for _, _, st in got), (seed, sens)
             top = max(st.get("spike_score", 0) for _, _, st in got)
             assert top < SF.margins(sens)["model"], (seed, sens, top)  # and with room: under the line at that sensitivity
@@ -96,15 +97,71 @@ def test_one_abnormal_second_alarms_at_once_is_named_and_clears_after_the_hold()
     assert not [k for k in alone if k <= 3] and len(alone) <= 2, alone  # the median alone: nothing then, a blink later at most
 
 
-def test_a_smaller_spike_needs_more_sensitivity():
+def test_a_smaller_spike_needs_the_spike_dial_up_and_the_main_dial_leaves_it_alone():
+    """A 0.10 g knock: not at spike sensitivity 0.5; at 0.75 and 1 it alarms, while the main sensitivity stays at
+    0.5, so the median rule judges exactly as before (the same level every second, and no alarm on clean data).
+    And the main dial doesn't move the spike line: at main 1 and spike 0.5 the knock is still not a spike."""
     d = trained()
     knock = LEARN + 60
     t, X = rows(LEARN + 140, knocks={knock: 0.1})
     live = t >= LEARN
-    assert not any(st.get("spike") or st.get("spike_held") for _, _, st in watch(d, t[live], X[live], 0.5))
-    spikes = [k for k, wrong, st in watch(d, t[live], X[live], 0.75) if st.get("spike") and wrong]
-    assert spikes == [knock + 1], spikes  # at 0.75 half the score counts: this one does
-    # (at 0.75 the median rule itself is over its line much of the time on this data, with or without the spike rule)
+    assert not any(st.get("spike") or st.get("spike_held") for _, _, st in watch(d, t[live], X[live], spike=0.5))
+    base = watch(d, t[live], X[live], spike_rule=False)
+    for dial in (0.75, 1.0):
+        got = watch(d, t[live], X[live], spike=dial)
+        assert [k for k, wrong, st in got if st.get("spike") and wrong] == [knock + 1], dial
+        assert [st.get("unknown_score") for _, _, st in got] == [st.get("unknown_score") for _, _, st in base]
+    tc, Xc = rows(LEARN + 600)
+    clean = watch(d, tc[tc >= LEARN], Xc[tc >= LEARN], spike_rule=False)
+    for dial in (0.75, 1.0):  # the median rule's alarm share on clean data: unchanged by the spike dial
+        got = watch(d, tc[tc >= LEARN], Xc[tc >= LEARN], spike=dial)
+        same = [(w, st.get("unknown_score")) for _, w, st in clean]
+        assert [(w and not (st.get("spike") or st.get("spike_held")), st.get("unknown_score")) for _, w, st in got] == same
+    assert not any(st.get("spike") for _, _, st in watch(d, t[live], X[live], sensitivity=1.0, spike=0.5))
+
+
+def test_both_dials_persist_across_a_restart_and_round_trip_through_settings():
+    import json
+    import tempfile
+    import urllib.request
+    from pathlib import Path
+    from device.intake.device_app import DeviceApp
+    from device.intake.stream import Stream
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = Stream("127.0.0.1", 0).start()
+        try:
+            app = DeviceApp(tmp, FakeBoard(1, lambda s: 30.0), stream=stream)
+            url = f"http://127.0.0.1:{stream.port}/settings"
+            got = json.loads(urllib.request.urlopen(url, timeout=5).read())
+            assert got["sensitivity"] == 0.5 and got["spike_sensitivity"] == 0.5, got
+            req = urllib.request.Request(url, data=json.dumps({"spike_sensitivity": 0.75}).encode(), method="POST")
+            got = json.loads(urllib.request.urlopen(req, timeout=5).read())
+            assert got["ok"] and got["spike_sensitivity"] == 0.75 and got["sensitivity"] == 0.5, got
+            assert got["counts_as_wrong"]["sudden_impact_times_highest_while_learning"] == 1.5
+            assert got["counts_as_wrong"]["vibration_times_normal"] == 2.0  # the main dial's, unchanged
+            req = urllib.request.Request(url, data=json.dumps({"sensitivity": 0.25}).encode(), method="POST")
+            assert json.loads(urllib.request.urlopen(req, timeout=5).read())["spike_sensitivity"] == 0.75  # kept
+            bad = urllib.request.Request(url, data=b'{"spike_sensitivity": 2, "sensitivity": 0.5}', method="POST")
+            try:
+                urllib.request.urlopen(bad, timeout=5)
+                raise AssertionError("a spike sensitivity of 2 was accepted")
+            except urllib.error.HTTPError as e:
+                assert e.code == 400
+            assert app.sensitivity == 0.25  # a bad request changes neither
+            st = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{stream.port}/latest", timeout=5).read())["status"]
+            assert st["sensitivity"] == 0.25 and st["spike_sensitivity"] == 0.75, st
+            assert json.loads((Path(tmp) / "settings.json").read_text()) == {"sensitivity": 0.25, "spike_sensitivity": 0.75}
+        finally:
+            stream.stop()
+        again = DeviceApp(tmp, FakeBoard(1, lambda s: 30.0))  # a restart
+        assert again.sensitivity == 0.25 and again.spike_sensitivity == 0.75
+        assert again.safety.spike_margin == 1.5 and again.safety.margins["vibration"] == 3.0
+        w = again.watcher = again._watcher(Model(trained()), None)  # as training or a resume sets it
+        assert w.spike_margin == SF.margins(0.75)["model"] and w.margin == SF.margins(0.25)["model"]
+        (Path(tmp) / "settings.json").write_text('{"sensitivity": 0.5}')  # an older file, by hand: spike back to 0.5
+        again._settings_seen = None
+        again._load_settings()
+        assert again.spike_sensitivity == 0.5 and w.spike_margin == 1.0
 
 
 def test_the_median_rule_is_unchanged():

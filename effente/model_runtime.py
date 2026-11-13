@@ -21,7 +21,8 @@ A spike (added 13 Nov): the median outvotes one abnormal period whatever its sco
 happens once (a part falls off, a hard knock) never showed. When the model's baseline carries a spike
 line (effente.trainer: "model_spike", from the UNSMOOTHED held-out scores, well above the threshold,
 which is fitted to smoothed ones), a single period scoring over that line x the margin alarms at
-once, named from that period's own deviations, and is held SPIKE_HOLD_S so it can be seen. The
+once, named from that period's own deviations, and is held SPIKE_HOLD_S so it can be seen. Its margin
+is spike_margin (the device's own dial, "spike_sensitivity"), or the main margin when none is given. The
 median rule is unchanged. With 1-minute periods (long recordings) the model is fed minute medians,
 so a 1-second spike cannot reach it at all: there the per-second impact checks (effente.safety) are
 what catch it, and the trainer stores no spike line. Simulated data only: unverified on a real machine.
@@ -160,9 +161,11 @@ def _version() -> str:
 class Watcher:
     """One machine's live judgement. predict_at(t0, x) for every row; the result changes once a minute."""
 
-    def __init__(self, model: Model, margin: float = 1.0):
+    def __init__(self, model: Model, margin: float = 1.0, spike_margin: float | None = None):
         self.m = model
         self.margin = margin  # how far over the learned line counts as wrong (effente.safety.margins)
+        # how far over the spike line one period must go: the spike sensitivity's margin; None: the same as margin
+        self.spike_margin = spike_margin
         self.summary = MinuteSummary()
         self.minute: int | None = None
         self.scores: deque = deque(maxlen=model.smooth)
@@ -208,7 +211,7 @@ class Watcher:
         state = {"unknown_score": round(level, 3), "minute": minute_t, "out_of_range": oor}
         # A spike: this one period's own score over the spike line (x the margin, so the sensitivity sizes it)
         line = self.m.spike_line
-        spike = line is not None and float(s[0]) > line * self.margin
+        spike = line is not None and float(s[0]) > line * (self.margin if self.spike_margin is None else self.spike_margin)
         if line is not None:
             state["spike_score"] = round(float(s[0]) / line, 3)  # this period alone, in units of the spike line
         if level > self.margin or spike:

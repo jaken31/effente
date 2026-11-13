@@ -58,8 +58,9 @@ learning, more than 2 of them in the last minute. Being a count over a window, i
 over (no 10 s hold) and clears like the others.
 
 One sudden impact (sudden_impact, with the same baseline "spikes"): a single whole second whose peak is over the
-vibration margin (2x at the default sensitivity; 1.5x at 0.75, 3x at 0.25) times the highest peak while learning,
-and at least 0.05 g. It shows at once as KNOCKING OR JOLTS and stays IMPACT_HOLD_S (30 s). Sensitivity changes it.
+vibration margin (2x at the default; 1.5x at 0.75, 3x at 0.25) times the highest peak while learning, and at least
+0.05 g. It shows at once as KNOCKING OR JOLTS and stays IMPACT_HOLD_S (30 s). Its own dial sizes it, the spike
+sensitivity (set_spike_sensitivity, the device's "spike_sensitivity" setting); the main sensitivity doesn't.
 
 A check counts once it has held for most of HOLD_S (80 % of the rows) and clears once it has mostly
 stopped (20 %), so a bump, a door slam or one odd reading never shows.
@@ -262,10 +263,12 @@ class Safety:
     update(t0, x) for each feature row (any rate); problems() is what is wrong now."""
 
     def __init__(self, baseline: dict | None = None, hold_s: float = HOLD_S,
-                 sensitivity: float = DEFAULT_SENSITIVITY, gravity_check: bool = True):
+                 sensitivity: float = DEFAULT_SENSITIVITY, gravity_check: bool = True,
+                 spike_sensitivity: float = DEFAULT_SENSITIVITY):
         self.hold_s = hold_s
         self.gravity_check = gravity_check  # False for accelerometers that don't measure gravity (piezo)
         self.sensitivity, self.margins = sensitivity, margins(sensitivity)
+        self.set_spike_sensitivity(spike_sensitivity)
         self.hist: dict[str, deque] = {n: deque() for n in CHECKS}  # (t, over) for the last hold_s
         self.active: dict[str, dict] = {}
         self.temps: deque = deque()  # (t, IMU temperature), for the rise per minute
@@ -273,6 +276,12 @@ class Safety:
 
     def set_sensitivity(self, sensitivity: float) -> None:
         self.sensitivity, self.margins = sensitivity, margins(sensitivity)
+
+    def set_spike_sensitivity(self, spike_sensitivity: float) -> None:
+        """The second dial: how big one sudden impact must be (sudden_impact only; the main sensitivity doesn't
+        move it, and it moves nothing else). The same scale: margins(spike_sensitivity)["vibration"] x the highest."""
+        self.spike_sensitivity = spike_sensitivity
+        self.spike_margin = margins(spike_sensitivity)["vibration"]
 
     def set_baseline(self, baseline: dict | None) -> None:
         """This machine's normal, from training (None while nothing has been learned). Pass a model's
@@ -338,7 +347,7 @@ class Safety:
             v = _f(x, IMPACT_FEATURE)
             if math.isfinite(v):
                 ratio, peak = 10 ** (v - float(top)), 10 ** v
-                if ratio > self.margins["vibration"] and peak >= IMPACT_MIN_G:
+                if ratio > self.spike_margin and peak >= IMPACT_MIN_G:
                     if t0 >= self.impact_until or not ratio <= self.impact[0]:
                         self.impact = (ratio, peak)  # the biggest of this hold
                     self.impact_until = t0 + IMPACT_HOLD_S

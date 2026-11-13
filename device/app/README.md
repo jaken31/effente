@@ -31,8 +31,8 @@ The device answers two things only: is something wrong, and what. There are no s
 - **After training, against this machine's own normal** (the highest while learning): vibration at 2× normal, 15 °C or 6 dB over normal, and the learned model's line. No one has to say what kind of machine it is.
   - Each reading is judged on its median over the period the normal was learned from (a minute after a long recording), so like is compared with like. A passing forklift's reversing beeper (15 s, far over normal) no longer counts; a lasting change shows after about 40 seconds. Models trained before this get their own period.
 - **More impacts than normal:** after training on an hour or more, more seconds of impulsive sound (2–7 kHz) or impulsive vibration in the last 30 minutes than twice the most seen while learning. After a shorter recording (100 s or more of running), a simpler form: seconds with the vibration's impulsiveness or peak (or the impulsive sound) over a level set above anything seen while learning, more than 2 of them in the last minute, so the third knock; one bump doesn't count. Either shows as `KNOCKING OR JOLTS` as soon as the count is over, and clears within about a minute of the knocks stopping. It catches repeating knocks too short or too sparse for the model (simulated conveyor and test data only, unverified on a real machine).
-- **A spike in the model's own score** (after a recording short enough for periods under a minute): the model alarms on the median of its last 5 scores, so one abnormal second never showed. Now one second scoring over a spike line alarms at once, named from that second's readings, and stays 30 s. The spike line is learned at training from the unsmoothed held-out scores (4× their one-a-week gamma tail, about 6–7× the model's line on the fake board) and kept in the model's baseline (`model_spike`). Sensitivity scales it like the model's line. After a long recording (1-minute periods) the model sees minute medians, which a 1-second spike can't move, so there the impact checks below are what catch it (simulated data only, unverified on a real machine).
-- **One sudden impact** (after training, 100 s or more of running): a single second whose peak is over 2× the highest peak seen while learning, and at least 0.05 g. It shows at once as `KNOCKING OR JOLTS` and stays 30 s. The sensitivity sets how big: 5× at 0, 3× at 0.25, 2× at 0.5, 1.5× at 0.75, 1.25× at 1 (the vibration column of the table below). The `problem` event carries the peak in g (`peak_g`) and how many times the learning maximum it was (`value`). A bump of the table that big counts too (simulated and test data only, unverified on a real machine).
+- **A spike in the model's own score** (after a recording short enough for periods under a minute): the model alarms on the median of its last 5 scores, so one abnormal second never showed. Now one second scoring over a spike line alarms at once, named from that second's readings, and stays 30 s. The spike line is learned at training from the unsmoothed held-out scores (4× their one-a-week gamma tail, about 6–7× the model's line on the fake board) and kept in the model's baseline (`model_spike`). Its own dial, the spike sensitivity, scales it (below). After a long recording (1-minute periods) the model sees minute medians, which a 1-second spike can't move, so there the impact checks below are what catch it (simulated data only, unverified on a real machine).
+- **One sudden impact** (after training, 100 s or more of running): a single second whose peak is over 2× the highest peak seen while learning, and at least 0.05 g. It shows at once as `KNOCKING OR JOLTS` and stays 30 s. The spike sensitivity sets how big: 5× at 0, 3× at 0.25, 2× at 0.5, 1.5× at 0.75, 1.25× at 1 (the vibration column of the table below). The `problem` event carries the peak in g (`peak_g`) and how many times the learning maximum it was (`value`). A bump of the table that big counts too (simulated and test data only, unverified on a real machine).
 - Each of the other checks must hold for 10 seconds before it shows, so a bump doesn't count.
 - **Notes after training:** `/latest` status has notes (`learning_notes`) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. They are not shown on the screen. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
 
@@ -46,10 +46,18 @@ The device answers two things only: is something wrong, and what. There are no s
 | 0.75 | 1.5× | +7.5 °C | +3 dB | 0.5× |
 | 1 | 1.25× | +3.75 °C | +1.5 dB | 0.25× |
 
-It changes the outside-normal checks and the model, never the universal limits. Change it while the device runs:
+It changes the outside-normal checks and the model, never the universal limits.
+
+**Spike sensitivity** (`spike_sensitivity`, added 13 Nov): a second dial, with the same range, default and scale, for single spikes only: one sudden impact (the vibration column) and one second of the model over its spike line (the model column). It moves nothing else, and the main sensitivity doesn't move it. Turning the main one up to catch smaller spikes would also make the model alarm on ordinary running after a short recording (on the fake board: 24–58 % of the time at 0.75), which is why spikes have their own. It is set, saved and shown like the main one (`/settings`, `settings.json`, `/latest` status, `/view`). 
+
+Change either while the device runs:
 
 ```bash
 curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
+```
+
+```bash
+curl -X POST -d '{"spike_sensitivity": 0.75}' http://localhost:8765/settings
 ```
 
 `curl http://localhost:8765/settings` shows the current value and what it means in numbers. Editing `data/settings.json` on the board (`{"sensitivity": 0.7}`) works too, and is picked up within 2 seconds.

@@ -351,7 +351,8 @@ if(s.learning_s!=null)st+=" "+Math.floor(s.learning_s/60)+":"+String(Math.floor(
 $("state").textContent=st;$("what").textContent=s.wrong?"WRONG: "+(s.what||[]).join(", "):(s.diagnosis&&s.mode=="watching"?s.diagnosis:"");
 $("vib").textContent=n(r.vib_mg,0);$("peak").textContent=r.peak_g==null?"--":n(1000*r.peak_g,0);
 $("temp").textContent=n(r.imu_temp_c,1);$("hz").textContent=n(r.speed_hz,0);
-$("more").textContent=JSON.stringify({mode:s.mode,message:s.message,model:s.model,sensors:s.sensors,problems:s.problems,
+$("more").textContent=JSON.stringify({mode:s.mode,sensitivity:s.sensitivity,spike_sensitivity:s.spike_sensitivity,
+message:s.message,model:s.model,sensors:s.sensors,problems:s.problems,
 early_warning:s.early_warning,learning_notes:s.learning_notes,missing:(j.features||{}).missing},null,1);
 }catch(e){$("at").textContent="not reachable: "+e}}
 tick();setInterval(tick,1000);</script></body></html>"""
