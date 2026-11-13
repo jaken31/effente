@@ -6,13 +6,13 @@ read-only checker session. Every number marked **verified** was recomputed with 
 compared minute by minute or run by run with the search's own output. Synthetic data only; nothing here says how the
 device does on a real machine.
 
-First written 13 Nov 15:27; updated 15:45 for the finished system search. Checked against these files:
+First written 13 Nov 15:27; updated 15:55 for the finished system search. Checked against these files:
 
 | Search | Code | Write-up | Results checked |
 |---|---|---|---|
 | Early warning | `early_warning_search.py` (14:02) | `EARLY_WARNING_SEARCH.md` (14:14) | `data/fake/early-warning-search/` rows, `ew_*`, `ew_rot__*`, `search.json` (14:04–14:15) |
 | Model search | `model_search.py` (14:16) | `MODEL_SEARCH.md` (14:59) | `data/fake/model-search/` stage1/2, `rotation.json`, `combined.json`, `persistence.json` (14:11–14:23) |
-| System search | `system_search.py` (15:29, branch `claude/sound-check-fix-8eb204`) | `SYSTEM_SEARCH.md` (15:35, in that worktree) | `data/fake/system-search/` up to `final2.json` (14:20–15:33) |
+| System search | `system_search.py` (15:29–15:49, branch `claude/sound-check-fix-8eb204`) | `SYSTEM_SEARCH.md` (15:50, in that worktree) | `data/fake/system-search/` up to `final2.json`, `faint*.json` (14:20–15:44) |
 | SSCC loader | `training/record/datasets/sscc.py` (after 15:07) | `datasets/SSCC.md` | no data yet (download blocked) |
 
 The agreed counting rules all checks use:
@@ -156,7 +156,17 @@ one setting step away):
   week), plus a speed > 1 guard. A device whose running flag switched earlier would see a "stall" at every restart.
 - **System A also sits on an edge:** its neighbours reach 7.8 false alerts a week, against 2.2 for the two-model system.
 
-**Other caveats SYSTEM_SEARCH.md carries** (checked in its 15:35 version):
+**Later experiments, code reviewed (15:49), not in the recommended system:**
+- **A slow CUSUM per physics subgroup for faint slow faults** (`faint.json`): its centre, spread and limit come from the
+  training weeks scored out of sample, and it runs per run, so there's no leakage. Its 4.33 missed isn't a plateau, and
+  its subgroups were kept after seeing the others false-alert. The write-up says it is likely fitted to these runs and
+  leaves it out. I agree.
+- **A line per load stratum:** the strata are cut from training speeds, and each stratum's line comes from its own
+  calibration minutes. It found no gain and was stopped.
+- **Per-group kNN** (`knn.json`): memory and quantile calibration come from cross-week out-of-sample training scores, so
+  there's no leakage. It misses 18–26 alone, gains at most 0.33 when OR'ed with A, and wasn't adopted.
+
+**Other caveats SYSTEM_SEARCH.md carries** (checked in its 15:35 and 15:49 versions):
 - the steady pick as the headline, the strict one as the optimistic edge;
 - the 40-column OR labelled optimistic and not used;
 - the per-second set "chosen from experiment 2 on the same data";
@@ -165,14 +175,15 @@ one setting step away):
 - N6 for the heat-relative gain;
 - the autoencoder and Gaussian not needed (the Gaussian adds about 0.3–1).
 
-**Its 15:35 version already carries most of the jam caveats:**
-- the healthy weeks have no short stops, so a real site needs the shift plan or the user to confirm a stop;
-- the stall's misalignment catch rides on the S3 tracker;
-- system A's frac and hold sit at edges (frac 0.2: 7.8 false alerts a week; hold 5: 1.1);
-- it moves system A one notch less sensitive (0.6, the same 3/7/7 in `final2.json`).
+**Its 15:50 version carries all of these caveats:**
+- the jam rules are written for the simulated fault and are unsupported on real data;
+- short stop's 0 false alerts are a property of the simulator;
+- the stall's misalignment and looseness catches are tracker jumps (29.4 ↔ 58.8 Hz), and restarts are skipped only
+  through the running flag's lag;
+- every system's number is shown without the jam rules (A 7.67, B 8.33, C 9.33);
+- a worst-neighbour column (A 7.79, B 2.21, C 6.12), saying plainly that A is the edgier pick and B the steadiest.
 
-**Not in it:** the stall rule skips restarts only through `trend_running`'s lag, and the 5.67 isn't labelled "with
-simulator-specific jam rules". Both were sent at 15:40.
+The numbers match `final2.json`.
 
 ## SSCC loader: conversion correct, yes; no data yet
 

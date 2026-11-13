@@ -162,6 +162,20 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
     so there's no gain. The held-out week's line inflation isn't a belt-speed load effect.
   - **Still missed in every rotation:** subtle idler bearing, lubrication loss and motor bearing. They're nearly invisible
     at the drive end, so they likely need another sensor (a kHz accelerometer near the idlers, or motor current), not another model.
+- **Trade-off, false alerts against misses** (`SYSTEM_SEARCH.md`, `tradeoff.json`; not yet checked). Steady picks, where the
+  setting's neighbours also stay within the budget; mean missed of 30, without the jam rules:
+
+  | Worst-rotation false alerts a week | 0 | 0.5 | 1 | 2 | 3 | 5 |
+  |---|---|---|---|---|---|---|
+  | B (two heat-relative models) | 8.3 | 8.3 | 8.0 | 7.0 | 6.0 | 5.7 |
+  | A (group PCA) | 11.0 | 11.0 | 9.0 | 7.3 | 6.3 | 5.7 |
+  | C (device-ready) | 11.3 | 11.3 | 11.3 | 9.0 | 8.7 | 6.0 |
+
+  - **Budgets under about 1 a week buy nothing** on the steady picks. About 2 a week buys one to three subtle faults
+    (gear wear, idler bearing, overload).
+  - **Judged by steady picks, B is the best and A is no better than C at zero.** A's earlier 7.7 was an edge setting.
+  - **What the false alerts are:** none come from forklifts, slams or the per-second set. About half are start-of-run
+    artefacts (simulator heat carry-over, N3); the rest are model alarms with nothing in particular going on.
 - **System search, experiment 10: per-group kNN, the SSCC paper's method on our sensor groups. Worse than group PCA, so not adopted.**
   - **Setup:** kNN per group (k 5/10/20, memory 5,000), each group's score mapped to its quantile against cross-week
     out-of-sample training scores, then averaged or maxed.
@@ -313,6 +327,21 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
     slider and valve dev sets are downloaded from the official Zenodo record 10902294 (about 300 MB each, MD5s verified;
     1,200 clips of 10 s each; 2024 has no pump). Speed on one M2 thread per 10 s clip: BEATs 0.39 s, EfficientAT mn10
     0.06 s. No board was attached for on-device timing.
+  - **About 17:40:** CED-tiny is added (22 MB, Zenodo record 8275347, MD5 verified, CC BY 4.0). Every checkpoint loads in
+    weights-only mode. The checker's fixes and the survey's experiments are in the script.
+    - **Speed, onnxruntime, one Mac thread, per 10 s clip:** BEATs 2.58 s float / 0.91 s int8; EfficientAT mn10 0.042 s;
+      CED-tiny 0.060 s float / 0.035 s int8. The int8 CED-tiny matches its float output (cosine 0.999); BEATs 0.97, mn10 0.91.
+    - **Early fan finding:** thresholds from training clips don't carry over when test clips come from the shifted
+      condition (a 2 % training threshold flags 22 of 100 normal test clips). Familiar-condition clips are the fair device case.
+    - Embedding results are still to come; no board was attached for on-device timing.
+  - **Paused at about 17:50, with only the fans evaluated** (whole 10 s clips; unfinished, not checked):
+    - AUROC: our features 0.59–0.63, BEATs 0.61–0.66, EfficientAT mn10 ≤ 0.61. CED-tiny isn't evaluated yet.
+    - Nothing catches a fault at a zero-false-alarm threshold.
+    - At a 1 % training threshold: BEATs (layer 12, fused detectors) catches 14 of 100 with no normal clip flagged;
+      our features (fused detectors) catch 12 of 100 with none flagged.
+    - **So on real fans, BEATs is only slightly better than our own features.** The other four machine types, CED-tiny,
+      the layer choice and the board timing are still to do. State: `data/real/dcase2024-fan/embed/RESUME.md`;
+      write-up, marked unfinished: `training/record/datasets/AUDIO_EMBED.md`.
   - **Baseline on real DCASE fans (device sound features, not yet checked):** AUROC 0.595, and 0 of 100 real fan faults
     caught at zero false alarms. Our hand-built sound features barely separate real fan faults from normal.
 - **DCASE Task 2 survey** ([DCASE_TASK2_SURVEY.md](../datasets/DCASE_TASK2_SURVEY.md); research only, nothing run by us,
