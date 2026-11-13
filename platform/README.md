@@ -36,8 +36,6 @@ The dashboard side of the demo in [docs/PRD.md](../docs/PRD.md), played with the
 | 7 | Press `h`, wait about 8 seconds, then `m` twice and `1` | The problem clears: "Nothing is wrong". Back to watching. |
 | 8 | Terminal 2: `python3 platform/report.py` | The agent panel lists the tool calls, then the report |
 
-Before step 8, see "Known gaps" below: the agent still reads version 1 records.
-
 Before going on stage, run the whole script once and leave the page open.
 
 ### About step 6
@@ -100,7 +98,7 @@ Needs pytest. The dashboard's logic tests also need `node` and are skipped witho
 ## Known gaps
 
 - The receiver builds contract sections 6 (alarms and answers) and 7 (settings), and the simulated device takes the sensitivity, but the web dashboard shows neither. The desktop app will.
-- The maintenance agent (`device/agent`) still reads contract version 1 records. `report.py` crashes if the log holds a record with `unknown_score: null` (any `stopped` or `warming_up` record, steps 5 and 6 above), and its stand-in report reads fault names like "unbalance like" and cites nothing. Problems are not read by it at all.
+- The maintenance agent (`device/agent`) does not read the safety checks' problems: whether it may cite them is open in the contract.
 
 ## Checked and not checked
 
