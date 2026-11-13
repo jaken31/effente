@@ -19,8 +19,12 @@ from __future__ import annotations
 from app.pages.spectrum import maths
 from app.theme import tokens as T
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
+
+FILTER_NOTE = f"above sensor filter, {maths.SENSOR_FILTER_HZ:.0f} Hz"
+SPEED_NOTE = "running speed not reported: no 1× 2× 3× markers"
+MIN_NOTE_W = 60  # below this the speed note is dropped rather than shown as a stub
 
 # Plot margins, as the mockup's L, R, T, B.
 M_LEFT, M_RIGHT, M_TOP, M_BOTTOM = 44, 6, 8, 24
@@ -131,6 +135,36 @@ class BandChart(QWidget):
         a, b = self._spans(plot)[i]
         return QPointF((a + b) / 2, plot.center().y())
 
+    def top_labels(self) -> dict[str, tuple[QRectF, str, Qt.AlignmentFlag]]:
+        """The quiet notes on the plot's top line, as {name: (rect, text, align)}.
+
+        "filter" (right) keeps its full text while it fits; "speed" (left, only
+        without a running speed) takes what is left, elided, with a 16 px gap,
+        and is dropped when too little is left to read. They never overlap.
+        """
+        edges = self._edges
+        if not edges or self._spectrum is None:
+            return {}
+        plot = self._plot()
+        fm = QFontMetrics(self._font(11))
+        top, h = plot.top() + 2, 14
+        out: dict[str, tuple[QRectF, str, Qt.AlignmentFlag]] = {}
+        right_edge = plot.right() - 4
+        free_right = right_edge
+        if edges[0] < maths.SENSOR_FILTER_HZ < edges[-1]:
+            text = fm.elidedText(FILTER_NOTE, Qt.TextElideMode.ElideRight, int(plot.width() - 8))
+            w = fm.horizontalAdvance(text)
+            out["filter"] = (QRectF(right_edge - w, top, w, h), text, Qt.AlignmentFlag.AlignRight)
+            free_right = right_edge - w - 16
+        if not self._speed_hz:
+            left = plot.left() + 4
+            room = free_right - left
+            text = fm.elidedText(SPEED_NOTE, Qt.TextElideMode.ElideRight, int(room))
+            if room >= MIN_NOTE_W and text != "…":
+                w = fm.horizontalAdvance(text)
+                out["speed"] = (QRectF(left, top, w, h), text, Qt.AlignmentFlag.AlignLeft)
+        return out
+
     # ---- events -----------------------------------------------------------
 
     def mouseMoveEvent(self, e) -> None:
@@ -202,14 +236,12 @@ class BandChart(QWidget):
             if edges[0] < maths.SENSOR_FILTER_HZ < edges[-1]:
                 xf = self._x_hz(maths.SENSOR_FILTER_HZ, plot)
                 p.fillRect(QRectF(xf, plot.top(), plot.right() - xf, plot.height()), QColor(255, 255, 255, 9))
-                p.setFont(self._font(11))
-                p.setPen(muted)
-                p.drawText(
-                    QRectF(plot.left(), plot.top() + 2, plot.width() - 4, 14),
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                    f"above sensor filter, {maths.SENSOR_FILTER_HZ:.0f} Hz",
-                )
-                p.setFont(self._font(12))
+            # The filter note and the speed note share the top line (top_labels).
+            p.setFont(self._font(11))
+            p.setPen(muted)
+            for rect, text, align in self.top_labels().values():
+                p.drawText(rect, align | Qt.AlignmentFlag.AlignVCenter, text)
+            p.setFont(self._font(12))
         else:
             p.setPen(muted)
             p.drawText(QPointF(plot.left(), self.height() - 6), "Band edges unknown until the model is announced")
@@ -264,11 +296,3 @@ class BandChart(QWidget):
                 p.drawLine(QPointF(x, plot.top() + 16), QPointF(x, bottom))
                 p.setPen(soft)
                 p.drawText(QRectF(x - 20, plot.top(), 40, 14), Qt.AlignmentFlag.AlignCenter, f"{k}×")
-        elif edges:
-            p.setPen(muted)
-            p.setFont(self._font(11))
-            p.drawText(
-                QRectF(plot.left() + 4, plot.top() + 2, plot.width() / 2, 14),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                "running speed not reported: no 1× 2× 3× markers",
-            )
