@@ -22,7 +22,7 @@
 TwoWire &BUS = Wire2;
 const uint8_t MPU_ADDR = 0x68, OLED_ADDR = 0x3C;  // not "MPU": that name is the chip's memory protection unit
 const uint8_t OLED_COL_OFFSET = 0;                 // 2 for an SH1106 controller
-const int BUTTON_PIN = 2;
+const int BUTTON_PIN = 9;  // D9 to GND (the board as wired, 13 Nov)
 const uint8_t GYRO_EVERY = 10;     // 1 kHz / 10 = 100 gyro samples a second
 const uint16_t MAX_BATCH = 30;     // samples per notification: 180 + 18 bytes, inside the 256-byte RPC buffer
 const uint32_t READ_EVERY_US = 25000;
