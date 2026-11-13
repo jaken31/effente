@@ -3,7 +3,7 @@
 Code: `training/record/conveyor_eval/model_search.py` (imports `evaluate.py`; nothing in `effente/` changed).
 Results: `data/fake/model-search/`:
 - `rotation.json`: the headline
-- `calibration.json`, `stage1.json`, `stage2.json`, `naming.json`, `final_model.json`
+- `calibration.json`, `stage1.json`, `stage2.json`, `naming.json`, `final_model.json`, `combined.json`, `persistence.json`
 - `scores/v2__*.npz`: raw per-minute scores of every fit
 - `cache/`: minute rows of every run
 
@@ -50,6 +50,20 @@ interval on the difference in misses includes 0 for each.
   - **#4 is the cheapest real improvement** (two trainer constants, needs agreement, ~6 fewer misses).
   - **#1 is the best measured**, but needs a model-file format change.
   - A fresh-seed confirmation set should decide between them before either change is made. **I generated nothing.**
+
+**Beyond the minute alarm: hour-long persistence is the next big gain.** Both measurements below are at 0 false
+alerts in every rotation; details in [Alone vs combined](#alone-vs-combined-model--early-warning) and
+[Long persistence](#long-persistence-is-it-just-more-smoothing).
+- **#1 OR its own "line" early warning:** misses **9.7** (7 / 11 / 11) against 13.7 alone. #4 + line: 11.3 against
+  15.0, with no format change. "Line" means the score's
+  30-min block median above 0.3× the line, held 6 blocks. That is a 3-hour persistence test on the same fit and
+  line.
+- **Persistence as the alarm** on other models: 9.3–10.3 at the best settings (Gaussian with the median+max input,
+  bench PCA with the max input, group-max PCA).
+- **Both best settings sit on an edge** (fraction 0.3 is the grid's floor; one step shorter hold gives false alerts).
+  The steady settings around them give about 12.
+- The whole system (model + persistence + the fixed safety checks + a per-second path for jam and splice damage) is
+  being built by sound-fix in `system_search.py`.
 
 **Missed faults at the winner** (kind, size):
 - **w1+w2 (8):**
@@ -254,27 +268,93 @@ So the rotations aren't symmetric: what they measure is mostly "what if the lear
     236 of 248; near-constant counts like `th_hot_pixels` dominated before).
   - Now it is a real floor: 22.0 mean missed at 0 false alerts.
 
-## Alone vs combined (model + early warning): PENDING
+## Alone vs combined (model + early warning)
 
-**Pending.** early-warning found and fixed a bug in its flag files. A run's last early-warning verdict leaked into
-every later run (fixed about 14:05). The combined result I computed at 14:08 used files from before or during that
-fix, so I deleted it. It will be rerun on the regenerated files once early-warning says they are complete and the
-checker has passed them.
+`combined.json`, built on early-warning's fixed flag files of 14:09 (passed by the checker).
+- **The alert is the model's alarm OR the early warning, per minute.** False alerts and catches are counted on the
+  OR'ed flags, so overlapping stretches count once; same rules as everywhere else.
+- **Same fits:** early-warning's rotation stage calls this script's `calibrated_fit` and `lines_for`. Its scores and
+  calibration match mine exactly (max abs difference 0.0, all 31 runs) for the 4 candidates × 3 rotations.
+- **The early-warning settings were picked on the fault runs and heldout,** by early warning alone in early-warning's
+  grid (its 3 best, the best of each method, and the device default): another selection on evaluation data.
+- **What "line" is:** the score's block median above a fraction of the model's own line, held several blocks. In
+  effect a 3–6-hour persistence test on the same score.
+- **Each rotation has one watched healthy week,** so "0 false alerts" rests on about 5,200 running minutes per
+  rotation plus the fault runs' pre-onset minutes.
 
-What is agreed for it:
-- The alert is the model's alarm OR the early warning, per minute.
-- False alerts and catches are counted on the OR'ed flags, so overlapping stretches count once.
-- The early warning comes from **the same fit and line** as the model. early-warning's rotation stage calls this
-  script's `calibrated_fit` and `lines_for`; its scores and cal match mine with max abs difference 0.0 on all 31 runs
-  for the top 3 × 3 rotations.
-- It is ranked by the same rule as the model alone, per model:
-  - false positives alone / combined / change;
-  - faults caught alone / combined, naming those only the early warning caught (its stretch off at the previous
-    running minute, and the model alone missing it);
-  - slow wear % and minutes alone / combined.
+**In the rotation** (worst-rotation false alerts / running week; misses w1+w2 / w1+heldout / w2+heldout):
 
-early-warning's own finding on its full grid is that the early warning never adds a catch over the model alone, at
-any false-alert level.
+| Model (its best minute-alarm setting) | Alone: false alerts, misses, mean | Combined: early warning, false alerts, misses, mean | Lateness alone → combined | Slow wear at first alert (w1+w2), alone → combined | Faults only the early warning caught |
+|---|---|---|---|---|---|
+| #1 PCA residual, group mean, 0.95 (n10 s0.625) | 0, 8/16/17, **13.7** | line, 30-min blocks, > 0.3×, held 6: 0, 7/11/11, **9.7** | 0.58 → 0.45 | 52.9 % → 49.5 % | w1+w2: overload-subtle. w1+heldout: belt slip, electrical, idler seized, unbalance (all subtle), unbalance-obvious. w2+heldout: the same + gear-wear-obvious |
+| #3 Gaussian, impulsive (n10 s0.625) | 0, 14/19/12, 15.0 | line, 60-min, > 0.4×, held 6: 0, 13/18/12, 14.3 | 0.56 → 0.55 | 56.4 % → 56.4 % | cooling-blocked-obvious (w1+w2), electrical-subtle (w1+heldout) |
+| #2 Gaussian, group mean (n10 s0.85) | 0, 10/12/22, 14.7 | none helps: 14.7 | 0.57 | — | none |
+| #4 PCA, today's scoring at 0.99, no cap (n10 s0.65) | 0, 11/15/19, 15.0 | line, 30-min, > 0.3×, held 6: 0, 9/11/14, **11.3** (60-min held 4: 0, 9/10/16) | | | |
+
+- **For #1, the early warning is worth it:**
+  - 4 more faults on average, at no false-alert cost in any rotation;
+  - lateness 0.58 → 0.45;
+  - it recovers both unbalance runs that dilution hid when heldout is a training week.
+  - The cost: for sudden faults the extra catches come late (it waits 3 h), so the median minutes to a sudden-fault
+    alert in w1+w2 rises from 8.9 to 21.8. The minute alarm still catches the obvious ones in minutes.
+  - The catches it adds are all new stretches (0 removed by the "not on at the previous running minute" rule).
+- **#4 + line is the cheapest device-ready system measured:** 11.3 missed at 0 false alerts in every rotation.
+  - #4 itself is two trainer constants.
+  - `Line` already exists in `effente/early_warning.py`, so using it means a different early-warning method and
+    setting (today's default is the per-group CUSUM, which never reaches 0 false alerts here).
+  - Both still need team agreement.
+- **For the Gaussians it adds almost nothing.** early-warning's single-split "Gaussian 8 → 22 of 30" (tail-15 line)
+  doesn't carry into the rotation with the cross-week line, where the Gaussian's minute alarm already catches most of
+  what persistence would.
+- **The rows that pair any model with the no-model CUSUM** reach 2–3 misses, but at 3.3 false alerts a running week.
+  Those catches are the CUSUM's own (it catches 28/30 at that rate by itself), so they are **not** gains of the model.
+- **Frontier, best model + early warning:** 9.7 missed at 0, 0.25, 0.5 and 1 false alerts a week; 9.3 at 2. Against
+  the model alone: 13.7, 13.7, 13.7, 11.0, 9.7.
+
+**For reference only: separate fits** (learn w1+w2, `evaluate.methods()` fits with the tail-15 line, early-warning's
+full grid of 555 settings per model, at 0 false alerts):
+
+| Model | Alone | + its best early warning |
+|---|---|---|
+| Gaussian | 14 missed | 8 (line, 60-min, > 0.4×, held 6) |
+| PCA (bench) | 18 | 8 |
+| PCA (device) | 19 | 10 |
+| device autoencoder | 16 | 10 |
+| sklearn autoencoder | 16 | 10 |
+| nearest neighbours | 24 | 17 |
+| similarity | 24 | 16 |
+
+This is one split, with lines that move between trainings, so it is no evidence for the device's choice. It shows how
+much a weak minute alarm leaves for persistence to pick up.
+
+## Long persistence: is it just more smoothing?
+
+`persistence.json`. Persistence was tested as the model's alarm by itself, and OR'ed with that configuration's best
+minute alarm:
+- **Rule:** blocks of 30, 60, 120 or 360 running minutes; the block median of score / line above 0.3–1.0×; held
+  1–6 blocks. It is the same rule as `effente.early_warning.Line`, on the cross-week line, in the rotation.
+- **Scope:** every rotation configuration except group-mean PCA 0.95 and the group-mean Gaussian, which sound-fix
+  tests in `system_search.py`.
+
+| Model | Minute alarm, 0 false alerts | Persistence alone, best at 0 false alerts | Steady neighbours |
+|---|---|---|---|
+| Gaussian, median + max input | 19.7 | **9.3** (5/10/13), 60-min > 0.3×, held 4 | 12.0–12.3 (held 6, or 120-min held 3) |
+| PCA residual, group max, 0.95 | 17.3 | 10.0 (9/10/11), 30-min > 0.3×, held 4 | |
+| PCA bench, median + max input | 22.0 | 10.3 (7/9/15), 30-min > 0.3×, held 6 | 11.7–12.0 (60-min held 6; 60-min > 0.4× held 2) |
+| PCA, today's scoring at 0.99, no cap | 15.0 | 10.7 (8/10/14), 120-min > 0.3×, held 2 | 11.7 (60-min held 4) |
+| PCA residual 0.95 / bench PCA, median | 22.0 | 12.0 (8/11/17) | |
+| Gaussian impulsive / median | 15.0 / 15.3 | 15.0 / 15.3: none | OR'ed with the minute alarm: 13.0 / 13.3 |
+| nearest neighbours | 26.7 | 11.3 (6-hour blocks) | |
+
+- **It is smoothing, but on a scale the minute grid never reached.** The 10-minute median only sees minutes. These
+  settings ask for 2–6 hours above a much lower bar (0.3× the line).
+- So weak minute alarms gain the most: kNN 26.7 → 11.3, bench PCA 22 → 10–12. The Gaussian on median or impulsive
+  inputs, whose minute alarm is already good, gains little.
+- **Every best setting is at the grid's lowest fraction (0.3)**, and one step less hold gives false alerts. They are
+  edges; the steady neighbours give about 12. That agrees with sound-fix's group-PCA result: steady 12.0, sharp peak
+  8.7.
+- **It is slow by design:** a sudden fault needs hold × block minutes (2–6 h) before persistence alerts. OR it with
+  the minute alarm, which catches the obvious ones in minutes.
 
 ## Fault naming (a tie-breaker only)
 
@@ -312,11 +392,23 @@ two weeks, so they are tighter than the one-week models used in the rotations. A
 more sensitive than anything tested here, so expect more false alerts. The PCA's line falls inside its rotation range.
 If one of them ships, check its false-alert rate on a new healthy week before trusting the dial.
 
+**The rule I would use for the shipped line: train on the most recent two weeks, with their cross-week line.**
+- That is exactly what the rotation tested.
+- If more weeks are recorded, there are two other options:
+  - train on all of them but never set the line below the lowest of the two-week (leave-one-week-out pair) lines; or
+  - use the highest of those lines, to be conservative.
+- For the PCA winner the three-week line (20.6) already sits inside its pair range (13.1–22.9).
+- For the Gaussian (63 against 93–252) the floor would lift it to 93.
+- Never ship a line below everything tested.
+
 ## What it would take on the device
 
 - **#4, PCA with today's scoring at 99 % and no 40-pattern cap:** change `PCA_VARIANCE` and `PCA_MAX_K` in
   `effente/trainer.py`. No format, input or runtime change; older model files keep working. Shared pipeline, so team
   agreement.
+- **The "line" early warning** (`effente.early_warning.Line`, already in the code): a different method and setting
+  (30-min blocks, > 0.3× the line, held 6) instead of today's per-group CUSUM default. With #4 it gives 11.3 missed
+  at 0 false alerts; with #1, 9.7. Team agreement, no format change.
 - **Cross-week line calibration:** how `train_model` sets `threshold`. A trainer change, no format change. It matters
   more than the model choice: with today's tail-15 line, every model's false alerts move 0–28 a week between
   trainings.
@@ -374,7 +466,8 @@ python3 -m training.record.conveyor_eval.model_search stage2 --workers 4
 python3 -m training.record.conveyor_eval.model_search rotation --workers 4
 python3 -m training.record.conveyor_eval.model_search naming
 python3 -m training.record.conveyor_eval.model_search final
-python3 -m training.record.conveyor_eval.model_search combined   # after early-warning's files are final
+python3 -m training.record.conveyor_eval.model_search combined      # reads data/fake/early-warning-search/ew_*
+python3 -m training.record.conveyor_eval.model_search persistence
 ```
 
 Saved scores are reused, so a rerun only judges. One thread per worker.
