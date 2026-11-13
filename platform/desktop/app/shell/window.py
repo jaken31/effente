@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping
 from typing import ClassVar
 
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPainter, QRadialGradient, QShortcut, QTransform
 from PySide6.QtWidgets import (
     QFrame,
@@ -54,6 +54,18 @@ class _Backdrop(QWidget):
             p.setTransform(QTransform().translate(fx * w, fy * h).scale(1, ry / rx))
             p.fillRect(-rx, -rx, 2 * rx, 2 * rx, g_)
             p.restore()
+
+
+class _PageHolder(QWidget):
+    """Holds a page inside its scroll area at no less than the page's natural
+    height. A resizable scroll area otherwise squeezes the page down to its
+    minimum, which overlaps text and shrinks panel headers below their controls."""
+
+    def minimumSizeHint(self) -> QSize:
+        hint = super().minimumSizeHint()
+        lay = self.layout()
+        natural = lay.sizeHint().height() if lay is not None else hint.height()
+        return QSize(hint.width(), max(hint.height(), natural))
 
 
 class PageScroll(QScrollArea):
@@ -157,7 +169,7 @@ class MainWindow(QMainWindow):
     def _wrap(page: QWidget) -> PageScroll:
         """Each page scrolls inside the content area's 24px padding."""
         area = PageScroll()
-        holder = QWidget()
+        holder = _PageHolder()
         lay = QVBoxLayout(holder)
         lay.setContentsMargins(t.CONTENT_PAD, t.CONTENT_PAD, t.CONTENT_PAD, t.CONTENT_PAD)
         lay.addWidget(page)

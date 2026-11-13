@@ -136,3 +136,21 @@ def test_panel_header_fits_its_controls(qtbot):
         p.show()
     assert plain.head.height() == 44
     assert ctl.head.height() == 53
+
+
+def test_page_scroll_keeps_a_page_at_its_natural_height(qtbot):
+    from app.shell.window import MainWindow
+    from app.widgets import Panel as P
+
+    page = QWidget()
+    lay = QVBoxLayout(page)
+    for i in range(12):
+        panel = P(f"Panel {i}")
+        panel.header_end.addWidget(Segmented(["a", "b"]))
+        lay.addWidget(panel)
+    area = MainWindow._wrap(page)
+    qtbot.addWidget(area)
+    area.resize(800, 300)  # far shorter than the page
+    area.show()
+    qtbot.waitExposed(area)
+    assert page.height() >= lay.sizeHint().height()  # scrolls instead of squeezing
