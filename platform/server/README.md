@@ -1,6 +1,6 @@
 # Receiver
 
-Accepts model announcements, log records and check-ins from the device and agent runs from the agent, stores them, streams them live to the dashboard, tracks each device's mode and problems, and serves the dashboard's files. The routes are those in [../CONTRACT.md](../CONTRACT.md), sections 1 to 5. Sections 6 (alarms) and 7 (settings) are not built yet.
+Accepts model announcements, log records and check-ins from the device and agent runs from the agent, stores them, streams them live to the dashboard, tracks each device's mode and problems, and serves the dashboard's files. It also finds alarms in the stored records, takes people's answers to them, and keeps the sensitivity the dashboard wants for each device. The routes are those in [../CONTRACT.md](../CONTRACT.md), sections 1 to 7.
 
 Python 3.11 or newer, standard library only. No install, no build step.
 
@@ -25,11 +25,15 @@ If the web dir or its `index.html` is missing, `/` shows a short notice and the 
 
 ## Data
 
-Three JSON lines files in the data dir, appended as things arrive and reloaded at start:
+Five JSON lines files in the data dir, appended as things arrive and reloaded at start:
 
 - `records.jsonl`: every record, with the `seq` and `received_at` the receiver added.
 - `models.jsonl`: every model announcement. The last one per `model_version` wins.
 - `agent_runs.jsonl`: every copy of every agent run. The last one per `run_id` wins.
+- `alarm_answers.jsonl`: every answer to an alarm, oldest first.
+- `settings.jsonl`: every sensitivity the dashboard set or cleared. The last one per device wins.
+
+Alarms are not stored. They are worked out again from `records.jsonl` at start, and the stored answers are put back on them by `alarm_id`. An answer whose alarm no stored record opens is skipped with a warning.
 
 Check-ins are not stored, and neither are each device's mode, `wrong` and `problems`: after a restart no device is connected, so they are `null`, `false` and `[]` until the device is heard from again. A cut-off or corrupt line (for example after a crash) is skipped with a warning.
 
@@ -49,6 +53,16 @@ To wipe all history, stop the receiver and delete the data dir:
 ```
 rm -r platform/server/data
 ```
+
+## Alarms and settings
+
+Choices the contract leaves open:
+
+- The `alarm` event goes out when an alarm opens, closes, its `diagnosis` or `periods` changes, or an answer is stored, as the contract lists. A record that only moves `end` or `peak_unknown_score` sends no `alarm` event; `/api/state` and the alarm history have the new values.
+- `periods` and `peak_unknown_score` are `null` until a record of the alarm reports `abnormal_minutes` or `unknown_score`.
+- An alarm opened before its model was announced gets `library_entry` filled in when the announcement arrives. Answers keep the value they were stored with.
+- The `settings` event also goes out when a device reports a sensitivity for the first time, in a record, a model announcement or a check-in.
+- Setting a sensitivity for a device not yet heard from adds it to `/api/state` as not connected, so the dashboard can show the value waiting for it.
 
 ## Tests
 

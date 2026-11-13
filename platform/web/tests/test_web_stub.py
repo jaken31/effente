@@ -137,6 +137,7 @@ def test_stream_has_device_mode_and_problem_events(stub):
             stub.device.tick()
 
     events = read_events(stub.port, act, lambda ev: any(n == "device" and d["mode"] == "recording" for n, d in ev))
+    events = [(n, d) for n, d in events if n != "settings"]  # the reported sensitivity, contract section 7
     names = [n for n, _ in events]
     assert names[:3] == ["model", "device", "record"]
     assert events[1][1]["mode"] == "watching"
