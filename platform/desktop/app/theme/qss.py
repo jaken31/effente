@@ -112,7 +112,8 @@ QTableView {{
     color: {t.SOFT};
 }}
 QHeaderView {{ background: {t.PANEL}; border: 0; }}
-QHeaderView::section {{
+QHeaderView::section:vertical {{ padding: 0; border: 0; }}
+QHeaderView::section:horizontal {{
     background: {t.PANEL}; color: {t.MUTED}; border: 0; border-bottom: 1px solid {css(t.BORDER)};
     padding: {t.CELL_PAD_V}px {t.CELL_PAD_H}px;
 }}

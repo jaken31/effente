@@ -75,3 +75,48 @@ def test_table_row_clicked(qtbot):
         qtbot.mouseClick(tb.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
     assert sig.args == [1]
     assert tb.verticalHeader().defaultSectionSize() == 36
+
+
+def test_hintless_panel_keeps_title_left(qtbot):
+    p = Panel("Report", number=False)
+    p.header_end.addWidget(Button("Copy", small=True))
+    qtbot.addWidget(p)
+    p.resize(600, 200)
+    p.show()
+    assert p.title_label.geometry().left() == 15
+    end = p.header_end.itemAt(0).widget()
+    assert end.geometry().right() > 500
+
+
+def test_cell_roles_paint(qtbot):
+    from app.widgets import CellDelegate
+
+    m = QStandardItemModel(2, 4)
+    name = QStandardItem("Unbalance")
+    name.setData("unbalance_like", DataTable.CodeRole)
+    m.setItem(0, 0, name)
+    tag = QStandardItem("possible · not validated")
+    tag.setData(True, DataTable.TagRole)
+    m.setItem(0, 1, tag)
+    long = QStandardItem("once-per-turn vibration grown (unbalance, a bent shaft, a lost blade) " * 2)
+    long.setData(True, DataTable.WrapRole)
+    m.setItem(0, 2, long)
+    code = QStandardItem("conveyor-07-20261114")
+    code.setData(True, DataTable.MonoRole)
+    code.setData(True, DataTable.StrongRole)
+    m.setItem(0, 3, code)
+    tint = QStandardItem("x")
+    tint.setData(True, DataTable.TintRole)
+    m.setItem(1, 0, tint)
+    tb = DataTable(wrap=True)
+    tb.setModel(m)
+    qtbot.addWidget(tb)
+    tb.resize(700, 300)
+    tb.setColumnWidth(2, 200)
+    tb.show()
+    tb.resizeRowsToContents()
+    assert isinstance(tb.itemDelegate(), CellDelegate)
+    assert tb.rowHeight(0) > 36
+    assert tb.rowHeight(1) == 36
+    assert tb.itemDelegate().text_color(m.index(0, 3)).name() == "#ededed"
+    assert not tb.grab().isNull()
