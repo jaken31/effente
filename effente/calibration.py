@@ -16,7 +16,7 @@ and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
   with the entry as guard  two deliberate floors and one switch-off (refit_prep, calibrate):
                            - spreads: widened by the entry's calibration.widen factors, or, for
                              an entry without them, never below the entry's own spreads
-                           - threshold: never below threshold_floor_share (default 1.0) of the
+                           - threshold: never below threshold_floor_share (default 0.25) of the
                              entry's own threshold
                            - readings the entry holds, or this machine did not give while
                              calibrating, are not judged
@@ -25,13 +25,17 @@ Why the floors, and what they cost (all SIMULATED, unverified; commands and numb
 training/calibration/README.md). A few minutes cannot show how far readings wander in an hour. A
 model fitted to 300 s alone, with no entry behind it, alarmed in 73 to 98 % of the following 40
 minutes of normal running. With the floors the calibrated entries alarmed in 0 to 0.2 %.
-The threshold floor is the blunt one. In every simulated calibration (28 of 28) the threshold fitted
-from this machine was below the entry's, so the entry's was used: with the default share the
-threshold refit is inert on the simulators, and a calibrated model alarms exactly as high as its
-entry allows. That costs sensitivity. With an entry whose own threshold is high (the conveyor entry
-of branch feat/model-library, 59.85) none of four simulated faults raised an alarm at share 1.0 or
-0.5, while share 0 alarmed in 80 % of normal seconds. threshold_floor_share is a parameter so the
-default can be set from measurements; 1.0 is a starting value, not a recommendation.
+The threshold floor is the blunt one. In every simulated calibration the threshold fitted from this
+machine was far below the entry's, so the floor decided the threshold: the refit itself is inert on
+the simulators, and a calibrated model alarms as high as share x the entry's threshold. That costs
+sensitivity, and how much depends on the entry. With the conveyor entry of branch feat/model-library
+(threshold 59.85), of four simulated faults share 1.0 and 0.5 caught none, the default 0.25 caught
+one, and share 0 alarmed in 80 % of normal seconds. With the conveyor entry of track3/library-build
+(threshold 24.53) every share from 0.25 to 1 caught all four with no alarm before them, but at
+0.25 three of four simulated conveyors alarmed in 3 to 7 % of the 40 normal minutes after
+calibration, against at most 0.2 % at 1.0.
+The default of 0.25 is a starting value, simulated only, and tied to the entry's threshold: a
+different entry may need a different share.
 
 It follows effente.trainer.train_model step for step and reuses its parts, so a calibrated model
 and one trained on the machine alone differ only in where the network came from: running rows
@@ -69,9 +73,10 @@ from effente.model_input import MAX_NAN_FRAC, Prep, _transform_raw
 MIN_RUNNING_S = 300  # the trainer's minimum (TRD: starting value, 5 minutes of running)
 MIN_ROWS = 60  # below this there are too few held-out rows to fit a threshold at all, whatever min_running_s says
 # The alarm threshold is never set below this share of the entry's own threshold. 1.0: never below the
-# entry's. 0: the threshold fitted to this machine alone. STARTING VALUE, simulated only: 1.0 keeps a
-# short calibration quiet and costs sensitivity (training/calibration/README.md has the runs).
-THRESHOLD_FLOOR_SHARE = 1.0
+# entry's. 0: the threshold fitted to this machine alone. STARTING VALUE, simulated only, and tied to
+# the entry's threshold: another entry may need another share (training/calibration/README.md has
+# the runs, and what 0.25 misses).
+THRESHOLD_FLOOR_SHARE = 0.25
 CALIB_SHARE = 0.15  # the last part of the calibration, held out for the threshold (as the trainer)
 
 # Fit check: ok is False when this machine's median held-out score is more than this many times the
@@ -170,8 +175,8 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     (model file dict, report). Raises ValueError if the entry is not a model this device can run,
     or the machine ran for less than min_running_s seconds in the rows given.
     threshold_floor_share: the alarm threshold is never set below this share of the entry's own
-    (THRESHOLD_FLOOR_SHARE; 0 uses the threshold fitted here alone). The default of 1.0 costs
-    sensitivity: see the module notes."""
+    (THRESHOLD_FLOOR_SHARE; 0 uses the threshold fitted here alone, 1 never goes below the
+    entry's). Any floor costs sensitivity: see the module notes."""
     if not (isinstance(threshold_floor_share, (int, float)) and math.isfinite(threshold_floor_share)
             and threshold_floor_share >= 0):
         raise ValueError("threshold_floor_share must be a number of 0 or more")
@@ -211,11 +216,13 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     s, r, Z = model.score(X)
     scale = np.std(r[fit], 0)
     d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
-    # The threshold: fitted to this machine's held-out scores as the trainer does, but never below
-    # threshold_floor_share of the entry's own. A few dozen held-out seconds can show this machine is
-    # noisier than the entry's machines; they cannot show a week of it would be quieter.
+    # The threshold: fitted to this machine's held-out scores as the trainer does, then kept at or
+    # above threshold_floor_share of the entry's own. A few dozen held-out seconds can show this machine
+    # is noisier than the entry's machines; they cannot show a week of it would be quieter.
+    # (Only a lower bound today. An upper bound would go here too: clip fitted between two shares.)
     fitted = TR.gamma_threshold(TR._causal_median(s[held], model.smooth), 7 * 86400 / period)
-    d["threshold"] = max(fitted, float(threshold_floor_share) * float(entry_model["threshold"]))
+    lowest = float(threshold_floor_share) * float(entry_model["threshold"])
+    d["threshold"] = max(fitted, lowest)
     model = RT.Model(d)
 
     # The fault classifier, as in full training (this machine's own normal deviations with the fault-type

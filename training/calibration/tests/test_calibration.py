@@ -250,7 +250,7 @@ def test_rows_recorded_with_an_older_feature_list_are_mapped_by_name():
 
 # ----------------------------------------------------------------- the entry as guard
 
-def test_a_short_calibration_is_never_stricter_than_the_entry():
+def test_spreads_never_go_below_the_entrys_and_the_threshold_keeps_its_floor():
     d, _ = entry()
     t, X = seconds(300, seed=17, start=45_000, vib=0.3)
     j = d["prep"]["columns"].index("env_room_c")
@@ -258,7 +258,9 @@ def test_a_short_calibration_is_never_stricter_than_the_entry():
     cal, report = C.calibrate(d, t, X, NAMES)
     assert all(a >= b for a, b in zip(cal["prep"]["scale"], d["prep"]["scale"]))  # no spread below the entry's
     assert cal["prep"]["scale"][j] == d["prep"]["scale"][j]
-    assert cal["threshold"] == max(report["threshold_fitted_here"], d["threshold"]) >= d["threshold"]
+    floor = C.THRESHOLD_FLOOR_SHARE * d["threshold"]  # and the threshold never below that share of the entry's
+    assert cal["threshold"] >= floor and math.isclose(cal["threshold"], max(report["threshold_fitted_here"], floor),
+                                                      abs_tol=1e-4)
     assert report["entry_threshold"] == round(d["threshold"], 4) and report["spreads"] == "never below the entry's"
 
 
@@ -266,17 +268,17 @@ def test_the_threshold_floor_share_sets_how_much_of_the_entrys_threshold_is_kept
     d, _ = entry()
     high = dict(d, threshold=10 * d["threshold"])  # an entry whose own threshold is far above this machine's
     t, X = seconds(300, seed=20, start=75_000, vib=0.2)
-    out = {share: C.calibrate(high, t, X, NAMES, threshold_floor_share=share) for share in (0.0, 0.5, 1.0)}
+    out = {share: C.calibrate(high, t, X, NAMES, threshold_floor_share=share) for share in (0.0, 0.25, 0.5, 1.0)}
     fitted = out[0.0][1]["threshold_fitted_here"]
-    assert fitted < 0.5 * high["threshold"]
+    assert fitted < 0.25 * high["threshold"]
     assert math.isclose(out[0.0][0]["threshold"], fitted, abs_tol=1e-4)  # 0: the threshold fitted here alone
     assert out[1.0][0]["threshold"] == high["threshold"]  # 1: never below the entry's
     assert out[0.5][0]["threshold"] == 0.5 * high["threshold"]  # 0.5: between the two
     assert out[0.0][0]["threshold"] < out[0.5][0]["threshold"] < out[1.0][0]["threshold"]
     assert [out[s][1]["threshold_floor_share"] for s in (0.0, 0.5, 1.0)] == [0.0, 0.5, 1.0]
-    default = C.calibrate(high, t, X, NAMES)  # the default is the module constant, 1.0
-    assert C.THRESHOLD_FLOOR_SHARE == 1.0 and default[0]["threshold"] == out[1.0][0]["threshold"]
-    assert default[1]["threshold_floor_share"] == 1.0
+    default = C.calibrate(high, t, X, NAMES)  # the default is the module constant, 0.25
+    assert C.THRESHOLD_FLOOR_SHARE == 0.25 and default[0]["threshold"] == out[0.25][0]["threshold"]
+    assert default[0]["threshold"] == 0.25 * high["threshold"] and default[1]["threshold_floor_share"] == 0.25
     low = dict(d, threshold=1e-3)  # a fitted threshold above the floor is used whatever the share
     assert C.calibrate(low, t, X, NAMES, threshold_floor_share=1.0)[0]["threshold"] == out[0.0][0]["threshold"]
     raises(lambda: C.calibrate(d, t, X, NAMES, threshold_floor_share=-0.1), "threshold_floor_share")
@@ -317,7 +319,7 @@ def test_a_library_entrys_widen_factors_and_held_readings_are_used():
     assert report["fault_classes"] == 0 and report["classifier_exact_match"] is None
     assert cal["source"] == "calibrated" and cal["library_entry"] == "fixture_conveyor" and cal["entry_version"] == "0.1.0"
     assert cal["calibration"] == lib["calibration"] and m.classifier is None
-    assert cal["threshold"] >= lib["threshold"]
+    assert cal["threshold"] >= C.THRESHOLD_FLOOR_SHARE * lib["threshold"]
     v = C.fit_check(report, man)  # the library's manifest spelling of the held-out median
     assert v["ok"] is True and v["ratio"] > 0
     held = np.array(X[:200])  # a held reading far from anything seen does not alarm: it is not judged
