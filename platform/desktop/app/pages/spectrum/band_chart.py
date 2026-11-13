@@ -205,7 +205,7 @@ class BandChart(QWidget):
                 p.setFont(self._font(11))
                 p.setPen(muted)
                 p.drawText(
-                    QRectF(xf, plot.top() + 2, plot.right() - xf - 4, 14),
+                    QRectF(plot.left(), plot.top() + 2, plot.width() - 4, 14),
                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                     f"above sensor filter, {maths.SENSOR_FILTER_HZ:.0f} Hz",
                 )
