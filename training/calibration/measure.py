@@ -173,6 +173,8 @@ def main(argv=None) -> int:
         folder = Path(folder)
         manifest = json.loads((folder / "manifest.json").read_text())
         name = str(manifest.get("entry_id") or manifest.get("entry") or folder.name)
+        if name in entries:  # two entries with one name: tell them apart by folder
+            name = f"{name} ({folder})"
         entries[name] = (json.loads((folder / "model.json").read_text()), manifest)
     out = {"label": "simulated (effente.simulate_conveyor, effente.simulate_server, effente.site_noise); "
                     "unverified on real machines", "sensors": a.sensors, "entries": list(entries),
@@ -180,32 +182,33 @@ def main(argv=None) -> int:
            "calibrated_300s": [], "lengths": [], "faults": []}
 
     print(f"threshold_floor_share: {out['threshold_floor_share']}")
-    print(f"SIMULATED, sensors: {a.sensors}. 1. Calibrated on the first 300 s, then {WATCH_S} s of normal running.")
-    print("   ratio = fit check (pass = no gross mismatch found, not proof of machine type); alarm = share of seconds alarming in the first 300 s / all 2400 s after calibration;")
-    print("   alone = the same for a model trained on the same 300 s alone")
-    for ename, (d, manifest) in entries.items():
-        print(f" entry {ename}")
-        for mname, (kind, seed, start, settings) in machines.items():
-            t, X = get(kind, seed, start, SESSION_S, settings)
-            sel = t < t[0] + 300
-            first5 = (t >= t[0] + 300) & (t < t[0] + 600)
-            after = (t >= t[0] + 300) & (t < t[0] + 300 + WATCH_S)
-            cal, v = run_calibrate(d, manifest, t[sel], X[sel])
-            alone, _ = train_model(t[sel], X[sel], NAMES)
-            row = {"entry": ename, "machine": mname, **v, "first_300s": share(cal, t[first5], X[first5]),
-                   "all_2400s": share(cal, t[after], X[after]), "trained_alone_2400s": share(alone, t[after], X[after])}
-            out["calibrated_300s"].append(row)
-            print(f"   {mname:40s} ratio {v['ratio']:5.2f} {'pass' if v['ok'] else 'FAIL'} threshold "
-                  f"{v['threshold']:7.2f} (fitted here {v.get('threshold_fitted_here', float('nan')):7.2f})  alarm {row['first_300s']['alarm_share']:.3f} / "
-                  f"{row['all_2400s']['alarm_share']:.3f}  alone {row['trained_alone_2400s']['alarm_share']:.3f}")
+    if not a.faults_only:
+        print(f"SIMULATED, sensors: {a.sensors}. 1. Calibrated on the first 300 s, then {WATCH_S} s of normal running.")
+        print("   ratio = fit check (pass = no gross mismatch found, not proof of machine type); alarm = share of seconds alarming in the first 300 s / all 2400 s after calibration;")
+        print("   alone = the same for a model trained on the same 300 s alone")
+        for ename, (d, manifest) in entries.items():
+            print(f" entry {ename}")
+            for mname, (kind, seed, start, settings) in machines.items():
+                t, X = get(kind, seed, start, SESSION_S, settings)
+                sel = t < t[0] + 300
+                first5 = (t >= t[0] + 300) & (t < t[0] + 600)
+                after = (t >= t[0] + 300) & (t < t[0] + 300 + WATCH_S)
+                cal, v = run_calibrate(d, manifest, t[sel], X[sel])
+                alone, _ = train_model(t[sel], X[sel], NAMES)
+                row = {"entry": ename, "machine": mname, **v, "first_300s": share(cal, t[first5], X[first5]),
+                       "all_2400s": share(cal, t[after], X[after]), "trained_alone_2400s": share(alone, t[after], X[after])}
+                out["calibrated_300s"].append(row)
+                print(f"   {mname:40s} ratio {v['ratio']:5.2f} {'pass' if v['ok'] else 'FAIL'} threshold "
+                      f"{v['threshold']:7.2f} (fitted here {v.get('threshold_fitted_here', float('nan')):7.2f})  alarm {row['first_300s']['alarm_share']:.3f} / "
+                      f"{row['all_2400s']['alarm_share']:.3f}  alone {row['trained_alone_2400s']['alarm_share']:.3f}")
 
-    rows = [r for r in out["calibrated_300s"] if "threshold_fitted_here" in r]
-    above = sum(r["threshold_fitted_here"] > r["entry_threshold"] for r in rows)
-    print(f"   the threshold fitted here was above the entry's (so it was the one used) in {above} of {len(rows)} "
-          f"calibrations; in the others the entry's threshold was kept")
-    out["threshold_fitted_above_entry"] = {"above": above, "of": len(rows)}
+        rows = [r for r in out["calibrated_300s"] if "threshold_fitted_here" in r]
+        above = sum(r["threshold_fitted_here"] > r["entry_threshold"] for r in rows)
+        print(f"   the threshold fitted here was above the entry's (so it was the one used) in {above} of {len(rows)} "
+              f"calibrations; in the others the entry's threshold was kept")
+        out["threshold_fitted_above_entry"] = {"above": above, "of": len(rows)}
 
-    if not a.quick:
+    if not a.quick and not a.faults_only:
         print(f"\nSIMULATED, sensors: {a.sensors}. 2. Share of the {WATCH_S} s after calibration that alarm, "
               f"by calibration length")
         print(f"   {'':40s} " + " ".join(f"{str(n) + ' s':>7s}" for n in LENGTHS))
@@ -223,6 +226,7 @@ def main(argv=None) -> int:
                     cells.append(f"{row['alarm_share']:7.3f}")
                 print(f"   {mname:40s} " + " ".join(cells))
 
+    if not a.quick:
         kind, seed, start, settings = FAULT_MACHINE
         print(f"\nSIMULATED, sensors: {a.sensors}. 3. Faults on 'conveyor, seed {seed}': calibrated on the first "
               f"{FAULT_CALIB_S} s, fault on from {FAULT_ONSET_S} s to the end ({FAULT_SESSION_S} s)")
