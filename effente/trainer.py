@@ -7,8 +7,9 @@ so a model is trained the same way wherever it is trained:
      into per-period medians. The period follows the recording's length, so a 20-minute demo
      recording still has enough rows and a week has per-minute ones (choose_period).
   2. Split by time: the last part (calib_share) is held out for the threshold.
-  3. Prepare (effente.model_input.Prep) and learn the normal model: a small denoising
-     autoencoder, trained with Adam and early stopping.
+  3. Prepare (effente.model_input.Prep) and learn the normal model: PCA by default (the straight-line
+     patterns of normal, stored as a linear autoencoder), or a small denoising autoencoder trained
+     with Adam and early stopping (normal_model="autoencoder").
   4. Whole-number weights (int8, a scale per neuron), and a check that the device runtime
      (effente.model_runtime) gives the same scores.
   5. Threshold: one false alarm a week of the period's rows, from a gamma fit to the held-out
@@ -263,10 +264,36 @@ def _causal_median(x, n):
     return np.array([np.median(x[max(0, i - n + 1):i + 1]) for i in range(len(x))])
 
 
+# How the normal model is learned. "pca" won on 20 real bearings (Ottawa, 12 Nov: 38 of 40 faults
+# caught and no healthy bearing flagged, against 35 of 40 for the trained autoencoder; it tied on the
+# simulated conveyor), and trains in milliseconds. training/record/datasets/compare_ottawa.py.
+NORMAL_MODELS = ("pca", "autoencoder")
+NORMAL_MODEL = "pca"
+PCA_VARIANCE, PCA_MAX_K = 0.95, 40  # keep the patterns that explain 95 % of normal, at most 40
+
+
+def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
+    """PCA as a straight-line autoencoder, so the model file and the device runtime stay as they are:
+    encode h = (z - mean) @ V, decode z' = h @ V.T + mean, V the top principal directions of normal.
+    Returns the two layers [(W, b), (W, b)] and the number of directions kept."""
+    Z = np.asarray(Z, np.float64)
+    mean = Z.mean(0)
+    _, sv, vt = np.linalg.svd(Z - mean, full_matrices=False)
+    share = np.cumsum(sv ** 2) / max(float((sv ** 2).sum()), 1e-12)
+    k = int(min(np.searchsorted(share, var) + 1, max_k, len(sv)))
+    V = vt[:k].T  # (inputs, k)
+    layers = [(V.astype(np.float32), (-mean @ V).astype(np.float32)),
+              (V.T.astype(np.float32), mean.astype(np.float32))]
+    return layers, k
+
+
 def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_share: float = 0.15,
-                seed: int = 0, source: str = "", progress=None, time_limit_s: float | None = None):
+                seed: int = 0, source: str = "", progress=None, time_limit_s: float | None = None,
+                normal_model: str = NORMAL_MODEL):
     """Train from one-a-second feature rows. Returns (model file dict, report). Raises ValueError if
-    the recording is too short."""
+    the recording is too short. normal_model: "pca" (the default) or "autoencoder"."""
+    if normal_model not in NORMAL_MODELS:
+        raise ValueError(f"normal_model must be one of {NORMAL_MODELS}")
     X = to_current(X, names)  # the model is always built on the feature list this code computes
     names = list(F.FEATURE_NAMES)
     t = np.asarray(t, float)
@@ -293,15 +320,19 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     hid = int(np.clip(4 * mid, 8, 64))
     t0 = time.perf_counter()
     say("learning normal", 0.1)
-    ae, _ = fit_mlp(Z[fit], Z[fit], [d_in, hid, mid, hid, d_in], ["relu", "relu", "relu", "linear"], noise=0.1,
-                    seed=seed, progress=lambda e, v: say("learning normal", 0.1 + 0.6 * min(e, 100) / 100),
-                    time_limit_s=time_limit_s)
+    if normal_model == "pca":
+        ae, kept = fit_pca(np.nan_to_num(Z[fit]))
+        acts = ["linear", "linear"]
+    else:
+        ae, _ = fit_mlp(Z[fit], Z[fit], [d_in, hid, mid, hid, d_in], ["relu", "relu", "relu", "linear"], noise=0.1,
+                        seed=seed, progress=lambda e, v: say("learning normal", 0.1 + 0.6 * min(e, 100) / 100),
+                        time_limit_s=time_limit_s)
+        acts, kept = ["relu", "relu", "relu", "linear"], mid
     fit_s = time.perf_counter() - t0
-    acts = ["relu", "relu", "relu", "linear"]
     d = {"format": RT.FORMAT, "features_version": RT._version(),
          "created": datetime.now(timezone.utc).isoformat(timespec="seconds"), "trained_on": source,
          "prep": prep.to_dict(), "period_s": int(period), "smooth_minutes": smooth, "threshold": 1.0,
-         "baseline": baseline,
+         "baseline": baseline, "normal_model": normal_model,  # the layers below are a linear autoencoder for "pca"
          "autoencoder": [RT.quantize(W, b, a) for (W, b), a in zip(ae, acts)]}
     model = RT.Model(d)
     h = Z.astype(np.float32)
@@ -309,7 +340,14 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
         h = h @ W + b
         h = np.maximum(h, 0) if a == "relu" else h
     s_float = ((Z - h) ** 2).mean(1)
+    if normal_model == "pca":  # scored by residual and by distance along the patterns (Model.score)
+        _, r_fit, Z_fit = model.score(X[fit])
+        hs = np.std(model.ae.hidden(Z_fit, layer=0), 0)
+        d["pca_score"] = {"pattern_scale": [float(v) for v in np.where(hs > 1e-6, hs, 1e-6)],
+                          "residual_ref": float(max((r_fit ** 2).mean(), 1e-9))}
+        model = RT.Model(d)
     s_int, r_int, Z_int = model.score(X)
+    resid_int = (r_int ** 2).mean(1)  # for the int8 check: the same quantity as s_float
     scale = np.std(r_int[fit], 0)
     d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
     model = RT.Model(d)
@@ -331,7 +369,8 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
                           for c in prep.columns]
     report = {"period_s": int(period), "rows_learned": int(fit.sum()), "rows_calibration": int(calib.sum()),
               "inputs": prep.n_out, "features_kept": len(prep.columns), "fit_seconds": round(fit_s, 1),
-              "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, s_int)[0, 1]), 5),
+              "normal_model": normal_model, "patterns_kept": int(kept),
+              "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, resid_int)[0, 1]), 5),
               "threshold": round(d["threshold"], 4), "fault_classes": len(classes),
               "classifier_exact_match": round(acc, 3), "dropped_limits": baseline["dropped"],
               "warnings": baseline["warnings"]}

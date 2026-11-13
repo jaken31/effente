@@ -89,6 +89,13 @@ class Model:
         self._dev_idx = [i for i, n in enumerate(out) if n in self.prep.columns]
         self._dev_names = [out[i] for i in self._dev_idx]
         self.resid_scale = np.asarray(d.get("residual_scale", np.ones(len(out))), float)
+        # A PCA model (effente.trainer, normal_model "pca") is scored two ways, as in process monitoring:
+        # what its patterns can't explain (the residual) and how far along its patterns the row has gone
+        # (Hotelling's T2), each about 1 for normal rows. The residual alone misses a change that moves
+        # along a pattern of normal (12 Nov: a swinging temperature, 8 spreads off, scored as normal).
+        ps = d.get("pca_score")
+        self.pattern_scale = np.asarray(ps["pattern_scale"], float) if ps else None
+        self.residual_ref = float(ps["residual_ref"]) if ps else 1.0
 
     @classmethod
     def load(cls, path) -> "Model":
@@ -98,7 +105,11 @@ class Model:
         """Per row: (score, residuals, prepared inputs)."""
         Z = self.prep.transform(X)
         r = Z - self.ae(Z)
-        return (r ** 2).mean(1), r, Z
+        s = (r ** 2).mean(1)
+        if self.pattern_scale is not None:
+            t2 = ((self.ae.hidden(Z, layer=0) / self.pattern_scale) ** 2).mean(1)
+            s = s / self.residual_ref + t2
+        return s, r, Z
 
     def deviation_vector(self, r: np.ndarray, Z: np.ndarray) -> np.ndarray:
         """How far each reading is off, for naming the fault (rows x kept features).
