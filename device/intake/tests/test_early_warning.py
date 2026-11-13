@@ -97,7 +97,7 @@ def test_a_small_lasting_change_is_named_before_any_alarm_and_clears_when_it_goe
     m, calib = model()
     t, X = rows(3600, 5000, seed=3)
     X = np.vstack([hot(X[:1800], 1.0), X[1800:]])  # half an hour a little warmer, then back to normal
-    ew = EW.EarlyWarning(m, calib)
+    ew = EW.EarlyWarning(m, calib, method="cusum")  # per-group naming: the CUSUM detector (no longer the default)
     ev, alarms = feed(m, ew, t, X)
     assert alarms == 0  # too small for the model's alarm
     on = [e for e in ev if e[1] == "early_warning"]
@@ -115,12 +115,30 @@ def test_creeping_up_says_so_with_a_coarse_speed():
     t, X = rows(60 * 20, 5000, seed=4)  # 20 blocks, the readings rising throughout
     ramp = np.linspace(0.0, 3.0, len(X))[:, None]
     X[:, [F.INDEX[n] for n in HOT]] += ramp
-    ew = EW.EarlyWarning(m, calib)
+    ew = EW.EarlyWarning(m, calib, method="cusum")
     ev, _ = feed(m, ew, t, X)
     said = [e[2] for e in ev if e[1] == "early_warning"]
     assert said and said[0]["symptom"] == "too_hot", said
     assert any(s["rising"] and s["text"] == "TOO HOT CREEPING UP" and s["speed"] for s in said), said
     assert ew.screen() == "EARLY: HEATING UP" or ew.alarm
+
+
+def test_the_default_is_system_cs_line():
+    from effente import trainer as TR
+    assert EW.DEFAULT_METHOD == "line" and EW.LINE_BLOCK == 30 and EW.LINE_HOLD == 6
+    assert abs(EW.LINE_FRAC * TR.THRESHOLD_FACTOR - 0.3) < 1e-12  # 0.3 x the crossfit line, which models store x factor
+    m, calib = model()
+    assert EW.EarlyWarning(m, calib).block == 30 and EW.EarlyWarning(m, calib, method="cusum").block == calib["block"]
+
+
+def test_the_line_needs_six_blocks_over_its_fraction_and_scales_with_sensitivity():
+    n = len(EW.SERIES)
+    for s, frac in ((0.5, EW.LINE_FRAC), (1.0, EW.LINE_FRAC / 2), (0.0, EW.LINE_FRAC * 2)):
+        assert abs(EW.LINE_FRAC * EW.scale(s) - frac) < 1e-12
+        det = EW.Line(n, frac=frac)
+        on = [bool(det.step_raw(1.05 * frac)[EW.SCORE]) for _ in range(EW.LINE_HOLD)]
+        assert on == [False] * (EW.LINE_HOLD - 1) + [True], on  # on at the sixth block in a row
+        assert not det.step_raw(0.95 * frac)[EW.SCORE]  # off as soon as a block falls back
 
 
 def test_steps_aside_while_the_alarm_is_on():
