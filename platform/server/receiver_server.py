@@ -13,7 +13,7 @@ import threading
 import traceback
 import urllib.parse
 
-from receiver_store import DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT, QUIET_AFTER_S, BadRequest, Store
+from receiver_store import DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT, QUIET_AFTER_S, BadRequest, Store, parse_time
 
 KEEPALIVE_S = 5.0
 MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -280,7 +280,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         limit = _limit(query, DEFAULT_HISTORY_LIMIT)
         spectrum = _flag(query, "spectrum")
         frames = _flag(query, "frames")
-        records = self.server.store.machine_records(machine_id, limit, spectrum, frames)
+        since = _since(query)
+        after_seq = _after_seq(query)
+        records = self.server.store.machine_records(machine_id, limit, spectrum, frames, since, after_seq)
         self._json(200, {"ok": True, "records": records})
 
     def get_machine_runs(self, query, machine_id):
@@ -350,6 +352,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def _flag(query, name):
     return query.get(name, ["0"])[-1].lower() in ("1", "true", "yes")
+
+
+def _since(query):
+    if "since" not in query:
+        return None
+    since = parse_time(query["since"][-1])
+    if since is None:
+        raise BadRequest("since must be an ISO 8601 time")
+    return since
+
+
+def _after_seq(query):
+    if "after_seq" not in query:
+        return None
+    try:
+        seq = int(query["after_seq"][-1])
+    except ValueError:
+        raise BadRequest("after_seq must be a whole number")
+    if seq < 0:
+        raise BadRequest("after_seq must be 0 or more")
+    return seq
 
 
 def _limit(query, default):

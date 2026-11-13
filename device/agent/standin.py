@@ -1,7 +1,7 @@
-"""A rule-based report writer used instead of Claude when there is no key or network.
+"""A rule-based report writer used instead of a model when there is no model server.
 
-It is not Claude and says so: its summary starts with "Stand-in report:" and
-the run is marked simulated with model "stand-in (no Claude call)". It reads
+It is not a model and says so: its summary starts with "Stand-in report:" and
+the run is marked simulated with model "stand-in (no model call)". It reads
 the same summary the tools return, makes the same tool calls (except
 search_parts, so it never touches the network) and its report goes through
 the same checks as a real one.
@@ -14,7 +14,7 @@ import json
 from .report import EVIDENCE_SPREADS, NOT_FAULT_DIAGNOSES
 from .tools import Tools
 
-MODEL_NAME = "stand-in (no Claude call)"
+MODEL_NAME = "stand-in (no model call)"
 UNRECOGNISED = "unrecognised_pattern"
 CITE_PER_FAULT = 3  # at most this many readings cited for each fault type
 

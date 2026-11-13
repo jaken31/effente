@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[3]
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for name in ("EFFENTE_PLATFORM_URL", "TAVILY_API_KEY", "ANTHROPIC_API_KEY"):
+    for name in ("EFFENTE_PLATFORM_URL", "TAVILY_API_KEY", "EFFENTE_LLM_URL"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -85,31 +85,6 @@ def test_cli_stand_in_writes_a_report_and_posts_it(tmp_path, capsys):
     assert code == 0 and out["ok"] and out["simulated"] is True
     assert out["report"]["summary"].startswith("Stand-in report:")
     assert platform.bodies[-1]["status"] == "done" and platform.bodies[-1]["ok"] is True
-
-
-def test_cli_live_without_the_package_exits_and_posts_agent_unavailable(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: None)
-    with Receiver() as platform:
-        code = cli.main(args(tmp_path, "--platform", platform.url))
-    captured = capsys.readouterr()
-    assert code == 1
-    assert "anthropic package is not installed" in captured.err
-    final = platform.bodies[-1]
-    assert final["ok"] is False and final["report"] is None
-    assert final["reason"] == "agent unavailable: the anthropic package is not installed (pip install anthropic)"
-    assert json.loads((tmp_path / "agent.jsonl").read_text())["ok"] is False
-
-
-def test_cli_live_without_a_key_exits_and_never_calls_claude(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: object())
-
-    def must_not_call(*_):
-        raise AssertionError("live call attempted")
-
-    monkeypatch.setattr(cli, "call_claude", must_not_call)
-    code = cli.main(args(tmp_path))
-    out = json.loads(capsys.readouterr().out)
-    assert code == 1 and out["reason"] == "agent unavailable: ANTHROPIC_API_KEY is not set"
 
 
 def test_module_runs_from_the_command_line(tmp_path):
