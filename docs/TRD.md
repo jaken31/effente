@@ -199,13 +199,15 @@ Each hour file holds `X` (rows x 278), `t0`, `feature_names`, `feature_sensor`, 
 | `version` | For example `0.1.0` |
 | `normal_model` | `pca` |
 | `features_version` | Copied from `model.json` |
-| `sources` | List of `{name, kind, used_for}`. `kind` is `simulated`, `public` or `device`; `used_for` is `training` or `evaluation` |
+| `sources` | List of `{name, kind, used_for}`. `kind` is `simulated`, `public` or `device`; `used_for` is `training` or `evaluation`. An evaluation source also carries `evaluated` (`false` until the entry has been scored on it) and may carry a `note` |
 | `heldout_score_quantiles` | `{p50, p90, p99, max}` of the normal model's score on the last 15 % of training time |
 | `scorecard` | Per fault type: `not validated`, `simulated only`, or `validated on <data>` |
 | `status` | `demo`, `unverified` or `verified`. Nothing is `verified` without recordings from our own device |
 | `built` | `{command, seed, git_commit}` |
+| `model_sha1` | SHA-1 of `model.json`. `training/library/load.py` refuses an entry whose model file does not match |
+| `calibration` | `{min_s, hold, widen, widen_use, prep, threshold}`. `min_s` is the shortest calibration in seconds. `hold` and `widen` are recorded only: `calibrate` does not read them. `widen_use`, `prep` and `threshold` are plain text saying how each was made |
 
-Settings that calibration reads per entry, such as readings to hold at the entry's values, also go in the manifest.
+`calibrate` takes no manifest. It reads only the entry's `model.json`. In simulation the manifest's `widen` factors gave more false alarms than keeping the entry's own spreads as the floor, so they are not wired in.
 
 **Calibration interface** (`effente/calibration.py`, in review, not yet on master):
 
