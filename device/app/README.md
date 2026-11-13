@@ -13,7 +13,7 @@ plug in ──> DISPLAY ──button──> RECORDING ──button──> TRAINI
 | Idle (`display`) | `IDLE` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
 | Recording | `RECORDING` and the readings | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
 | Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A press in the first 2 minutes of a recording doesn't stop it: learning carries on and the screen still says `RECORDING` (the reason is in `/latest` status as `message`, and a `stop_refused` event). A short recording (1 s periods) needs 100 rows; if fewer than that count as running (the device on something still), it learns from every row and the training report says so (`learned_from_all_rows`). A training that fails goes back to `RECORDING` with the reason in status and a `training_failed` event, never on the screen. A day or more trains from the per-minute summaries, so a week fits in memory |
-| Inference | `NOTHING WRONG`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
+| Detecting (`watching`) | `DETECTING`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
 
 Pressing the button while in inference starts a new recording, to relearn. After a power cut, the app resumes what it was doing. If it was in inference, it carries on with the saved model. If it was recording, it carries on recording into the same folder.
 
@@ -93,6 +93,8 @@ adb forward tcp:8765 tcp:8765
 ```bash
 curl -N http://localhost:8765/stream
 ```
+
+`http://localhost:8765/view` (or `http://<the board's address>:8765/view`) is a small page for a browser: the state (IDLE, RECORDING, TRAINING or DETECTING), the four readings and what is wrong, refreshed every second. `/latest` status carries the same: `state` beside the contract's `mode` (`display`, `recording`, `training`, `watching`), and `readings`, in every mode; the stream sends status and a feature row every second.
 
 `/settings` is described above. `/latest`, `/features` and `/health` are described in [device/intake/README.md](../intake/README.md). On a network that lets devices see each other, use the board's address instead of `localhost`. University WiFi usually doesn't allow that, so use the USB forward or a phone hotspot.
 

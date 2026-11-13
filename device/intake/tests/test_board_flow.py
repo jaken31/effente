@@ -25,7 +25,7 @@ from device.intake.source import Packet, SourceInfo
 
 RATE, BATCH, LSB = 1000, 25, 4096.0
 T0 = 1_700_000_000 - 1_700_000_000 % 600 - 100  # 100 s before a 10-minute mark, so a raw clip is kept
-OK_HEADERS = ("@IDLE", "@RECORDING", "@TRAINING ", "@INFERENCE", "@WARMING UP", "@MACHINE STOPPED")
+OK_HEADERS = ("@IDLE", "@RECORDING", "@TRAINING ", "@DETECTING", "@WARMING UP", "@MACHINE STOPPED")
 
 
 class Clock:
@@ -49,6 +49,7 @@ class FakeBoard:
         self.app, self.clock = None, None
         self.counts, self.times, self.headers = [], [], []
         self.press_modes = []  # the mode after each press
+        self.seen = []  # with a stream: (mode, state, readings, feature rows published so far), once a second
 
     def packets(self):
         for s in range(self.seconds):
@@ -59,6 +60,9 @@ class FakeBoard:
                 self.press_modes.append(self.app.mode)
             while True:  # the trainer runs in its own thread: wait for it, watching the screen meanwhile
                 self.headers.append(self.app.screen_lines()[0])
+                if self.app.stream is not None:  # what the local network sees, once a second
+                    st = self.app.stream.status()
+                    self.seen.append((st["mode"], st["state"], st["readings"], st["stream"]["published"]["features"]))
                 if self.app.mode != "training":
                     break
                 time.sleep(0.02)
@@ -79,10 +83,10 @@ class FakeBoard:
                 yield Packet("imu_temp", t[a + BATCH - 1:a + BATCH], np.array([[28.0]], np.float32))
 
 
-def flow(tmp, seconds, level_mg, presses):
+def flow(tmp, seconds, level_mg, presses, stream=None):
     clock, shown = Clock(), []
     board = FakeBoard(seconds, level_mg, presses)
-    app = DeviceApp(tmp, board, screen=shown.append, clock=clock)
+    app = DeviceApp(tmp, board, screen=shown.append, clock=clock, stream=stream)
     board.app, board.clock = app, clock
     first = app.screen_lines()[0]
     app.run()
@@ -178,6 +182,36 @@ def test_recorded_rows_minutes_and_clips_are_the_unsmoothed_samples():
         with np.load(clips[0]) as c:
             i0 = int(np.searchsorted(times, c["accel_t_us"][0] / 1e6 - 1e-7))
             assert len(c["samples"]) >= 9000 and np.array_equal(c["samples"], counts[i0:i0 + len(c["samples"])])
+
+
+def test_the_stream_has_the_state_and_live_readings_in_every_mode():
+    """What the local network gets (port 8765): "state" is IDLE, RECORDING, TRAINING or DETECTING beside the
+    contract's unchanged "mode", and the readings and a feature row a second arrive in every one of them."""
+    from device.intake.stream import Stream
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = Stream(port=0, status_every_s=1.0).start()
+        try:
+            app, board, _ = flow(tmp, 30 + 240 + 40, lambda s: 40.0 + 10 * np.sin(s / 5), presses=(30, 270), stream=stream)
+            names = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING", "watching": "DETECTING"}
+            assert {m: s for m, s, _, _ in board.seen} == names, {m: s for m, s, _, _ in board.seen}
+            for mode in ("display", "recording", "watching"):
+                rows = [(r, n) for m, _, r, n in board.seen if m == mode][3:]  # after the first seconds of data
+                assert len(rows) >= 20, (mode, len(rows))
+                assert all(r["vib_mg"] is not None and r["peak_g"] is not None and r["imu_temp_c"] is not None
+                           and r["speed_hz"] is not None for r, _ in rows), (mode, rows[0])
+                assert len({r["vib_mg"] for r, _ in rows}) > len(rows) // 2, mode  # they move: live, not a held value
+                per_s = (rows[-1][1] - rows[0][1]) / (len(rows) - 1)
+                assert 0.9 <= per_s <= 1.1, (mode, per_s)  # a feature row a second on the stream
+            latest = json.loads(stream.latest_json())
+            assert latest["status"]["state"] == "DETECTING" and latest["status"]["mode"] == "watching"
+            assert len(latest["features"]["values"]) == F.N_FEATURES and latest["features"]["missing"] == ["sound", "heat", "room"]
+            assert latest["results"] is not None  # while detecting, the results line too
+            import urllib.request
+            with urllib.request.urlopen(f"http://127.0.0.1:{stream.port}/view", timeout=5) as r:  # the page for a browser
+                page = r.read().decode()
+                assert r.headers["Content-Type"].startswith("text/html") and "/latest" in page and "s.state" in page
+        finally:
+            stream.stop()
 
 
 if __name__ == "__main__":

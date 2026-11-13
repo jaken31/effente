@@ -45,7 +45,7 @@ from device.intake.recorder import Recorder
 
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
-                "watching": "INFERENCE"}  # what the screen calls each mode
+                "watching": "DETECTING"}  # what the screen calls each mode, and status's "state"
 SCREEN_EVERY_S = 0.5  # how often the layout is checked for changes
 HISTORY_SAVE_EVERY_S = 300.0
 # A press sooner than this after learning started doesn't stop it (2 minutes: a bounce or a second thought, and
@@ -444,7 +444,7 @@ class DeviceApp:
     def screen_lines(self) -> list[str]:
         """The screen's layout, design B (tiles): four lines the microcontroller draws as a header and four
         boxed readings (device/app/effente/sketch/sketch.ino, composeTiles()):
-          "@<header left>"   the mode (IDLE, RECORDING, TRAINING n%, INFERENCE), or what is wrong with a leading
+          "@<header left>"   the mode (IDLE, RECORDING, TRAINING n%, DETECTING), or what is wrong with a leading
                              "!" (not drawn; nothing is inverted). Messages (a recording too short to stop, a
                              training that failed, a setting not used) are never shown: they are in status
           "<header right>"   the time, hours and minutes
@@ -495,8 +495,10 @@ class DeviceApp:
 
     def status(self) -> dict:
         with self.lock:
-            s = {"mode": self.mode, "mode_shown": SCREEN_NAMES[self.mode].lower(), "message": self.message,
-                 "readings": readings(self.latest)}
+            # "state" is the name the screen uses (IDLE, RECORDING, TRAINING, DETECTING); "mode" keeps the
+            # platform contract's values (display, recording, training, watching)
+            s = {"mode": self.mode, "state": SCREEN_NAMES[self.mode], "mode_shown": SCREEN_NAMES[self.mode].lower(),
+                 "message": self.message, "readings": readings(self.latest)}
             if self.mode == "recording" and self.record_started:
                 s["learning_s"] = round(self.clock() - self.record_started, 1)
             if self.mode == "training":

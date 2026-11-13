@@ -18,6 +18,8 @@ platform or curl connects. No UI here, only the data.
   GET /latest     the last item of each topic, as one JSON object
   GET /features   name, text, unit and sensor of every feature, in row order
   GET /health     the server is up; how old the last result is
+  GET /view       a small page for a browser on the same network: the state, the readings and what
+                  is wrong, read from /latest every second
 
 Publishing never waits for a client: each client has its own small queue that
 drops its oldest items when full, and a client that stops reading is
@@ -327,10 +329,38 @@ def feature_table() -> dict:
     }
 
 
+# GET /view: one small page for a browser on the same network. It only reads /latest once a second and
+# shows the status as the device gives it (the state, the readings, what is wrong); nothing is computed
+# or smoothed here.
+_VIEW = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>effente device</title><style>
+body{font:16px system-ui,sans-serif;margin:16px;background:#111;color:#eee}
+#state{font-size:56px;font-weight:700;margin:8px 0}#what{font-size:22px;min-height:28px;color:#fb5}
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:520px}
+.tile{border:1px solid #666;border-radius:8px;padding:8px}.tile b{display:block;font-size:34px}
+pre{white-space:pre-wrap;color:#aaa;font-size:13px}</style></head><body>
+<div id="at">connecting</div><div id="state">--</div><div id="what"></div>
+<div class="tiles"><div class="tile">VIB mg<b id="vib">--</b></div><div class="tile">PEAK mg<b id="peak">--</b></div>
+<div class="tile">TEMP C<b id="temp">--</b></div><div class="tile">HZ<b id="hz">--</b></div></div>
+<pre id="more"></pre><script>
+const $=id=>document.getElementById(id),n=(v,d)=>v==null?"--":Number(v).toFixed(d);
+async function tick(){try{const j=await (await fetch("/latest",{cache:"no-store"})).json(),s=j.status||{},r=s.readings||{};
+$("at").textContent=(s.device_id||"")+" "+(s.at||"");let st=s.state||s.mode||"--";
+if(s.training)st+=" "+Math.round(100*(s.training.share||0))+"%";
+if(s.learning_s!=null)st+=" "+Math.floor(s.learning_s/60)+":"+String(Math.floor(s.learning_s%60)).padStart(2,"0");
+$("state").textContent=st;$("what").textContent=s.wrong?"WRONG: "+(s.what||[]).join(", "):(s.diagnosis&&s.mode=="watching"?s.diagnosis:"");
+$("vib").textContent=n(r.vib_mg,0);$("peak").textContent=r.peak_g==null?"--":n(1000*r.peak_g,0);
+$("temp").textContent=n(r.imu_temp_c,1);$("hz").textContent=n(r.speed_hz,0);
+$("more").textContent=JSON.stringify({mode:s.mode,message:s.message,model:s.model,sensors:s.sensors,problems:s.problems,
+early_warning:s.early_warning,learning_notes:s.learning_notes,missing:(j.features||{}).missing},null,1);
+}catch(e){$("at").textContent="not reachable: "+e}}
+tick();setInterval(tick,1000);</script></body></html>"""
+
 _INDEX = {"endpoints": {
     "/stream": "Server-Sent Events; ?topics=results,features,events,status (default all), "
                "?features_every=S, ?replay=S",
     "/latest": "last item of each topic", "/features": "the feature table", "/health": "server up",
+    "/view": "a page for a browser: the state, the readings and what is wrong, refreshed every second",
     "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}"}}
 
 
@@ -342,10 +372,10 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # no line per request on the device console
         pass
 
-    def _json(self, code: int, body: str) -> None:
+    def _json(self, code: int, body: str, kind: str = "application/json") -> None:
         b = body.encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(b)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -374,6 +404,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, s.features_json)
             elif path == "/health":
                 self._json(200, dumps(s.health()))
+            elif path == "/view":
+                self._json(200, _VIEW, "text/html; charset=utf-8")
             elif path == "/settings":
                 self._settings(None)
             elif path == "/":

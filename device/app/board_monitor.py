@@ -176,10 +176,10 @@ def main(argv=None) -> int:
                 snap = (st.get("uptime_s") or 0.0, sn, pub)
                 if first is None:
                     first = prev = snap
-                    say(f"connected: mode {st.get('mode')} ({st.get('mode_shown')}), up {st.get('uptime_s')} s, sensors {sn}, "
+                    say(f"connected: mode {st.get('mode')} (state {st.get('state')}), up {st.get('uptime_s')} s, sensors {sn}, "
                         f"model {st.get('model')}, simulated {st.get('simulated')}")
                 if st.get("mode") != mode:
-                    say(f"MODE {mode} -> {st.get('mode')}  (the screen's header: {str(st.get('mode_shown')).upper()})")
+                    say(f"MODE {mode} -> {st.get('mode')}  (state {st.get('state')})")
                     mode = st.get("mode")
                     last_print = 0.0
                 if st.get("message") != message:
