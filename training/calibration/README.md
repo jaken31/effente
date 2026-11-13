@@ -13,7 +13,7 @@ verdict = fit_check(report, manifest)     # {"ok": bool, "ratio": float, "reason
 
 `entry_model` is the entry's `model.json` as a dict, `manifest` its `manifest.json`. `t, X, names` are one-a-second feature rows, as for `effente.trainer.train_model`. The result loads in `effente.model_runtime.Model` unchanged. `calibrate` raises `ValueError` if the machine ran for less than `min_running_s`.
 
-One more keyword, after `seed`: `threshold_floor_share` (default 1.0, see below).
+One more keyword, after `seed`: `threshold_floor_share` (default 0.25, see below).
 
 ## What it does
 
@@ -23,52 +23,63 @@ Fitted to this machine: the median and spread of each reading (`Prep`), the resi
 
 No key is added to the model file. `training_report` holds the calibration report (`"calibrated": true`), with the entry's own report under `entry_training_report`.
 
-## The two floors are deliberate, and one of them costs sensitivity
+## The two floors are deliberate, and the threshold floor costs sensitivity
 
 A few minutes cannot show how far readings move in an hour. So the entry guards the fit:
 
 - **Spread floor.** A reading's spread is never taken below the entry's own. If the entry carries `calibration.widen` factors (the entries of branch `track3/library-build` do), the fitted spread is multiplied by them instead.
-- **Threshold floor.** The threshold is `max(fitted here, threshold_floor_share x the entry's threshold)`. The default share is 1.0.
+- **Threshold floor.** The threshold is `max(fitted here, threshold_floor_share x the entry's threshold)`. The default share is 0.25 (`THRESHOLD_FLOOR_SHARE`). There is no upper bound.
 - **Not judged.** Readings the entry lists in `calibration.hold`, and readings this machine did not give while calibrating, get a huge spread. That includes a 10-minute trend that only starts after a 5-minute calibration.
 
-Evidence, all simulated. Machines: the repo's conveyor simulator with four seeds, loads and room temperatures, and its server rack with three seeds, device sensors only. Entries: the two of `feat/model-library` (73bda18) and the two of `track3/library-build` (1be1879), each copied out with `git show`.
+The default of 0.25 is a starting value, simulated only. It is tied to the entry's threshold, so a different entry may need a different share. Where it came from: reported by the coordinating session, not reproduced here, from 12 simulated conveyors on a two-day stand-in entry. My own measurements of it follow.
+
+All numbers below are simulated. Machines: the repo's conveyor simulator with four seeds, loads and room temperatures, and its server rack with three seeds, device sensors only. Entries: the conveyor entries of `feat/model-library` (73bda18, threshold 59.85) and `track3/library-build` (1be1879, threshold 24.53, with widen and hold), each copied out with `git show`.
+
+### False alarms after a 300 s calibration
 
 ```bash
-python3 -m training.calibration.measure --entry <conveyor> --entry <generic_rotating>
+python3 -m training.calibration.measure --entry <conveyor> --threshold-floor-share 0.25    # and with 1, the earlier default
 ```
 
-| Share of seconds in alarm, 40 minutes of normal running after a 300 s calibration (simulated) | |
-|---|---|
-| Calibrated, `feat/model-library` entries, 14 calibrations | 0.000 |
-| Calibrated, `track3/library-build` entries, 14 calibrations | 0.000 to 0.002 |
-| A model trained on the same 300 s alone, no entry behind it | 0.730 to 0.978 |
+Share of seconds in alarm during the 40 minutes of normal running that follow (simulated, 7 machines per entry):
 
-The last row is what a short fit does with no guard at all. There is no committed run with only the spread floor switched off.
+| Entry | Share 0.25 | Share 1 | Trained on the same 300 s alone |
+|-------|-----------:|--------:|--------------------------------:|
+| conveyor, `feat/model-library` | 0.000 on all 7 | 0.000 on all 7 | 0.730 to 0.978 |
+| conveyor, `track3/library-build` | 0.072, 0.030, 0.060 and 0.000 on the four conveyors; 0.000 on the three server racks | 0.000 to 0.002 | 0.730 to 0.978 |
 
-**The threshold refit is inert on the simulators.** In 28 of 28 calibrations the threshold fitted from the machine was below the entry's, so the entry's was used. On the `feat/model-library` entries the fitted value was 0.58 to 2.04 against entry thresholds of 59.85 and 36.24 (simulated). With the default share a calibrated model alarms exactly as high as its entry allows.
+**0.25 is worse than 1 here.** With the `track3/library-build` entry, three of the four simulated conveyors alarmed in 3 to 7 % of normal seconds at 0.25, against at most 0.2 % at 1. None of those alarms fell in the first 5 minutes after calibration.
 
-**The default share of 1.0 costs sensitivity.** Four faults on a simulated conveyor, switched on 10 minutes after a 300 s calibration (simulated):
+The last column is what a short fit does with no guard at all. There is no committed run with only the spread floor switched off.
+
+**The threshold refit is inert on the simulators.** In every calibration (14 of 14 at share 0.25 and 14 of 14 at share 1, the two conveyor entries on 7 machines) the threshold fitted from the machine was below the floor, so the floor decided it. The fitted value was 0.69 to 2.04 on the `feat/model-library` conveyor entry and 1.88 to 4.00 on the `track3/library-build` one. A calibrated model alarms as high as share x the entry's threshold, whatever the machine.
+
+### Faults
+
+Four faults (unbalance and looseness, obvious and subtle) on one simulated conveyor, switched on 10 minutes after a 300 s calibration (simulated):
 
 ```bash
-python3 -m training.calibration.measure --entry <conveyor> --faults-only --threshold-floor-share 0    # then 0.5, then 1
+python3 -m training.calibration.measure --entry <conveyor> --faults-only --threshold-floor-share 0.25    # also 0, 0.5 and 1
 ```
 
 | Entry | Share | Alarm share before the fault | Faults that raised an alarm | First alarm |
 |-------|------:|-----------------------------:|----------------------------:|------------:|
-| conveyor, `feat/model-library` (threshold 59.85) | 0 | 0.796 | 4 of 4 (already alarming) | 0 s |
+| conveyor, `feat/model-library` | 0 | 0.796 | 4 of 4 (already alarming) | 0 s |
+| | 0.25 | 0.000 | 1 of 4 (obvious looseness) | 23 s |
 | | 0.5 | 0.000 | 0 of 4 | never |
 | | 1 | 0.000 | 0 of 4 | never |
-| conveyor, `track3/library-build` (threshold 24.53, widen and hold) | 0 | 0.023 | 4 of 4 | 3 to 12 s |
+| conveyor, `track3/library-build` | 0 | 0.023 | 4 of 4 | 3 to 12 s |
+| | 0.25 | 0.000 | 4 of 4 | 6 to 25 s |
 | | 0.5 | 0.000 | 4 of 4 | 9 to 36 s |
 | | 1 | 0.000 | 4 of 4 | 12 to 50 s |
 
-Looseness alone, the obvious one: with the `track3/library-build` entry it alarmed in 0.994, 0.987 and 0.982 of the fault's seconds at shares 0, 0.5 and 1. With the `feat/model-library` entry it never alarmed at 0.5 or 1.
+**0.25 still misses three of four faults on the `feat/model-library` entry**: both unbalances and the subtle looseness raised no alarm. That is better than 1 (none caught) and not good enough for the demo's unbalance case. On the `track3/library-build` entry 0.25 catches all four, sooner than 1 does.
 
-So the right share depends on the entry. With an entry whose own threshold is high, the full floor hides faults, and no floor alarms most of the time. The default of 1.0 is a starting value, not a recommendation. One machine and four faults were measured here; that is too few to choose a default from.
+So 0.25 cuts both ways: fewer missed faults than 1 on one entry, more false alarms than 1 on the other. One fault machine and four faults were measured; that is too few to settle a default.
 
 ## Fault names
 
-Simulated, `track3/library-build` conveyor entry, default share, run with `--classifier` added:
+Simulated, `track3/library-build` conveyor entry, share 1, run with `--classifier` added:
 
 | Fault | Named, signatures alone | Named, classifier fitted in calibration |
 |-------|-------------------------|------------------------------------------|
@@ -81,7 +92,7 @@ A classifier is fitted only if the entry carries one. The `track3/library-build`
 
 ## Calibration length
 
-Simulated, `track3/library-build` entries, default share: from 60 s to 1200 s the alarm share after calibration stayed between 0.000 and 0.002 on all 7 machines. Since the entry's threshold was the one used every time, this says little about how short a calibration can be. It is not a reason to shorten it on real machines.
+Simulated, `track3/library-build` entries, share 1: from 60 s to 1200 s the alarm share after calibration stayed between 0.000 and 0.002 on all 7 machines. Since the entry's threshold was the one used every time, this says little about how short a calibration can be. It is not a reason to shorten it on real machines. Not re-measured at share 0.25.
 
 ## The fit check does not tell machine types apart
 
@@ -116,7 +127,9 @@ python3 -m training.calibration.tests.test_calibration
 
 - **Copied code.** `calibrate` repeats the trainer's fault-classifier block (inject, fit, quantize, about 12 lines of `effente.trainer.train_model`), and `refit_prep` repeats the median and spread statistics of `effente.model_input.Prep.fit`. Sharing them needs an edit to existing shared code, which needs the team's agreement. Until then a change to either original must be made here too.
 - **Simulated only.** No number here says anything certain about a real machine.
-- **Threshold floor.** See above: inert refit, and a default that costs sensitivity.
+- **Threshold floor.** See above: the refit is inert on the simulators, 0.25 misses three of four simulated faults on the `feat/model-library` conveyor entry, and it raises false alarms to 3 to 7 % on three simulated conveyors with the `track3/library-build` entry.
+- **No upper bound on the threshold.** Reported by the coordinating session, not reproduced here: in 2 of 12 simulated runs the fitted threshold was 2.3 to 3 times the entry's and that machine caught nothing. `max()` cannot fix that; it needs a ceiling share, which is not built.
+- **Fault names and the calibration-length sweep** were measured at share 1 and not repeated at 0.25.
 - **Fit check.** Cannot tell machine types apart; rule open.
 - **Short calibration and the classifier.** A classifier fitted to 5 minutes named a simulated unbalance wrongly.
 - **Early warning.** The device app also needs `effente.early_warning.calibrate` after this. That call is in `device/intake/device_app.py`, track 1's.

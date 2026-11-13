@@ -156,7 +156,7 @@ def main(argv=None) -> int:
     ap.add_argument("--classifier", action="store_true",
                     help="section 3: also name the faults with a fault classifier fitted during calibration")
     ap.add_argument("--threshold-floor-share", type=float,
-                    help="calibrate's threshold_floor_share (default: its own default, 1.0)")
+                    help="calibrate's threshold_floor_share (default: calibrate's own default)")
     ap.add_argument("--faults-only", action="store_true", help="section 3 only")
     ap.add_argument("--quick", action="store_true", help="one conveyor, one server rack, section 1 only")
     a = ap.parse_args(argv)
@@ -203,10 +203,10 @@ def main(argv=None) -> int:
                       f"{row['all_2400s']['alarm_share']:.3f}  alone {row['trained_alone_2400s']['alarm_share']:.3f}")
 
         rows = [r for r in out["calibrated_300s"] if "threshold_fitted_here" in r]
-        above = sum(r["threshold_fitted_here"] > r["entry_threshold"] for r in rows)
-        print(f"   the threshold fitted here was above the entry's (so it was the one used) in {above} of {len(rows)} "
-              f"calibrations; in the others the entry's threshold was kept")
-        out["threshold_fitted_above_entry"] = {"above": above, "of": len(rows)}
+        above = sum(r["threshold_fitted_here"] >= r["threshold"] for r in rows)
+        print(f"   the threshold fitted here was the one used in {above} of {len(rows)} calibrations; in the others "
+              f"the floor (threshold_floor_share x the entry's threshold) was")
+        out["threshold_fitted_used"] = {"used": above, "of": len(rows)}
 
     if not a.quick and not a.faults_only:
         print(f"\nSIMULATED, sensors: {a.sensors}. 2. Share of the {WATCH_S} s after calibration that alarm, "
