@@ -10,7 +10,7 @@
 //   screen only). The Linux side calls "screen" with the layout: up to 8 lines, where {vib}, {peak}
 //   and {temp} are filled in live from every sample and a line "{bar}" is a vibration level bar.
 //   So the live numbers move at the screen's own rate, not the Bridge line's.
-// - Button on D2 to ground (internal pull-up): each press sends a "button" notification.
+// - Button on D9 to ground (internal pull-up): each press sends a "button" notification.
 // - The IMU's temperature sensor (TEMP_OUT) in every batch, as raw counts (deg C: MPU-6500 raw / 333.87 + 21,
 //   MPU-6050 raw / 340 + 36.53; the Linux side converts, device/intake/source.py imu_temp_c).
 // - Status once every 5 s on the serial monitor.

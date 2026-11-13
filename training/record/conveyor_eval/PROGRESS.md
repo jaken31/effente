@@ -3,6 +3,17 @@
 Where the search for the best model stands, what was decided, and what's still open. Everything here is on
 **synthetic** data (generation 3), so the numbers are a guide, not a promise. Details live in the linked files.
 
+## Paused (13 Nov, about 17:15)
+The user paused every search to record real data with the device itself: "pause everythig well do that". The system
+search's trade-off section, the audio-embedding test (BEATs, EfficientAT, CED-tiny) and the SSCC check are unfinished.
+Each session's resume note says where it stopped. The plan now is system C on the board, a healthy recording on a real
+machine to measure false alarms, then staged faults.
+
+**About 17:25: the user asked for system C to be built and pushed** ("okay fix C and push it"). The sound-fix session is
+implementing it in the device's real code on a new branch, `track2/system-c`: PCA at 99 % with no cap, a cross-fitted
+alarm line, the "line" early warning as the default, the forklift fix, and the two spike-rate detectors. It then verifies
+with the device's real classes on the synthetic data. The other searches stay paused.
+
 ## Resuming (written 13 Nov afternoon, before a usage pause)
 Each side session writes its state and next steps to a resume file. Background jobs (downloads, grids) keep running while
 the sessions are paused.
