@@ -131,7 +131,7 @@ class StatusCard(QFrame):
         sub_row = QHBoxLayout()
         sub_row.setSpacing(8)
         self.sub = label("", "soft", main, fonts.body())
-        self.possible = Pill("possible", t.WARN, main)
+        self.possible = Pill("", t.WARN, main)
         self.possible.hide()
         sub_row.addWidget(self.sub)
         sub_row.addWidget(self.possible)
@@ -213,12 +213,23 @@ class StatusCard(QFrame):
         else:
             detail = logic.capitalise(ml["detail"]) if ml["detail"] else ""
             self.sub.setText(" · ".join(x for x in (ml["label"], detail) if x))
+            if ml["possible"]:
+                self.possible.set_text(logic.fault_type_tag(self._fault_type(state)))
             self.possible.setVisible(bool(ml["possible"]))
             self.note.setText(ml["note"])
             self.note.setVisible(bool(ml["note"]))
         self._show_problems(state, head["state"])
         self._show_meta(state, records)
         self._show_ask(state, snoozed)
+
+    @staticmethod
+    def _fault_type(state):
+        """The model's announcement of the newest record's fault type, or None."""
+        diag = (state.latest() or {}).get("diagnosis")
+        for ft in (state.model() or {}).get("fault_types") or []:
+            if isinstance(ft, dict) and ft.get("name") == diag:
+                return ft
+        return None
 
     def _show_problems(self, state, head_state: str) -> None:
         probs = state.problems() if head_state != "not_live" else []

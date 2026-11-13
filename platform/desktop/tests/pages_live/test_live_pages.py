@@ -257,3 +257,13 @@ def test_no_red_text(live, history):
         for lab in page.findChildren(QLabel):
             if lab.isVisible() and lab.text():
                 assert not _pixels_red_in_text(lab), lab.text()
+
+
+def test_possible_tag_comes_from_logic(live, state):
+    rec = copy.deepcopy(state.latest())
+    rec.update(seq=11, at="2026-11-14T16:00:10.000Z", diagnosis="unbalance_like",
+               reason="once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)")
+    state.push("record", rec)
+    assert state.model_line()["possible"]
+    assert not live.status.possible.isHidden()
+    assert live.status.possible.text() == logic.fault_type_tag({"name": "unbalance_like", "validated": False})
