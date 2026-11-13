@@ -188,6 +188,34 @@ Each hour file holds `X` (rows x 278), `t0`, `feature_names`, `feature_sensor`, 
 
 **Model file** (`effente-model-1`, JSON, about 50 kB): format and `features_version`, library entry name and whether it was calibrated or trained on the machine alone, the preparation statistics, summary period and persistence, the threshold, the normal model's int8 weights with scales (a PCA model is stored as a linear autoencoder), the residual spreads, the fault classifier, the fault types (name, text, sensing), the feature table (name, text, unit), and a training report. The device refuses a model built on a different feature list.
 
+**Library entry** (in review, not yet on master): one folder per entry, `training/library/entries/<entry_id>/`, holding two files.
+
+- `model.json`: a plain `effente-model-1` file, exactly as `effente.trainer.train_model` writes it. No added fields. A new key in the model file is a format change and needs all five people.
+- `manifest.json`: everything else about the entry.
+
+| Manifest field | Holds |
+|----------------|-------|
+| `entry_id` | For example `generic_rotating` |
+| `version` | For example `0.1.0` |
+| `normal_model` | `pca` |
+| `features_version` | Copied from `model.json` |
+| `sources` | List of `{name, kind, used_for}`. `kind` is `simulated`, `public` or `device`; `used_for` is `training` or `evaluation` |
+| `heldout_score_quantiles` | `{p50, p90, p99, max}` of the normal model's score on the last 15 % of training time |
+| `scorecard` | Per fault type: `not validated`, `simulated only`, or `validated on <data>` |
+| `status` | `demo`, `unverified` or `verified`. Nothing is `verified` without recordings from our own device |
+| `built` | `{command, seed, git_commit}` |
+
+Settings that calibration reads per entry, such as readings to hold at the entry's values, also go in the manifest.
+
+**Calibration interface** (`effente/calibration.py`, in review, not yet on master):
+
+```
+calibrate(entry_model: dict, t, X, names, *, min_running_s=300, seed=0) -> (model: dict, report: dict)
+fit_check(report: dict, manifest: dict) -> {"ok": bool, "ratio": float, "reason": str}
+```
+
+The returned model is a valid `effente-model-1` dict that `effente.model_runtime.Model` loads unchanged.
+
 **Log record** (one JSON object per window, written by `device/intake/live.py` and uploaded per the contract):
 
 | Field | Example |
