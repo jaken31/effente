@@ -30,18 +30,26 @@ DATA = os.environ.get("EFFENTE_DATA", "/app/data")
 MACHINE = os.environ.get("EFFENTE_MACHINE", "machine-1")
 DEVICE = "effente-01"
 
-source = UnoQSource()
+# Sensors not fitted yet, off until wired (the pipeline waits for every sensor it is told about):
+# EFFENTE_MIC=1 for the INMP441 microphone, EFFENTE_THERMAL=1 for the MLX90640-D55 thermal camera.
+MIC = os.environ.get("EFFENTE_MIC") == "1"
+THERMAL = os.environ.get("EFFENTE_THERMAL") == "1"
+
+source = UnoQSource(audio=MIC, thermal=THERMAL)
 Bridge.provide("imu", source.on_imu)
+Bridge.provide("audio", source.on_audio)  # ignored unless EFFENTE_MIC=1
+Bridge.provide("thermal", source.on_thermal)  # ignored unless EFFENTE_THERMAL=1
 
 mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and screen found, bus state
 
 
-def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors):
+def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors,
+                 oled_errors=None, frames=None):  # the last two only from sketches that send them
     if mpu_ok:
         source.imu_who = int(who_am_i)  # the temperature formula depends on the chip (device.intake.source.imu_temp_c)
     mcu.update(beat=dict(up_s=round(ms / 1000), sensor=bool(mpu_ok), screen=bool(oled_ok), who_am_i=hex(who_am_i),
                          bus_clocks=bus_clocks, bus_tries=bus_tries, sda_high=bool(sda_high), scl_high=bool(scl_high),
-                         read_errors=read_errors), at=time.time())
+                         read_errors=read_errors, screen_errors=oled_errors, frames=frames), at=time.time())
 
 
 Bridge.provide("hb", on_heartbeat)
@@ -58,7 +66,7 @@ if uploader is not None:
     uploader.start()
 Bridge.provide("button", app.on_button)
 threading.Thread(target=app.run, name="pipeline", daemon=True).start()
-print(f"effente started in {app.mode} mode; live stream on port 8765; data in {DATA}; platform "
+print(f"effente started in {app.mode} mode; sensors {', '.join(source.sensors)}; live stream on port 8765; data in {DATA}; platform "
       + (uploader.base if uploader is not None else f"off ({ENV_URL} not set)"), flush=True)
 
 

@@ -454,6 +454,42 @@ def test_imu_temperature_survives_a_recording_and_its_replay():
         assert rows and all(40.9 < x[F.INDEX["imu_temp_c"]] < 42 for _, x in rows)
 
 
+def _imu_batch(src, first=0, t_us=1_000_000, n=25):
+    acc = np.tile(np.array([0, 0, 4096], ">i2"), n).tobytes()  # 1 g on z
+    src.on_imu(first, t_us, n, acc, b"", 0, None)
+
+
+def test_microphone_and_thermal_slots_are_off_by_default():
+    from device.intake.source import UnoQSource
+    src = UnoQSource(clock=lambda: 1000.0)
+    assert src.sensors == ("accel", "gyro", "imu_temp")  # the pipeline would wait for a sensor it is told about
+    _imu_batch(src)
+    src.on_audio(1_000_000, np.arange(256, dtype=">i4").tobytes())
+    src.on_thermal(1_000_000, np.full(768, 2500, ">i2").tobytes())
+    sensors = [src.q.get_nowait().sensor for _ in range(src.q.qsize())]
+    assert "audio" not in sensors and "thermal" not in sensors
+    assert src.stats["audio_blocks"] == 0 and src.stats["thermal_frames"] == 0
+
+
+def test_microphone_and_thermal_slots_when_switched_on():
+    from device.intake.source import UnoQSource
+    src = UnoQSource(clock=lambda: 1000.0, audio=True, thermal=True)
+    assert src.sensors == ("accel", "gyro", "imu_temp", "audio", "thermal")
+    assert src.info.audio_bits == 24 and src.info.audio_rate_hz == 16000.0  # the INMP441's depth
+    src.on_audio(1_000_000, np.zeros(16, ">i4").tobytes())  # before any IMU batch: no clock offset, dropped
+    assert src.q.qsize() == 0
+    _imu_batch(src)
+    src.on_audio(1_016_000, np.arange(256, dtype=">i4").tobytes())
+    src.on_thermal(1_020_000, np.full(768, 2500, ">i2").tobytes())
+    src.on_thermal(1_030_000, np.full(700, 2500, ">i2").tobytes())  # cut off: ignored
+    got = {p.sensor: p for p in (src.q.get_nowait() for _ in range(src.q.qsize()))}
+    audio, frame = got["audio"], got["thermal"]
+    assert audio.values.shape == (256,) and audio.values[-1] == 255
+    assert np.isclose(audio.t[-1] - audio.t[0], 255 / 16000.0)
+    assert frame.values.shape == (1, 24, 32) and np.allclose(frame.values, 25.0)  # hundredths of a deg C
+    assert src.stats["audio_blocks"] == 1 and src.stats["thermal_frames"] == 1
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
