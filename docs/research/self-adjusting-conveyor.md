@@ -8,7 +8,7 @@ A conveyor that finds exactly where the dirt or drift is, fixes only that spot, 
 
 ## 1. The whole system (side view)
 
-![Side view of the conveyor with sensors and actuators wired to the brain](images/1-system.png)
+![Side view of the conveyor with sensors and actuators wired to the brain](../../images/1-system.png)
 
 ### Sensors (find it) 🟦
 
@@ -35,7 +35,7 @@ A conveyor that finds exactly where the dirt or drift is, fixes only that spot, 
 
 ## 2. How it knows exactly where: the belt map
 
-![The belt unrolled as a grid, with one dirty square and the matching nozzle firing](images/2-belt-map.png)
+![The belt unrolled as a grid, with one dirty square and the matching nozzle firing](../../images/2-belt-map.png)
 
 - Picture the belt cut open and laid flat. The brain keeps a grid of it. Each square remembers how dirty it was last lap.
 - The marker gives every square an address, so the brain knows when a dirty square will reach the nozzles. It fires only the nozzle above that square.
@@ -46,7 +46,7 @@ A conveyor that finds exactly where the dirt or drift is, fixes only that spot, 
 
 ## 3. The loop: find, fix, check, and step up if needed
 
-![Loop: sense, locate, act, check, with escalation](images/3-loop.png)
+![Loop: sense, locate, act, check, with escalation](../../images/3-loop.png)
 
 1. **Sense:** vibration, camera, edge sensors, slip.
 2. **Locate:** which roller, how far along the belt, which side.
@@ -60,7 +60,7 @@ A conveyor that finds exactly where the dirt or drift is, fixes only that spot, 
 
 ## 4. Too many anomalies? The rule for acting alone
 
-![Decision: matches normal, known and safe, or unknown](images/4-decision.png)
+![Decision: matches normal, known and safe, or unknown](../../images/4-decision.png)
 
 - **Matches normal** → do nothing.
 - **A known fault with a safe fix** (buildup, drift, slip) → fix it automatically.
@@ -72,7 +72,7 @@ You never need a list of every possible fault. The system learns what normal loo
 
 ## 5. Hackathon demo: the drift fix, seen from above
 
-![Top view: edge sensor sees the drift, servo tilts the roller, belt returns to center](images/5-drift-demo.png)
+![Top view: edge sensor sees the drift, servo tilts the roller, belt returns to center](../../images/5-drift-demo.png)
 
 - **Parts:** 2 IR sensors, 1 servo, a pivoting roller.
 - **Demo:** push the belt off center and watch it pull itself back.
