@@ -1,0 +1,93 @@
+{
+  "entry_id": "generic_rotating",
+  "version": "0.1.0",
+  "normal_model": "pca",
+  "features_version": "89613129193f",
+  "sources": [
+    {
+      "name": "sim_drive_a",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_b",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_c",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_d",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_e",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_f",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_pump",
+      "kind": "simulated",
+      "used_for": "evaluation"
+    },
+    {
+      "name": "nasa_ims_test2_bearing1",
+      "kind": "public",
+      "used_for": "evaluation"
+    },
+    {
+      "name": "ottawa_uods_vafdc",
+      "kind": "public",
+      "used_for": "evaluation"
+    },
+    {
+      "name": "dcase2024_fan_sound",
+      "kind": "public",
+      "used_for": "evaluation"
+    }
+  ],
+  "heldout_score_quantiles": {
+    "p50": 2.58471388966966,
+    "p90": 3.338686614499699,
+    "p99": 4.631672061239387,
+    "max": 36.24204565920214
+  },
+  "scorecard": {
+    "vibration_too_high": "not validated",
+    "unbalance_like": "not validated",
+    "misalignment_like": "not validated",
+    "looseness_or_rattle": "not validated",
+    "repeating_knock": "not validated",
+    "impacts": "not validated",
+    "bearing_defect_like": "not validated",
+    "speed_change": "not validated",
+    "electrical_motor": "not validated",
+    "new_tone_whine_squeal": "not validated",
+    "grinding_or_hiss": "not validated",
+    "alarm_or_beeping": "not validated",
+    "overheating": "not validated",
+    "heating_up_over_time": "not validated",
+    "local_hot_spot": "not validated",
+    "area_running_cold": "not validated",
+    "excess_temperature_fluctuation": "not validated",
+    "unsteady_vibration_or_sound": "not validated",
+    "room_too_hot_or_humid": "not validated",
+    "device_moved": "not validated",
+    "camera_moved_or_blocked": "not validated"
+  },
+  "status": "unverified",
+  "built": {
+    "command": "python3 -m training.library.build generic_rotating --seed 0",
+    "seed": 0,
+    "git_commit": "cc9e87e0617f4defce379e61a33876f8f03f7984"
+  }
+}
