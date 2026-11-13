@@ -48,6 +48,9 @@ class StateReads(QObject):
     # page (a refusal, or report.py's own message), and why an action failed.
     agent_message = Signal(str)
     action_failed = Signal(str)
+    # An alarm on any machine that opened while the app was watching (contract
+    # section 6). Alarms there at the first look are not new.
+    alarm_opened = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,6 +59,20 @@ class StateReads(QObject):
         self._s["machines"] = []
         self._machine = None  # picked by hand with set_machine; None = follow the shown device
         self._agent_message = ""
+        self._seen_alarms = None  # alarm ids already looked at; None before the first look
+        self.alarms_changed.connect(self._note_alarms)  # first, so alarm_opened precedes page refreshes
+
+    def _note_alarms(self) -> None:
+        """Emit alarm_opened for each open alarm not seen before. The first call only looks."""
+        alarms = self._s.get("alarms") or {}
+        if self._seen_alarms is None:
+            self._seen_alarms = set(alarms)
+            return
+        for alarm_id, alarm in alarms.items():
+            if alarm_id not in self._seen_alarms:
+                self._seen_alarms.add(alarm_id)
+                if alarm.get("open"):
+                    self.alarm_opened.emit(alarm)
 
     # ---- clock ------------------------------------------------------------
 

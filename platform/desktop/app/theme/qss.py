@@ -3,7 +3,7 @@
 Selectors use dynamic properties so pages never style their own widgets:
   QLabel[role="soft" | "muted" | "hint" | "strong"]
   QPushButton[kind="primary" | "secondary" | "ghost"][small="true"]
-  QFrame[cls="panel" | "kpis" | "kpi"]
+  QFrame[cls="panel" | "notice" | "kpis" | "kpi"]
 Fonts are not set here: a stylesheet font replaces a widget's QFont and would drop
 letter spacing, which stylesheets cannot express. Widgets set fonts from theme.fonts.
 """
@@ -56,6 +56,9 @@ QLabel[role="empty"] {{ color: {t.MUTED}; padding: 18px 16px; }}
 
 QFrame[cls="panel"] {{
     background: {t.PANEL}; border: 1px solid {css(t.BORDER_PANEL)}; border-radius: {t.R}px;
+}}
+QFrame[cls="notice"] {{
+    background: {t.RAISED}; border: 1px solid {css(t.BORDER_STRONG)}; border-radius: {t.R}px;
 }}
 QFrame[cls="panel"][link="true"]:hover {{ border-color: {css(t.LINK_HOVER_BORDER)}; }}
 QFrame[cls="kpis"] {{

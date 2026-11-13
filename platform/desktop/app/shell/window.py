@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from ..theme import tokens as t
 from . import format as fmt
+from .notices import Notices
 from .pages import CHILDREN, KEYS, make_page
 from .sidebar import Sidebar
 from .topbar import TopBar
@@ -155,6 +156,8 @@ class MainWindow(QMainWindow):
             sc.activated.connect(lambda k=key: self.navigate(k))
             self.shortcuts.append(sc)
 
+        self.notices = Notices(root)  # last child of root, so it paints above the pages
+
         self.current = ""
         self.navigate("live")
 
@@ -199,6 +202,11 @@ class MainWindow(QMainWindow):
         state.alarms_changed.connect(self.refresh_badges)
         state.runs_changed.connect(self.refresh_badges)
         state.connection_changed.connect(lambda _up: self.refresh_chrome())
+        # The full data interface has these two; the shell's own test stub does not.
+        if hasattr(state, "action_failed"):
+            state.action_failed.connect(self.notices.show_failure)
+        if hasattr(state, "alarm_opened"):
+            state.alarm_opened.connect(self._alarm_opened)
         for page in self.pages.values():
             page.bind(state)
         self.refresh()
@@ -208,6 +216,23 @@ class MainWindow(QMainWindow):
         if self.state is not None and machine and machine != self.state.current_machine():
             self.state.set_machine(machine)
             self.refresh()
+
+    def _alarm_opened(self, alarm: dict) -> None:
+        from app.data import logic
+        from app.pages.live.common import clock
+
+        machine = alarm.get("machine_id")
+        what = logic.diagnosis_text(self.state.model(), alarm.get("diagnosis"), alarm.get("model_version"))
+        self.notices.show_alarm(
+            f"New alarm on {machine}" if machine else "New alarm",
+            f"{what} · since {clock(alarm.get('start'))}. Real problem or false alarm?",
+            "Answer in History",
+            lambda: self._open_alarm(machine),
+        )
+
+    def _open_alarm(self, machine) -> None:
+        self._machine_picked(machine)
+        self.navigate("history")
 
     def _record_added(self, _record: dict) -> None:
         self.refresh_chrome()

@@ -148,6 +148,7 @@ class FakeState(StateReads):
         logic.add_runs(self._s, built["runs"])
         self._sim = FakeSim() if with_sim else None
         self.started_agents = []  # modes start_agent was called with
+        self._note_alarms()  # the fixture's alarms were there at the first look
 
     def now_ms(self) -> float:
         return self._now
