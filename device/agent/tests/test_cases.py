@@ -166,24 +166,24 @@ def test_old_four_argument_call_still_works_and_is_marked_simulated(tmp_path):
     assert entry["model"] == harness.INJECTED_MODEL
 
 
-def test_simulated_is_false_only_for_the_real_call_on_real_readings(tmp_path, monkeypatch):
+def test_simulated_is_false_only_for_the_real_call_on_real_readings(tmp_path):
     log = tmp_path / "real.jsonl"
     rows = [json.loads(line) for line in (LOGS / "imbalance.jsonl").read_text().splitlines()]
     for row in rows:
         row.pop("simulated")  # missing means false
     log.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
-    def fake_claude(machine_id, records, features, schema, tools=None):
+    def fake_live(machine_id, records, features, schema, tools=None):
         return citing(["vib_1x"])(machine_id, records, features, schema, tools)
 
-    # Stands in for the real function so run_agent treats it as the live call. No API is used.
-    monkeypatch.setattr(harness, "call_claude", fake_claude)
-    result = run_agent("conveyor-07", log, LOGS / "model.json", tmp_path / "a.jsonl", search=no_search)
+    # Marked the way the real model call marks itself, so run_agent treats it as one. No model is used.
+    fake_live.live = True
+    result = run_agent("conveyor-07", log, LOGS / "model.json", tmp_path / "a.jsonl", call=fake_live, search=no_search)
     assert result.ok and result.simulated is False
 
     rows[0]["simulated"] = True
     log.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    result = run_agent("conveyor-07", log, LOGS / "model.json", tmp_path / "a.jsonl", search=no_search)
+    result = run_agent("conveyor-07", log, LOGS / "model.json", tmp_path / "a.jsonl", call=fake_live, search=no_search)
     assert result.simulated is True
 
 
