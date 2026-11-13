@@ -182,7 +182,7 @@ def test_device_shows_problems_and_takes_sensitivity_from_the_stream_and_the_fil
                 clock.t = 1000.0 + k * 0.25
                 app._row(clock.t, row(vel=14.0))
             lines = app.screen_lines()
-            assert lines[0].startswith("STREAMING") and "! VIB OVER LIMIT" in lines, lines
+            assert lines[0].startswith("#LIVE") and "! VIB OVER LIMIT" in lines, lines
             st = app.status()
             assert st["wrong"] and st["what"] == ["vibration_over_limit"] and st["sensitivity"] == 0.5
             url = f"http://127.0.0.1:{stream.port}/settings"

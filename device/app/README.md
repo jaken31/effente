@@ -10,12 +10,24 @@ plug in ──> DISPLAY ──button──> RECORDING ──button──> TRAINI
 
 | Mode | Screen | What happens |
 |------|--------|--------------|
-| Streaming | `STREAMING` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
-| Recording | `RECORDING` and the readings | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
-| Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on. A day or more trains from the per-minute summaries, so a week fits in memory |
-| Inference | `NOTHING WRONG`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
+| Streaming | `LIVE`: vibration and peak, the vibration trace, the spectrum, speed and temperature | Sensors are read and features computed; nothing is kept |
+| Recording | `LEARNING`: how long, big, and a bar to the 5 minutes training needs | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
+| Training | `TRAINING`: the percentage, big, a bar and the stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on. A day or more trains from the per-minute summaries, so a week fits in memory |
+| Inference | `WATCHING`: `NORMAL` big, with a drift meter against the alarm line. In an alarm, a blinking `! ALARM` bar, `possible` and the fault type big (or `unrecognised pattern` / `INSPECT`), and the 3 readings that moved most, each as a meter in spreads | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
 
 Pressing the button while in inference starts a new recording, to relearn. After a power cut, the app resumes what it was doing. If it was in inference, it carries on with the saved model. If it was recording, it carries on recording into the same folder.
+
+## The screen
+
+The OLED (2.42", SSD1309, 128×64) is a small dashboard. The Linux side decides what goes where ([device/intake/screen.py](../intake/screen.py)) and sends a layout of widgets, about 100–200 bytes, when it changes. The sketch draws it ([sketch/oled_ui.h](effente/sketch/oled_ui.h)): header bars, big text, meters, a progress bar, the 20-band spectrum, and a 12.8 s vibration trace. The live numbers and the trace come from every sample on the microcontroller, so they move at the screen's frame rate, not the Bridge line's. The screens for picking a library entry and for calibrating are drawn and previewed, but the device app does not have those modes yet.
+
+Preview every screen on a laptop, drawn by the same `oled_ui.h` the board runs (needs a C++ compiler):
+
+```bash
+python3 -m device.app.preview /tmp/oled
+```
+
+It writes one PNG per screen and `gallery.html`. The values in it are made-up examples. `device/intake/tests/test_screen.py` checks that every layout fits the 8 rows and the Bridge buffer.
 
 ## What counts as wrong
 
@@ -54,7 +66,7 @@ curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
 | Part | Where | Notes |
 |------|-------|-------|
 | MPU6050 (on this board's module: an MPU-6500, WHO_AM_I 0x70) | Third I2C bus (`Wire2`), address 0x68 | Accelerometer ±8 g, gyro ±250 °/s, 1 kHz. Accelerometer low-pass 218 Hz (6500) or 184 Hz (6050) |
-| OLED 128×64 | `Wire2`, address 0x3C | SSD1306/SSD1309. For an SH1106, set `OLED_COL_OFFSET` to 2 in the sketch |
+| OLED 128×64 (2.42", SSD1309) | `Wire2`, address 0x3C | SSD1306/SSD1309. For an SH1106, set `OLED_COL_OFFSET` to 2 in the sketch. Many 2.42" SSD1309 boards ship set to SPI: check the board's jumper or resistors are set to I2C |
 | Button | D2 to GND | Internal pull-up, debounced. Until it's wired, `adb shell touch /home/arduino/ArduinoApps/effente/data/press` counts as a press |
 
 ## Deploy, and connect to the stream

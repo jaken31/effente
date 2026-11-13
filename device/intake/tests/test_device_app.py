@@ -62,7 +62,7 @@ def test_display_record_train_watch_and_resume():
         assert app.mode == "watching", (app.mode, app.message)
         assert (Path(tmp) / "models").exists() and json.loads((Path(tmp) / "state.json").read_text())["mode"] == "watching"
         lines = app.screen_lines()
-        assert lines[0].startswith("INFERENCE") and lines[0][12:14].isdigit() and "temp {temp} C" in lines
+        assert lines[0].startswith("#WATCHING|") and lines[0][-8:-6].isdigit() and any("{temp} C" in x for x in lines)
         assert not any("button" in x or "btn" in x for x in lines)
         # a fault after learning: the once-per-turn vibration four times larger
         run(app, clock, rows(START + 14 * 60, 3, fault=lambda x: x.__setitem__(F.INDEX["vib_1x"], x[F.INDEX["vib_1x"]] + 0.6)))
@@ -71,7 +71,7 @@ def test_display_record_train_watch_and_resume():
         again = DeviceApp(tmp, ConveyorSim(days=1), clock=clock)
         assert again.mode == "watching" and again.watcher is not None
         time.sleep(0.6)  # the screen worker sends what was shown last
-        assert any(s.startswith("RECORDING") for s in shown) and any(s.startswith("INFERENCE") for s in shown)
+        assert any(s.startswith("#LEARNING") for s in shown) and any(s.startswith("#WATCHING") for s in shown)
 
 
 def test_too_short_a_recording_keeps_learning_and_the_press_file_works():

@@ -6,10 +6,11 @@
 //   gyro bytes, FIFO overflows so far). Accelerometer: every sample (6 bytes each). Gyroscope:
 //   every 10th sample (100 a second), since the 115200-baud Bridge line cannot carry both at
 //   1 kHz. Big-endian int16 counts, as the sensor gives them.
-// - OLED (Wire2, 0x3C): redrawn as fast as the bus allows (full frames, long writes, 1 MHz for the
-//   screen only). The Linux side calls "screen" with the layout: up to 8 lines, where {vib}, {peak}
-//   and {temp} are filled in live from every sample and a line "{bar}" is a vibration level bar.
-//   So the live numbers move at the screen's own rate, not the Bridge line's.
+// - OLED (Wire2, 0x3C; SSD1306 or SSD1309, 128x64): redrawn as fast as the bus allows (full frames,
+//   long writes, 1 MHz for the screen only). The Linux side calls "screen" with a layout of widgets
+//   (header bars, big text, meters, progress, spectrum, live trace; see oled_ui.h). {vib}, {peak},
+//   {temp}, the level bar and the trace are filled in from every sample, so they move at the screen's
+//   own rate, not the Bridge line's.
 // - Button on D2 to ground (internal pull-up): each press sends a "button" notification.
 // - The IMU's temperature sensor (TEMP_OUT) in every batch, as raw counts (deg C = raw / 340 + 36.53).
 // - Status once every 5 s on the serial monitor.
@@ -17,6 +18,8 @@
 
 #include <Arduino_RouterBridge.h>
 #include <Wire.h>
+
+#include "oled_ui.h"  // the screen's widgets and font, shared with the laptop preview
 
 TwoWire &BUS = Wire2;
 const uint8_t MPU_ADDR = 0x68, OLED_ADDR = 0x3C;  // not "MPU": that name is the chip's memory protection unit
@@ -80,34 +83,6 @@ uint16_t fifoCount() {
 }
 
 // ------------------------------------------------------------------ OLED
-const uint8_t FONT[96][5] = {
-  {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},{0x00,0x07,0x00,0x07,0x00},{0x14,0x7F,0x14,0x7F,0x14},
-  {0x24,0x2A,0x7F,0x2A,0x12},{0x23,0x13,0x08,0x64,0x62},{0x36,0x49,0x55,0x22,0x50},{0x00,0x05,0x03,0x00,0x00},
-  {0x00,0x1C,0x22,0x41,0x00},{0x00,0x41,0x22,0x1C,0x00},{0x08,0x2A,0x1C,0x2A,0x08},{0x08,0x08,0x3E,0x08,0x08},
-  {0x00,0x50,0x30,0x00,0x00},{0x08,0x08,0x08,0x08,0x08},{0x00,0x60,0x60,0x00,0x00},{0x20,0x10,0x08,0x04,0x02},
-  {0x3E,0x51,0x49,0x45,0x3E},{0x00,0x42,0x7F,0x40,0x00},{0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4B,0x31},
-  {0x18,0x14,0x12,0x7F,0x10},{0x27,0x45,0x45,0x45,0x39},{0x3C,0x4A,0x49,0x49,0x30},{0x01,0x71,0x09,0x05,0x03},
-  {0x36,0x49,0x49,0x49,0x36},{0x06,0x49,0x49,0x29,0x1E},{0x00,0x36,0x36,0x00,0x00},{0x00,0x56,0x36,0x00,0x00},
-  {0x08,0x14,0x22,0x41,0x00},{0x14,0x14,0x14,0x14,0x14},{0x00,0x41,0x22,0x14,0x08},{0x02,0x01,0x51,0x09,0x06},
-  {0x32,0x49,0x79,0x41,0x3E},{0x7E,0x11,0x11,0x11,0x7E},{0x7F,0x49,0x49,0x49,0x36},{0x3E,0x41,0x41,0x41,0x22},
-  {0x7F,0x41,0x41,0x22,0x1C},{0x7F,0x49,0x49,0x49,0x41},{0x7F,0x09,0x09,0x01,0x01},{0x3E,0x41,0x41,0x51,0x32},
-  {0x7F,0x08,0x08,0x08,0x7F},{0x00,0x41,0x7F,0x41,0x00},{0x20,0x40,0x41,0x3F,0x01},{0x7F,0x08,0x14,0x22,0x41},
-  {0x7F,0x40,0x40,0x40,0x40},{0x7F,0x02,0x04,0x02,0x7F},{0x7F,0x04,0x08,0x10,0x7F},{0x3E,0x41,0x41,0x41,0x3E},
-  {0x7F,0x09,0x09,0x09,0x06},{0x3E,0x41,0x51,0x21,0x5E},{0x7F,0x09,0x19,0x29,0x46},{0x46,0x49,0x49,0x49,0x31},
-  {0x01,0x01,0x7F,0x01,0x01},{0x3F,0x40,0x40,0x40,0x3F},{0x1F,0x20,0x40,0x20,0x1F},{0x7F,0x20,0x18,0x20,0x7F},
-  {0x63,0x14,0x08,0x14,0x63},{0x03,0x04,0x78,0x04,0x03},{0x61,0x51,0x49,0x45,0x43},{0x00,0x00,0x7F,0x41,0x41},
-  {0x02,0x04,0x08,0x10,0x20},{0x41,0x41,0x7F,0x00,0x00},{0x04,0x02,0x01,0x02,0x04},{0x40,0x40,0x40,0x40,0x40},
-  {0x00,0x01,0x02,0x04,0x00},{0x20,0x54,0x54,0x54,0x78},{0x7F,0x48,0x44,0x44,0x38},{0x38,0x44,0x44,0x44,0x20},
-  {0x38,0x44,0x44,0x48,0x7F},{0x38,0x54,0x54,0x54,0x18},{0x08,0x7E,0x09,0x01,0x02},{0x08,0x14,0x54,0x54,0x3C},
-  {0x7F,0x08,0x04,0x04,0x78},{0x00,0x44,0x7D,0x40,0x00},{0x20,0x40,0x44,0x3D,0x00},{0x00,0x7F,0x10,0x28,0x44},
-  {0x00,0x41,0x7F,0x40,0x00},{0x7C,0x04,0x18,0x04,0x78},{0x7C,0x08,0x04,0x04,0x78},{0x38,0x44,0x44,0x44,0x38},
-  {0x7C,0x14,0x14,0x14,0x08},{0x08,0x14,0x14,0x18,0x7C},{0x7C,0x08,0x04,0x04,0x08},{0x48,0x54,0x54,0x54,0x20},
-  {0x04,0x3F,0x44,0x40,0x20},{0x3C,0x40,0x40,0x20,0x7C},{0x1C,0x20,0x40,0x20,0x1C},{0x3C,0x40,0x30,0x40,0x3C},
-  {0x44,0x28,0x10,0x28,0x44},{0x0C,0x50,0x50,0x50,0x3C},{0x44,0x64,0x54,0x4C,0x44},{0x00,0x08,0x36,0x41,0x00},
-  {0x00,0x00,0x7F,0x00,0x00},{0x00,0x41,0x36,0x08,0x00},{0x08,0x08,0x2A,0x1C,0x08},{0x00,0x00,0x00,0x00,0x00},
-};
-
-uint8_t fb[8][128];
 bool oledOk = false;
 const uint32_t MPU_I2C_HZ = 400000;     // the MPU-6500 is rated for 400 kHz
 const uint32_t OLED_I2C_HZ = 1000000;   // the screen is written faster (set to 400000 if it glitches)
@@ -140,7 +115,7 @@ void oledFrame() {  // the whole screen in one go: 8 pages, each one command wri
     for (uint16_t x = 0; x < 128; x += oledChunk) {
       BUS.beginTransmission(OLED_ADDR);
       BUS.write(0x40);
-      for (uint16_t i = 0; i < oledChunk && x + i < 128; i++) BUS.write(fb[page][x + i]);
+      for (uint16_t i = 0; i < oledChunk && x + i < 128; i++) BUS.write(ui::fb[page][x + i]);
       if (BUS.endTransmission() != 0) {
         oledErrors++;
         if (oledChunk > 16) oledChunk = oledChunk > 32 ? 32 : 16;  // the bus refused a long write
@@ -150,14 +125,6 @@ void oledFrame() {  // the whole screen in one go: 8 pages, each one command wri
   BUS.setClock(MPU_I2C_HZ);
   frameUs = micros() - t0;
   frames++;
-}
-
-void textLine(uint8_t line, const char *s, uint8_t len) {
-  memset(fb[line], 0, 128);
-  for (uint8_t i = 0; i < len && i < 21; i++) {
-    uint8_t c = (s[i] < 32 || s[i] > 127) ? '?' : s[i];
-    memcpy(&fb[line][i * 6], FONT[c - 32], 5);
-  }
 }
 
 // ---- live values, from every sample (not from the Linux side, so they update every frame)
@@ -195,81 +162,15 @@ void updateLive(float dt) {
   peakNow = 0;
 }
 
-// ---- the Linux side's layout: up to 8 lines; {vib} {peak} {temp} are filled in live, {bar} is a level bar
-char tmpl[8][48];
-uint32_t screenUpdates = 0;
-
-char *fnum(char *out, float v, uint8_t dec) {  // by hand: small cores often lack float printf
-  if (!(v == v)) { strcpy(out, "--"); return out; }
-  char *p = out;
-  if (v < 0) { *p++ = '-'; v = -v; }
-  uint32_t scale = 1;
-  for (uint8_t i = 0; i < dec; i++) scale *= 10;
-  uint32_t n = (uint32_t)(v * scale + 0.5f);
-  p += sprintf(p, "%lu", (unsigned long)(n / scale));
-  if (dec) sprintf(p, ".%0*lu", dec, (unsigned long)(n % scale));
-  return out;
-}
-
-void barLine(uint8_t line, float mg) {  // log scale: 1 mg at the left edge, 1000 mg at the right
-  memset(fb[line], 0, 128);
-  float x = mg > 1 ? log10f(mg) / 3.0f : 0;
-  uint8_t w = (uint8_t)((x > 1 ? 1 : x) * 127);
-  for (uint8_t i = 0; i <= w; i++) fb[line][i] = 0x3C;
-  for (uint8_t t = 0; t < 128; t += 42) fb[line][t] |= 0x81;  // ticks at 1, 10, 100 mg
-}
-
-void compose() {
-  char line[64], v[16];
-  float mg = 1000 * sqrtf(shownRms2);
-  for (uint8_t L = 0; L < 8; L++) {
-    const char *t = tmpl[L];
-    if (strcmp(t, "{bar}") == 0) { barLine(L, mg); continue; }
-    uint8_t n = 0;
-    for (const char *p = t; *p && n < 60;) {
-      if (*p == '{') {
-        const char *e = strchr(p, '}');
-        if (e) {
-          if (!strncmp(p, "{vib}", 5)) fnum(v, mg, 1);
-          else if (!strncmp(p, "{peak}", 6)) fnum(v, shownPeak, 3);
-          else if (!strncmp(p, "{temp}", 6)) fnum(v, imuTempC, 1);
-          else v[0] = 0;
-          for (char *q = v; *q && n < 60; q++) line[n++] = *q;
-          p = e + 1;
-          continue;
-        }
-      }
-      line[n++] = *p++;
-    }
-    textLine(L, line, n);
-  }
-}
-
-// Called from the Linux side; runs between loop() passes ("safe"), so the I2C bus is free.
+// Called from the Linux side with the layout (see oled_ui.h); runs between loop() passes ("safe"),
+// so the I2C bus is free.
 bool screen(MsgPack::str_t text) {
-  const char *s = text.c_str();
-  uint8_t line = 0;
-  const char *start = s;
-  for (const char *p = s;; p++) {
-    if (*p == '\n' || *p == 0) {
-      if (line < 8) {
-        uint8_t len = (uint8_t)(p - start);
-        if (len > 47) len = 47;
-        memcpy(tmpl[line], start, len);
-        tmpl[line][len] = 0;
-        line++;
-      }
-      start = p + 1;
-      if (*p == 0) break;
-    }
-  }
-  while (line < 8) tmpl[line++][0] = 0;
-  screenUpdates++;
+  ui::setLayout(text.c_str());
   return true;
 }
 
 // ------------------------------------------------------------------ main
-uint32_t seq = 0, lastRead = 0, lastStatus = 0, batches = 0, presses = 0, notifyUs = 0, lastFrameAt = 0;
+uint32_t seq = 0, lastRead = 0, lastStatus = 0, batches = 0, presses = 0, notifyUs = 0, lastFrameAt = 0, lastSpark = 0;
 bool buttonDown = false;
 uint32_t buttonChange = 0;
 
@@ -282,8 +183,7 @@ void setup() {
   mpuOk = mpuBegin();
   oledOk = oledBegin();
   Bridge.provide_safe("screen", screen);
-  const char *hello = "STARTING\nvib  {vib} mg\n{bar}\npeak {peak} g\n\ntemp {temp} C";
-  screen(MsgPack::str_t(hello));
+  ui::setLayout("#effente|starting\n*EFFENTE\n\n{spark}\nvib {vib} mg|pk {peak} g\ntemp {temp} C");
   Monitor.print("effente sketch: MPU6050 ");
   Monitor.print(mpuOk ? "ok" : "NOT FOUND");
   Monitor.print(", OLED ");
@@ -333,7 +233,13 @@ void loop() {
     uint32_t at = micros();
     updateLive((at - lastFrameAt) / 1e6f);
     lastFrameAt = at;
-    compose();
+    float mg = 1000 * sqrtf(shownRms2);
+    if (millis() - lastSpark >= 100) {  // the trace: one column every 100 ms, 12.8 s across
+      lastSpark = millis();
+      ui::pushSpark(mg);
+    }
+    ui::Live live = {mg, shownPeak, imuTempC, millis()};
+    ui::compose(live);
     oledFrame();
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
@@ -373,7 +279,7 @@ void loop() {
     Monitor.print(", FIFO overflows ");
     Monitor.print(overflows);
     Monitor.print(", screen updates ");
-    Monitor.print(screenUpdates);
+    Monitor.print(ui::layouts);
     Monitor.print(", button presses ");
     Monitor.println(presses);
   }

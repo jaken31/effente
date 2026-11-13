@@ -37,16 +37,18 @@ from effente.trainer import load_for_training, train_model
 from device.intake.extract import feature_stream
 from device.intake.live import log_record
 from device.intake.recorder import Recorder
+from device.intake import screen as SC
 
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "STREAMING", "recording": "RECORDING", "training": "TRAINING",
-                "watching": "INFERENCE"}  # what the screen calls each mode
+                "watching": "INFERENCE"}  # what status calls each mode ("mode_shown"); the screen's words are in device.intake.screen
 SCREEN_EVERY_S = 0.5  # how often the layout is checked for changes
 HISTORY_SAVE_EVERY_S = 300.0
 MIN_RECORD_S = 300.0  # learning needs at least 5 minutes of the machine running
 NOTES_SHOWN_S = 120.0  # how long the screen shows what was odd about the learning
-SCREEN_DIAG = {"normal": "NOTHING WRONG", "warming_up": "WARMING UP", "stopped": "MACHINE STOPPED",
-               "unrecognised_pattern": "OUTSIDE NORMAL"}  # the rest: the fault type's name
+
+
+SPECTRUM = [F.INDEX[f"vib_band_{i:02d}"] for i in range(len(F.VIB_EDGES_HZ) - 1)]  # the screen's spectrum
 
 
 def _g(x, name):
@@ -67,17 +69,6 @@ def readings(x) -> dict:
 def _clock(seconds: float) -> str:
     s = int(max(seconds, 0))
     return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60:02d}:{s % 60:02d}"
-
-
-def _wrap(text: str, width: int = 21) -> list[str]:
-    words, lines, cur = text.split(), [], ""
-    for w in words:
-        if len(cur) + len(w) + (1 if cur else 0) > width:
-            lines.append(cur)
-            cur = w
-        else:
-            cur = f"{cur} {w}" if cur else w
-    return lines + [cur] if cur else lines
 
 
 class DeviceApp:
@@ -382,40 +373,26 @@ class DeviceApp:
 
     # ------------------------------------------------------------ what is shown
     def screen_lines(self) -> list[str]:
-        """The screen's layout: the mode and the current time on top. {vib}, {peak} and {temp} and a
-        "{bar}" line are filled in by the microcontroller from every sample, so they move at the
-        screen's own rate; the rest changes only when the mode, the time or the diagnosis does."""
-        r = readings(self.latest)
-        speed = f"speed {r['speed_hz']:.1f} Hz" if r["speed_hz"] else "speed --"
-        live = ["vib  {vib} mg", "{bar}", "peak {peak} g"]
+        """The screen's layout for the current mode (device.intake.screen; drawn by the sketch's oled_ui.h).
+        The live numbers and the vibration trace are filled in by the microcontroller from every sample;
+        the rest changes only when the mode, the time, the spectrum or the diagnosis does."""
+        x = self.latest
+        r = readings(x)
+        now = time.strftime("%H:%M:%S", time.localtime(self.clock()))
         with self.lock:
-            mode, msg, problems = self.mode, self.message, list(self.problems)
+            mode, msg = self.mode, self.message
+            problems = [SF.screen_text(p) for p in self.problems]  # what is wrong, in every mode
             notes = self.notes if self.clock() < self.notes_until else []
-        top = f"{SCREEN_NAMES[mode]:<12s}{time.strftime('%H:%M:%S', time.localtime(self.clock()))}"
-        bang = [f"! {SF.screen_text(p)}" for p in problems]  # what is wrong, in every mode
-        if mode == "display":
-            head, tail = [top] + live + [speed, "temp {temp} C"], []
-        elif mode == "recording":
-            head, tail = [top] + live + [speed, "temp {temp} C"], []
-            bang += _wrap(msg)[:2] if msg else []
-        elif mode == "training":
-            head, tail = [top, f"{int(100 * self.train_share)}% {self.train_stage}"[:21], ""] + live[:2], ["temp {temp} C"]
-        else:
-            res = self.result or {}
-            diag = res.get("diagnosis", "warming_up")
-            head = [top]
-            if diag in SCREEN_DIAG and diag != "unrecognised_pattern":
-                head.append(SCREEN_DIAG[diag] if not bang or diag != "normal" else bang.pop(0)[2:])
-            else:  # the model says something is wrong: what it is, and the reading that moved most
-                head += _wrap(SCREEN_DIAG.get(diag, diag.replace("_", " ").upper()))[:2]
-                feats = list((res.get("features") or {}).items())
-                if feats:
-                    head.append(f"{feats[0][0][:14]} {feats[0][1]:+.1f}")
-            bang += [f"note: {n}"[:21] for n in notes]
-            tail = live[:2] + ["temp {temp} C"]
-        room = max(0, 8 - len(head) - len(tail))
-        lines = head + bang[:room] + tail
-        return [x[:21] if "{" not in x else x for x in lines[:8]]
+            if mode == "display":
+                bands = x[SPECTRUM] if x is not None else None
+                return SC.streaming(now, r["speed_hz"], bands, problems)
+            if mode == "recording":
+                learning = self.clock() - self.record_started if self.record_started else 0.0
+                return SC.recording(now, learning, self.min_record_s, r["speed_hz"], msg, problems)
+            if mode == "training":
+                return SC.training(now, self.train_share, self.train_stage)
+            margin = self.watcher.margin if self.watcher is not None else 1.0
+            return SC.watching(now, self.result, margin, problems, notes, r["speed_hz"])
 
     def _screen_worker(self):
         while not self._stop.is_set():

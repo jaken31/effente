@@ -8,7 +8,7 @@ APP=/home/arduino/ArduinoApps/effente
 TMP=$(mktemp -d)
 mkdir -p "$TMP/effente/python/lib/device/intake" "$TMP/effente/python/lib/effente" "$TMP/effente/sketch"
 cp device/app/effente/app.yaml "$TMP/effente/"
-cp device/app/effente/sketch/sketch.ino device/app/effente/sketch/sketch.yaml "$TMP/effente/sketch/"
+cp device/app/effente/sketch/sketch.ino device/app/effente/sketch/sketch.yaml device/app/effente/sketch/oled_ui.h "$TMP/effente/sketch/"
 cp device/app/effente/python/main.py "$TMP/effente/python/"
 cp device/__init__.py "$TMP/effente/python/lib/device/"
 cp device/intake/*.py "$TMP/effente/python/lib/device/intake/"
