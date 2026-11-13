@@ -164,7 +164,9 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
         raise ValueError("no running data recorded")
     order = np.argsort(t, kind="stable")
     t, X = t[order], X[order]
-    period = TR.choose_period(float(t[-1] - t[0]))  # 1 s for a calibration of minutes, as the trainer
+    # The entry's own summary period, or a shorter one if the calibration is too short for it (the
+    # trainer's choice: 1 s for a calibration of minutes).
+    period = min(entry.period, TR.choose_period(float(t[-1] - t[0])))
     t, X = TR.summarise(t, X, period)
     running_s = len(t) * period
     need = max(float(min_running_s), MIN_ROWS * period)

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Calibrate a library entry to one machine on a laptop and write the model file.
 
-    python3 -m training.calibration.calibrate --entry training/library/entries/conveyor --run <recording folder> --out models/conveyor-07.json
-    python3 -m training.calibration.calibrate --entry training/library/entries/conveyor --rows rows.npz --seconds 300 --out models/conveyor-07.json
+    python3 -m training.calibration.calibrate --entry training/library/entries/conveyor/0.1.0 --run <recording folder> --out models/conveyor-07.json
+    python3 -m training.calibration.calibrate --entry training/library/entries/conveyor/0.1.0 --rows rows.npz --seconds 300 --out models/conveyor-07.json
 
 The same code the device runs (effente.calibration, NumPy only): the entry's network is kept, and
-the preparation statistics, alarm threshold and fault classifier are fitted to the machine in the
-rows given. Then the fit check, against the entry's manifest.json. This is the laptop route of the
+the preparation statistics and alarm threshold are fitted to the machine in the rows given. Then the fit check, against the entry's manifest.json. This is the laptop route of the
 TRD's fallback table: calibrate here and copy the model file to the device.
 
 --entry is a library entry folder (model.json and manifest.json). --run is a learn-mode recording
