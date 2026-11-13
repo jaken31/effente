@@ -16,6 +16,7 @@ from .pages import KEYS
 
 # (key sequences, keys as shown, what it does, MainWindow method)
 ACTIONS: list[tuple[tuple[str, ...], str, str, str]] = [
+    (("Ctrl+K",), "Ctrl K", "Search pages, machines and actions", "toggle_search"),
     (("Esc",), "Esc", "Back to Live from Spectrum or Thermal", "go_back"),
     (("[",), "[", "Previous machine", "previous_machine"),
     (("]",), "]", "Next machine", "next_machine"),

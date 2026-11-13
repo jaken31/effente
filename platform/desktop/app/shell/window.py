@@ -27,6 +27,7 @@ from . import format as fmt
 from . import shortcuts
 from .notices import Notices
 from .pages import CHILDREN, KEYS, make_page
+from .search import Entry, Search
 from .sidebar import Sidebar
 from .topbar import TopBar
 
@@ -170,6 +171,7 @@ class MainWindow(QMainWindow):
 
         self.notices = Notices(root)  # last child of root, so it paints above the pages
         self.shortcut_help = shortcuts.ShortcutHelp(root)
+        self.search = Search(root)
 
         self.current = ""
         self._closing_after_agent = False
@@ -270,8 +272,11 @@ class MainWindow(QMainWindow):
 
     # shortcut actions (shortcuts.ACTIONS)
     def go_back(self) -> None:
-        """Esc: hide the shortcut list if it is up, else leave Spectrum or Thermal for Live."""
-        if self.shortcut_help.isVisible():
+        """Esc: close the search or the shortcut list if one is up, else leave
+        Spectrum or Thermal for Live."""
+        if self.search.isVisible():
+            self.search.close_search()
+        elif self.shortcut_help.isVisible():
             self.shortcut_help.hide()
         elif self.current in CHILDREN:
             self.navigate("live")
@@ -306,6 +311,29 @@ class MainWindow(QMainWindow):
 
     def toggle_shortcut_help(self) -> None:
         self.shortcut_help.toggle()
+
+    def toggle_search(self) -> None:
+        if self.search.isVisible():
+            self.search.close_search()
+        else:
+            self.shortcut_help.hide()
+            self.search.open(self.search_entries())
+
+    # Actions the search leaves out: it is one of them, and the others only make
+    # sense as keys.
+    NOT_SEARCHED = ("toggle_search", "go_back", "previous_machine", "next_machine")
+
+    def search_entries(self) -> list[Entry]:
+        """What Ctrl+K can find: every page, every other machine, and the actions."""
+        entries = [Entry(getattr(self.pages[key], "title", key), f"Page \u00b7 {i + 1}", lambda k=key: self.navigate(k))
+                   for i, key in enumerate(KEYS)]
+        if self.state is not None:
+            current = self.state.current_machine()
+            entries += [Entry(m, "Machine", lambda m=m: self._machine_picked(m))
+                        for m in self.state.machines() if m != current]
+        entries += [Entry(what, shown, getattr(self, method))
+                    for _, shown, what, method in shortcuts.ACTIONS if method not in self.NOT_SEARCHED]
+        return entries
 
     # state
     def bind(self, state) -> None:
