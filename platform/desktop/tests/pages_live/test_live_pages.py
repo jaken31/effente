@@ -92,6 +92,28 @@ def test_history_shows_recorded_answer(history):
     assert pill[0] == logic.verdict_text("real")
 
 
+def _pill_cells(model, table, column):
+    out = []
+    for r in range(model.rowCount()):
+        index = model.index(r, column)
+        out.append((index.data(table.PillRole), index.data(Qt.ItemDataRole.ToolTipRole)))
+    return out
+
+
+def test_history_qualifies_unvalidated_faults(history):
+    """The sample model announces unbalance_like with validated: false, so neither
+    table may show it as a plain diagnosis (contract section 1)."""
+    possible = ((logic.display_name("unbalance_like") + " · possible", t.MUTED), "possible · not validated")
+    alarms = _pill_cells(history.alarms_model, history.alarms_table, 2)
+    assert possible in alarms
+    assert all(pill[0] != logic.display_name("unbalance_like") for pill, _tip in alarms)
+    records = _pill_cells(history.records_model, history.records_table, 2)
+    assert possible in records
+    assert all(pill[0] != logic.display_name("unbalance_like") for pill, _tip in records)
+    unrecognised = next(pill for pill, _tip in records if pill[0] == logic.display_name("unrecognised_pattern"))
+    assert unrecognised[1] == t.ALERT  # not a fault type: never "possible"
+
+
 # ---- sensitivity ---------------------------------------------------------------
 
 def test_slider_sets_sensitivity_and_updates_impact(qtbot, live, state, monkeypatch):
@@ -193,7 +215,8 @@ def test_records_filter(history):
     history.filter.setCurrentIndex(1)  # abnormal only
     diags = {history.records_model.index(r, 2).data(history.records_table.PillRole)[0]
              for r in range(history.records_model.rowCount())}
-    assert diags == {logic.display_name("unbalance_like"), logic.display_name("unrecognised_pattern")}
+    # The sample model has not validated unbalance_like, so it reads "possible".
+    assert diags == {logic.display_name("unbalance_like") + " · possible", logic.display_name("unrecognised_pattern")}
     assert history.records_panel.hint() == "4 periods"
 
 

@@ -608,3 +608,24 @@ def test_fault_type_tag():
     assert L.fault_type_tag({"name": "x", "validated": "true"}) == "possible · not validated"
     assert L.fault_type_tag(None) == "possible · not validated"
     assert L.fault_type_tag({"name": "vibration_too_high", "validated": True}) == ""
+
+
+def test_diagnosis_tag_and_text():
+    model = {"model_version": "m-1", "fault_types": [
+        {"name": "unbalance_like", "validated": False},
+        {"name": "vibration_too_high", "validated": True},
+    ]}
+    # A fault the model did not validate is "possible"; a validated one is not.
+    assert L.diagnosis_tag(model, "unbalance_like", "m-1") == "possible · not validated"
+    assert L.diagnosis_text(model, "unbalance_like", "m-1") == L.display_name("unbalance_like") + " · possible"
+    assert L.diagnosis_tag(model, "vibration_too_high", "m-1") == ""
+    assert L.diagnosis_text(model, "vibration_too_high", "m-1") == L.display_name("vibration_too_high")
+    # A fault the model never announced, or made by another model, is "possible" too.
+    assert L.diagnosis_tag(model, "misalignment_like", "m-1") == "possible · not validated"
+    assert L.diagnosis_tag(model, "vibration_too_high", "m-0") == "possible · not validated"
+    assert L.diagnosis_tag(None, "vibration_too_high") == "possible · not validated"
+    assert L.diagnosis_tag(model, "vibration_too_high") == ""  # no version: judged by this model
+    # Only faults are tagged.
+    for diagnosis in ("normal", "warming_up", "stopped", "unrecognised_pattern", None, ""):
+        assert L.diagnosis_tag(model, diagnosis, "m-1") == ""
+        assert L.diagnosis_text(model, diagnosis, "m-1") == L.display_name(diagnosis)

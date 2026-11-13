@@ -814,6 +814,24 @@ def fault_type_tag(fault_type) -> str:
     return "" if validated else "possible · not validated"
 
 
+def diagnosis_tag(model, diagnosis, model_version=None) -> str:
+    """Laptop only, no JS equivalent. The tag for a diagnosis made by `model_version`:
+    fault_type_tag of its fault type in `model` for a fault, "" for anything else.
+    A fault made by another model than `model` is tagged, as its validation is not
+    known here. No `model_version` means `model` made it."""
+    if diagnosis_kind(diagnosis) != "fault":
+        return ""
+    same = isinstance(model, dict) and model_version in (None, model.get("model_version"))
+    types = model.get("fault_types") if same and isinstance(model.get("fault_types"), list) else []
+    return fault_type_tag(next((x for x in types if isinstance(x, dict) and x.get("name") == diagnosis), None))
+
+
+def diagnosis_text(model, diagnosis, model_version=None) -> str:
+    """Laptop only. display_name, with " · possible" after a fault diagnosis_tag tags."""
+    name = display_name(diagnosis)
+    return f"{name} · possible" if diagnosis_tag(model, diagnosis, model_version) else name
+
+
 def is_unanswered(alarm) -> bool:
     return isinstance(alarm, dict) and alarm.get("answer") is None
 

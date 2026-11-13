@@ -26,6 +26,7 @@ from ..live.charts import DiagnosisBand, LineChart, LineChartSpec, RefLine, Seri
 from ..live.common import (
     clock,
     diagnosis_color,
+    diagnosis_pill,
     fault_group,
     label,
     ms_of,
@@ -281,8 +282,10 @@ class HistoryPage(QWidget):
 
     def _show_trends(self) -> None:
         rs = self.trend_records()
-        self.band.set_items([(logic.display_name(r.get("diagnosis")) or "–", diagnosis_color(r.get("diagnosis")))
-                             for r in rs])
+        model = self.state.model() or {}
+        # The strip keeps the fault colour so abnormal stretches stand out; its label says "possible".
+        self.band.set_items([(logic.diagnosis_text(model, r.get("diagnosis"), r.get("model_version")) or "–",
+                              diagnosis_color(r.get("diagnosis"))) for r in rs])
         newest = rs[-1] if rs else {}
         line = newest.get("alarm_line") if _num(newest.get("alarm_line")) else logic.alarm_line(newest.get("sensitivity"))
         lines = []
@@ -334,6 +337,7 @@ class HistoryPage(QWidget):
             ans = a.get("answer")
             source = model.get("source") if model.get("model_version") == a.get("model_version") else None
             model_text = " · ".join(str(x) for x in (a.get("library_entry") or a.get("model_version"), source) if x)
+            pill, tip = diagnosis_pill(model, diag, a.get("model_version"))
             answer_item = _item("")
             if ans:
                 answer_item = _item("", pill=(logic.verdict_text(ans.get("verdict")), verdict_color(ans.get("verdict"))),
@@ -341,7 +345,7 @@ class HistoryPage(QWidget):
             m.appendRow([
                 _item(clock(a.get("start"))),
                 _item("ongoing" if a.get("open") else clock(a.get("end")), strong=bool(a.get("open"))),
-                _item("", pill=(logic.display_name(diag), diagnosis_color(diag))),
+                _item("", pill=pill, tip=tip),
                 _item(fault_group(model, diag) or "–"),
                 _item(a.get("periods", ""), right=True),
                 _item(model_text or "–"),
@@ -382,7 +386,9 @@ class HistoryPage(QWidget):
         self.records_panel.set_hint(f"{len(rows)} period{'' if len(rows) == 1 else 's'}")
         m = self.records_model
         m.removeRows(0, m.rowCount())
+        model = self.state.model() or {}
         for r in rows[:RECORDS_SHOWN]:
+            pill, tip = diagnosis_pill(model, r.get("diagnosis"), r.get("model_version"))
             judged = _num(r.get("unknown_score"))
             score = r.get("unknown_score")
             line = r.get("alarm_line") if _num(r.get("alarm_line")) else logic.alarm_line(r.get("sensitivity"))
@@ -391,8 +397,8 @@ class HistoryPage(QWidget):
             m.appendRow([
                 _item(r.get("seq", ""), mono=True),
                 _item(clock(r.get("at"), utc=True)),
-                _item("", pill=(logic.display_name(r.get("diagnosis")), diagnosis_color(r.get("diagnosis")))),
-                _item(logic.display_name(this) if this else "–"),
+                _item("", pill=pill, tip=tip),
+                _item(logic.diagnosis_text(model, this, r.get("model_version")) if this else "–"),
                 _item(f"{r['confidence']:.2f}" if judged and _num(r.get("confidence")) else "–", right=True),
                 _item(f"{score:.2f}" if judged else "–", right=True,
                       flag=bool(judged and line is not None and score > line)),

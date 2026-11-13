@@ -31,6 +31,14 @@ def diagnosis_color(diagnosis) -> str:
     return KIND_COLORS.get(logic.diagnosis_kind(diagnosis), t.MUTED)
 
 
+def diagnosis_pill(model, diagnosis, model_version=None) -> tuple[tuple[str, str], str | None]:
+    """((text, colour), tooltip) for a diagnosis pill. A fault the model has not
+    validated reads "possible" in a muted colour, with the tag as its tooltip."""
+    tag = logic.diagnosis_tag(model, diagnosis, model_version)
+    color = t.MUTED if tag else diagnosis_color(diagnosis)
+    return (logic.diagnosis_text(model, diagnosis, model_version), color), tag or None
+
+
 def verdict_color(verdict) -> str:
     return t.WARN if verdict == "real" else t.MUTED
 
