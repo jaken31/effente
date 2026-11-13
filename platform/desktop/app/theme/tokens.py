@@ -3,6 +3,9 @@
 Values are the ones in force after the mockup's last style layer ("Apple type" and
 "No red text"), since those override the earlier ones.
 
+These are the default colour scheme. theme.schemes can replace the colours before
+the window is built, so read them as tokens.NAME when used, never copy them at import.
+
 The RED rule: RED is for shapes only (dots, bars, rings, chart marks, selected
 outlines). Never paint text in RED or in any colour of its family; an abnormal
 value gets a red dot beside it instead (see widgets.FlagValue).
@@ -32,6 +35,10 @@ SOFT = "#a1a1a1"
 MUTED = "#878787"
 ON_PRIMARY = "#120400"  # text on a primary (red) button
 WHITE = "#ffffff"
+TEXT_DISABLED = "rgba(237, 237, 237, .4)"
+BORDER_DISABLED = "rgba(255, 255, 255, .04)"
+TINT = (255, 255, 255)  # rgb of faint overlays (hover bands, shaded chart areas)
+CHEVRON = "chevron.svg"  # the select arrow, in app/theme/
 
 # Marks
 DOT = "#e9e9e9"  # normal chart marks and the live dot
@@ -51,6 +58,11 @@ ALERT = "#ff9a80"
 UNKNOWN = ALERT
 ACCENT_BG = "rgba(255, 77, 46, .12)"  # selected table row
 LINK_HOVER_BORDER = "rgba(255, 77, 46, .5)"  # clickable panel hover
+PRIMARY_DISABLED = "rgba(255, 77, 46, .4)"
+ON_PRIMARY_DISABLED = "rgba(18, 4, 0, .6)"
+# The page background's two glows, as (r, g, b, alpha).
+GLOW_TOP = (255, 120, 60, 0.15)
+GLOW_BOTTOM = (255, 90, 40, 0.05)
 
 # Colours that must never be used for text (RED rule).
 RED_FAMILY = (RED, PRIMARY_HOVER, ALERT)

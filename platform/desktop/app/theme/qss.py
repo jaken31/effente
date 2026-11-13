@@ -31,7 +31,7 @@ def css(token: str) -> str:
 
 
 def stylesheet() -> str:
-    chevron = (HERE / "chevron.svg").as_posix()
+    chevron = (HERE / t.CHEVRON).as_posix()
     return f"""
 * {{
     color: {t.TEXT};
@@ -82,9 +82,9 @@ QPushButton[small="true"] {{
     border-radius: {t.BUTTON_SMALL_H // 2}px; padding: 0 {t.BUTTON_SMALL_PAD_H}px;
     min-height: {t.BUTTON_SMALL_H - 2}px; max-height: {t.BUTTON_SMALL_H - 2}px;
 }}
-QPushButton:disabled {{ color: {css('rgba(237, 237, 237, .4)')}; border-color: {css('rgba(255, 255, 255, .04)')}; }}
+QPushButton:disabled {{ color: {css(t.TEXT_DISABLED)}; border-color: {css(t.BORDER_DISABLED)}; }}
 QPushButton[kind="primary"]:disabled {{
-    background: {css('rgba(255, 77, 46, .4)')}; border-color: transparent; color: {css('rgba(18, 4, 0, .6)')};
+    background: {css(t.PRIMARY_DISABLED)}; border-color: transparent; color: {css(t.ON_PRIMARY_DISABLED)};
 }}
 
 QComboBox {{

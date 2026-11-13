@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..theme import schemes
 from ..theme import tokens as t
 from . import format as fmt
 from .notices import Notices
@@ -34,19 +35,20 @@ MIN_W, MIN_H = 1440, 900
 
 
 class _Backdrop(QWidget):
-    """The page background: near-black with the mockup's two warm glows."""
+    """The page background: the scheme's background with the mockup's two glows."""
 
-    # (centre x, centre y as a fraction of the window, radii px, rgba, stop)
+    # (centre x, centre y as a fraction of the window, radii px, colour token, stop)
     GLOWS: ClassVar[list] = [
-        (0.30, -0.15, 1100, 620, (255, 120, 60, 0.15), 0.62),
-        (1.00, 1.10, 900, 500, (255, 90, 40, 0.05), 0.60),
+        (0.30, -0.15, 1100, 620, "GLOW_TOP", 0.62),
+        (1.00, 1.10, 900, 500, "GLOW_BOTTOM", 0.60),
     ]
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.fillRect(self.rect(), t.qcolor(t.BG))
         w, h = self.width(), self.height()
-        for fx, fy, rx, ry, (r, g, b, a), stop in self.GLOWS:
+        for fx, fy, rx, ry, token, stop in self.GLOWS:
+            r, g, b, a = getattr(t, token)
             g_ = QRadialGradient(QPointF(0, 0), rx)
             c = t.qcolor(f"rgba({r}, {g}, {b}, {a})")
             clear = t.qcolor(f"rgba({r}, {g}, {b}, 0)")
@@ -151,6 +153,7 @@ class MainWindow(QMainWindow):
         self.sidebar.navigate.connect(self.navigate)
         self.topbar.navigate.connect(self.navigate)
         self.sidebar.machine_changed.connect(self._machine_picked)
+        self.sidebar.scheme_changed.connect(schemes.save)
         self.shortcuts = []
         for i, key in enumerate(KEYS):
             sc = QShortcut(QKeySequence(str(i + 1)), self)

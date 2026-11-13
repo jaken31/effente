@@ -236,7 +236,7 @@ class BandChart(QWidget):
                 p.drawText(QPointF(left, self.height() - 6), text)
             if edges[0] < maths.SENSOR_FILTER_HZ < edges[-1]:
                 xf = self._x_hz(maths.SENSOR_FILTER_HZ, plot)
-                p.fillRect(QRectF(xf, plot.top(), plot.right() - xf, plot.height()), QColor(255, 255, 255, 9))
+                p.fillRect(QRectF(xf, plot.top(), plot.right() - xf, plot.height()), QColor(*T.TINT, 9))
             # The filter note and the speed note share the top line (top_labels).
             p.setFont(self._font(11))
             p.setPen(muted)
@@ -253,7 +253,7 @@ class BandChart(QWidget):
         if 0 <= self._hover < len(spans):
             a, b = spans[self._hover]
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(255, 255, 255, 15))
+            p.setBrush(QColor(*T.TINT, 15))
             p.drawRoundedRect(QRectF(a, plot.top(), b - a, plot.height()), 3, 3)
 
         # Bars.

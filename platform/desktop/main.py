@@ -32,6 +32,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     parser.add_argument("--fake", action="store_true", help="no receiver: show fixed sample data (tests/fakes.py)")
+    parser.add_argument("--scheme", help="colour scheme for this run: red, amber, blue or light (default: the saved one)")
     return parser.parse_args(argv)
 
 
@@ -39,8 +40,12 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
+    from app.theme import apply_theme, schemes
+
+    # Before app.shell is imported: some widgets read colour tokens at import.
+    schemes.apply(args.scheme or schemes.saved())
+
     from app.shell import MainWindow
-    from app.theme import apply_theme
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 

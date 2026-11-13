@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..theme import fonts
+from ..theme import fonts, schemes
 from ..theme import tokens as t
 from ..widgets import StatusDot
 from . import icons
@@ -247,6 +247,7 @@ class Sidebar(QWidget):
 
     navigate = Signal(str)
     machine_changed = Signal(str)
+    scheme_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -279,8 +280,42 @@ class Sidebar(QWidget):
         self.nav.navigate.connect(self.navigate)
         lay.addWidget(self.nav)
         lay.addStretch(1)
+
+        colours = QWidget(self)
+        cl = QVBoxLayout(colours)
+        cl.setContentsMargins(4, 0, 4, 0)
+        cl.setSpacing(6)
+        clabel = QLabel("Colours", colours)
+        clabel.setProperty("role", "muted")
+        clabel.setFont(fonts.label_caps())
+        clabel.setContentsMargins(4, 0, 0, 0)
+        clabel.setFixedHeight(16)
+        self.scheme = QComboBox(colours)
+        self.scheme.setFont(fonts.body())
+        self.scheme.setMinimumHeight(32)
+        self.scheme.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.scheme.setAccessibleName("Colour scheme")
+        for key, name in schemes.names():
+            self.scheme.addItem(name, key)
+        self.scheme.setCurrentIndex(self.scheme.findData(schemes.current()))
+        self.scheme.currentIndexChanged.connect(self._scheme_picked)
+        self.scheme_note = QLabel("Shows the next time effente starts", colours)
+        self.scheme_note.setProperty("role", "muted")
+        self.scheme_note.setFont(fonts.small())
+        self.scheme_note.setContentsMargins(4, 0, 0, 0)
+        self.scheme_note.hide()
+        cl.addWidget(clabel)
+        cl.addWidget(self.scheme)
+        cl.addWidget(self.scheme_note)
+        lay.addWidget(colours)
+
         self.card = DeviceCard(self)
         lay.addWidget(self.card)
+
+    def _scheme_picked(self, i: int) -> None:
+        key = self.scheme.itemData(i)
+        self.scheme_note.setVisible(key != schemes.current())
+        self.scheme_changed.emit(key)
 
     def _machine_picked(self, i: int) -> None:
         if i >= 0 and not self._filling:
