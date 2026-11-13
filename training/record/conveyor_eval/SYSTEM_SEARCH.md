@@ -164,6 +164,72 @@ training, also: subtle cooling blocked, gear wear and overload, and obvious lubr
 subtle bearing and lubrication runs "nearly invisible at the drive end". Catching them would most likely need another
 sensor (a kHz accelerometer near the idlers, or motor current), not another model.
 
+## Trade-off: what a small false-alert budget buys (`tradeoff.json`)
+
+The user relaxed the goal: as few false alerts as possible, not necessarily 0.
+- **Search:** the full grid for each system (smoothing × shared sensitivity, or the alarm off; persistence block × frac ×
+  hold, or none), every setting OR'ed with the per-second set, with and without the jam rules.
+- **Budget:** the worst rotation's false alerts per running week. 1/week is about 4 a month.
+- **Strict pick:** the fewest missed at that budget.
+- **Plateau pick:** the fewest missed where the setting AND all its one-step neighbours stay within the budget
+  (sensitivity ±0.025; frac, hold and block one grid step). Plateau picks are the ones to trust.
+
+**Plateau picks**, mean missed of 30 (heldout / w2 / w1). In brackets: the setting's own worst false alerts / week.
+
+| Budget (worst rotation, per week) | 0 | 0.25 | 0.5 | 1 | 2 | 3 | 5 |
+|---|---|---|---|---|---|---|---|
+| **B with jam rules** | 6.33 (0) | 6.33 | 6.33 | 6.0 (0.56) | **5.0 (0)** | 4.33 (2.2) | 4.0 (2.8) |
+| B without jam rules | 8.33 (0) | 8.33 | 8.33 | 8.0 (0.56) | 7.0 (0) | 6.0 (2.2) | 5.67 (2.8) |
+| **A with jam rules** | 9.0 (0) | 9.0 | 9.0 | **7.0 (0)** | 5.33 (1.7) | 4.33 (1.7) | 3.67 (2.2) |
+| A without jam rules | 11.0 (0) | 11.0 | 11.0 | 9.0 (0) | 7.33 (1.7) | 6.33 (1.7) | 5.67 (2.2) |
+| C with jam rules | 9.33 (0) | 9.33 | 9.33 | 9.33 | 7.0 (1.1) | 6.67 (1.7) | 4.0 (3.3) |
+| C without jam rules | 11.33 (0) | 11.33 | 11.33 | 11.33 | 9.0 (1.1) | 8.67 (1.7) | 6.0 (3.3) |
+
+**Strict picks** (on edges; their neighbours break the budget):
+
+| | 0 | 0.25 | 0.5 | 1 | 2 | 3 | 5 |
+|---|---|---|---|---|---|---|---|
+| B with jam rules | 4.67 | 4.67 | 4.67 | 4.67 | 3.0 | 3.0 | 0.0 |
+| A with jam rules | 5.33 | 5.33 | 5.33 | 5.33 | 4.0 | 3.67 | 0.0 |
+| C with jam rules | 6.0 | 6.0 | 6.0 | 5.67 | 5.33 | 4.33 | 0.0 |
+
+"0 missed at 5 a week" is a setting that alerts often enough to overlap every fault window. It is not a detector.
+
+**What each step buys** (plateau picks, faults newly caught in some rotation):
+- **B at 2 / week** (setting itself 0, neighbours ≤ 1.7): subtle idler bearing and subtle overload.
+  - Slow wear at the first alert drops from 56–69 % to 43–59 %.
+  - Sudden faults: 9–15 min median.
+- **A at 1 / week** (setting 0, neighbours ≤ 0.56): subtle gear wear, at a 360-minute persistence block.
+- **A at 2 / week:** catches more, but moves to smoothing 1, where sudden faults take 15–85 min median instead of
+  11–16. That's a worse system for the same faults.
+- **C at 2 / week:** subtle gear wear, idler bearing and overload.
+- **C at 5 / week:** obvious and subtle lubrication loss.
+- **0.25 and 0.5 a week buy nothing on the plateau:** no setting has its whole neighbourhood between 0 and 0.5.
+
+**What the false alerts are** (plateau picks):
+- **Mostly not nuisances.**
+  - B at 1 / week: all 3 are jam-subtle at hour 6.0, the first judged minute. That run is a Monday-start run that
+    begins with heat carried over from the simulator (N3), so the persistence is already on when judging starts.
+  - Many of the others also start at hour 6.0 of a fault run, before onset: misalignment-subtle, idler_seized-subtle.
+- **The rest are model alarms with nothing particular going on:**
+  - before onset in unbalance-subtle (hour 15) and misalignment-obvious (hour 11.6)
+  - one in each healthy week (normal-w1 hour 54, normal-w2 hour 93)
+  - in the held-out week, two with a person in front of the camera (hours 9.7 and 83)
+- **Forklifts, slams and dropped objects cause none.** The per-second set adds none.
+- **About half of these come from simulator quirks:** the start-of-run carry-over (N3), and each fault run being
+  another camera (N2). On a real device's continuous recording, the start-of-run ones wouldn't recur.
+
+**Recommended operating point, if a few false alerts a month are acceptable:**
+- **B, smoothing 10, sensitivity 0.65, persistence 30-minute blocks > 0.25× the line, held 6.**
+  - With the jam rules: **5.0 missed (2 / 6 / 7)**. Without: 7.0.
+  - 0 false alerts at the setting itself in every rotation; no one-step neighbour exceeds 1.7 a week.
+  - It beats the 0-budget plateau pick (6.33) by 1.33, and its own worst case on these data is 0.
+- **PCA only (no Gaussian port):** A, smoothing 10, sensitivity 0.625, persistence 360-minute blocks > 0.3×, held 3.
+  - With the jam rules: **7.0 (3 / 9 / 9)**. Without: 9.0.
+  - 0 at the setting; neighbours ≤ 0.56 a week.
+- **Expect worse on fresh data:** both were picked on these 30 runs.
+- **The jam rules carry the caveats above.**
+
 ## Read this before using it
 
 - **Selection on evaluation data.** Tens of thousands of settings were judged on the same 30 fault runs and healthy weeks.

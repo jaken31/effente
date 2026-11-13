@@ -1397,6 +1397,129 @@ def run_knn():
     write("knn.json", res)
 
 
+# ----------------------------------------------------------------- trade-off: what a small false-alert budget buys
+
+TRADE_LEVELS = (0.0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0)
+
+
+def system_grid(label, srcs, mode, line_n, extra):
+    """Every model-alarm (smoothing x shared sensitivity, or off) x persistence (block x frac x hold, or none) setting,
+    each OR'ed with `extra` ({rot: {run: flags}}, the per-second set and maybe the jam rules), judged in the rotation."""
+    Ps = prepared()
+    comb = max_normalised(srcs)
+    cols = [("off", None)] + [(n, s) for n in SMOOTHINGS for s in SENS]
+    mflags = {}
+    for rot in ROTS:
+        P = Ps[rot]
+        per_n = {}
+        for n in SMOOTHINGS:
+            fl = None
+            for s_ in (srcs if mode == "or" else [comb]):
+                f = MS.model_flags(P, MS.ratios(P, *s_[rot], n)[1], SENS)
+                fl = f if fl is None else {k: fl[k] | f[k] for k in fl}
+            per_n[n] = fl
+        mflags[rot] = {name: np.hstack([per_n[n][name] for n in SMOOTHINGS]) | extra[rot][name][:, None] for name in P.runs}
+    rows = []
+    for B in PERSIST_B:
+        pf = {}
+        for rot in ROTS:
+            P = Ps[rot]
+            line = MS.lines_for(comb[rot][0], line_n)
+            pf[rot] = {name: block_on(np.asarray(comb[rot][1][name], float) / line, P.runs[name]["reset"], B, PERSIST_FRAC,
+                                      PERSIST_HOLD) for name in P.runs}
+        for pi, (f, h) in enumerate((f, h) for f in PERSIST_FRAC for h in PERSIST_HOLD):
+            fl = {rot: {name: np.hstack([pf[rot][name][:, pi:pi + 1] | extra[rot][name][:, None],
+                                         mflags[rot][name] | pf[rot][name][:, pi:pi + 1]]) for name in Ps[rot].runs} for rot in ROTS}
+            for (n, s_), r in zip(cols, judge_rot(fl)):
+                rows.append({"model": label, "smooth": n, "sensitivity": s_, "block": B, "frac": f, "hold": h, "line_n": line_n, **r})
+    fl = {rot: mflags[rot] for rot in ROTS}
+    for (n, s_), r in zip(cols[1:], judge_rot(fl)):
+        rows.append({"model": label, "smooth": n, "sensitivity": s_, "block": None, "frac": None, "hold": None, "line_n": line_n, **r})
+    add_plateau(rows)
+    return rows
+
+
+def fp_causes(flags, components):
+    """Every false-alert stretch of a system: rotation, run (the watched week or a fault run before onset), the time,
+    the nuisances in that minute and the one before, and which part of the system was on when it began."""
+    Ps = prepared()
+    R = MS.runs()
+    out = []
+    for rot in ROTS:
+        P = Ps[rot]
+        for name, d in P.runs.items():
+            A = flags[rot][name] & d["run"] & d["fpmask"]
+            starts = np.nonzero(A & ~np.r_[False, A[:-1]])[0]
+            nuis = R[name]["meta"].get("nuisance") or []
+            for i in starts:
+                why = sorted(set((nuis[i] if i < len(nuis) else None) or []) | set(((nuis[i - 1] if 0 < i <= len(nuis) else None) or [])))
+                parts = [c for c, f in components.items() if f[rot][name][i]]
+                out.append({"rotation": rot, "run": name, "hour": round(float(d["t"][i] - d["t"][0]) / 3600, 1),
+                            "nuisance": why or ["nothing in particular"], "parts": parts})
+    return out
+
+
+def run_tradeoff():
+    t0 = time.time()
+    ps = per_second_flags()
+    jf, _, _ = jam_flags()
+    jam = {rot: {r: jf[rot][r][JAM_DEFAULT[0]] | jf[rot][r][JAM_DEFAULT[1]] for r in jf[rot]} for rot in ROTS}
+    psj = or_flags(ps, jam)
+    print(f"per-second and jam flags in {time.time() - t0:.0f} s", flush=True)
+    res = {}
+    for sname, (names, mode, row) in SYSTEMS.items():
+        srcs = [source(n) for n in names]
+        short = sname.split(":")[0]
+        for jl, extra in (("without jam rules", ps), ("with jam rules", psj)):
+            t1 = time.time()
+            rows = [r for r in system_grid(short, srcs, mode, row["line_n"], extra) if r["min_caught"] > 0]
+            key = f"{short} | {jl}"
+            res[key] = {}
+            prev_caught = None
+            for L in TRADE_LEVELS:
+                strict = [r for r in rows if r["worst_fp_week"] <= L + 1e-9]
+                plat = [r for r in rows if r["plateau_worst_fp_week"] <= L + 1e-9]
+                entry = {}
+                for kind, pool in (("strict", strict), ("plateau", plat)):
+                    if not pool:
+                        continue
+                    r = min(pool, key=lambda x: (x["mean_missed"], x["mean_lateness"]))
+                    f = flags_for(r, srcs, mode)
+                    sysf = or_flags(f, extra)
+                    d = judge_rot({rot: {run: sysf[rot][run][:, None] for run in sysf[rot]} for rot in ROTS}, details=True)[0]
+                    caught = {rot: sorted(n for n, v in d["detail"][rot]["runs"].items() if v["caught"]) for rot in ROTS}
+                    comps = {"model alarm": flags_for({**r, "block": None}, srcs, mode) if r["smooth"] != "off" else
+                             {rot: {k: np.zeros_like(v) for k, v in f[rot].items()} for rot in ROTS},
+                             "persistence": flags_for({**r, "smooth": "off"}, srcs, mode) if r["block"] is not None else
+                             {rot: {k: np.zeros_like(v) for k, v in f[rot].items()} for rot in ROTS},
+                             "per-second": ps}
+                    if extra is psj:
+                        comps["jam rules"] = jam
+                    entry[kind] = {"setting": describe_p(r), "fp_by_rotation": d["fp_by_rotation"], "worst_fp_week": d["worst_fp_week"],
+                                   "plateau_worst_fp_week": r["plateau_worst_fp_week"], "plateau_mean_missed": r["plateau_mean_missed"],
+                                   "mean_missed": d["mean_missed"], "missed_by_rotation": d["missed_by_rotation"],
+                                   "mean_lateness": d["mean_lateness"],
+                                   "slow_wear_pct_median": {rot: d["detail"][rot]["slow_wear_caught_median"] for rot in ROTS},
+                                   "sudden_median_min": {rot: d["detail"][rot]["sudden_median_min"] for rot in ROTS},
+                                   "missed_runs": {rot: d["detail"][rot]["missed_runs"] for rot in ROTS},
+                                   "false_alerts": fp_causes(sysf, comps)}
+                    if kind == "plateau":
+                        allc = set.union(*[set(v) for v in caught.values()])
+                        entry[kind]["caught_in_some_rotation"] = sorted(allc)
+                        if prev_caught is not None:
+                            entry[kind]["bought_vs_previous_level"] = sorted(allc - prev_caught)
+                            entry[kind]["lost_vs_previous_level"] = sorted(prev_caught - allc)
+                        prev_caught = allc
+                res[key][str(L)] = entry
+                st, pl = entry.get("strict"), entry.get("plateau")
+                print(f"{key:44s} <= {L:4}: strict {st['mean_missed'] if st else '-':>5} | plateau "
+                      f"{pl['mean_missed'] if pl else '-':>5} (fp {pl['fp_by_rotation'] if pl else '-'}) "
+                      f"{('bought ' + str(pl.get('bought_vs_previous_level'))) if pl and pl.get('bought_vs_previous_level') else ''}",
+                      flush=True)
+            print(f"   [{time.time() - t1:.0f} s]", flush=True)
+    write("tradeoff.json", res)
+
+
 # ----------------------------------------------------------------- exp 4: why unbalance-obvious is missed
 
 def _group_parts(det, Z):
@@ -1461,7 +1584,7 @@ def run_unbalance(run_name="unbalance-obvious", smooth=10, sens=0.625):
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=("seconds", "persist", "safety", "topk", "relheat", "unbalance", "combine", "combine_rel", "final2", "faint", "knn"))
+    ap.add_argument("step", choices=("seconds", "persist", "safety", "topk", "relheat", "unbalance", "combine", "combine_rel", "final2", "faint", "knn", "tradeoff"))
     ap.add_argument("--workers", type=int, default=1)
     a = ap.parse_args(argv)
     t0 = time.time()
@@ -1479,6 +1602,8 @@ def main(argv=None) -> int:
         run_relheat()
     elif a.step == "combine":
         run_combine()
+    elif a.step == "tradeoff":
+        run_tradeoff()
     elif a.step == "knn":
         run_knn()
     elif a.step == "faint":
