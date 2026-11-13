@@ -46,6 +46,9 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   3. Then earliest: slow-fault wear % at the first alert, or minutes; a miss counts as worst.
   - Fault naming (whether the screen's words fit the fault) breaks ties.
   - Every write-up also shows the trade-off: the fewest misses reachable at 0 / 0.25 / 0.5 / 1 / 2 false alerts a week.
+- **Relaxed on 13 Nov, about 16:40:** "it doesnt have to have 0 false alarms, just as few as possible". Zero is no longer
+  a hard requirement. Weigh a small false-alert budget against misses, and prefer a steady setting within a small budget
+  over an edge setting at exactly 0. A trade-off section (0–5 false alerts a week) is being added to `SYSTEM_SEARCH.md`.
 - **Sensitivity is one more setting to search.** The winner can be best at one value; it doesn't need to be good across the dial.
 - **The model and early warning are judged together,** as the device runs them, and each model alone is also compared with model + early warning.
 - **Rotation, as the device is used** (record at least a couple of days, likely a week or more, then train, then watch):
@@ -295,8 +298,23 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   - **Status, about 16:25:** PyTorch is installed, and the BEATs (361.5 MB, hash verified) and EfficientAT mn10 (19.7 MB) weights
     are downloaded from their official sources. Running the downloaded model code is blocked until the user approves it in
     that session. The device-feature baseline runs meanwhile.
+  - **About 16:50:** the user approved running the models in that session, and it's unblocked. The bearing, gearbox,
+    slider and valve dev sets are downloaded from the official Zenodo record 10902294 (about 300 MB each, MD5s verified;
+    1,200 clips of 10 s each; 2024 has no pump). Speed on one M2 thread per 10 s clip: BEATs 0.39 s, EfficientAT mn10
+    0.06 s. No board was attached for on-device timing.
   - **Baseline on real DCASE fans (device sound features, not yet checked):** AUROC 0.595, and 0 of 100 real fan faults
     caught at zero false alarms. Our hand-built sound features barely separate real fan faults from normal.
+- **DCASE Task 2 survey** ([DCASE_TASK2_SURVEY.md](../datasets/DCASE_TASK2_SURVEY.md); research only, nothing run by us,
+  and items marked "summary" there are unverified). What carries over to one machine with no labels:
+  1. **A frozen pretrained encoder + kNN, with no training,** and three label-free tweaks: standardise the embeddings,
+     use one intermediate layer, and divide the kNN distance by local density. Add it as one more group in the score.
+  2. **A small encoder first** (CED-tiny, 5.5 M parameters; or EfficientAT). BEATs is about 34× the compute.
+  3. **Fuse several detectors by z-score** rather than picking one. PCA residual on frozen BEATs was the worst backend
+     on fans in one paper, so embeddings must not be judged by PCA alone.
+  - **Doesn't carry over:** the challenge winners' fine-tuning, which needs labels from many machines.
+  - **Caveat:** DCASE only ranks by AUC and pAUC, never by catches at low false alarms, so gains for our measure are unproven.
+    Its dev sets have 100 normal test clips per machine, so "0 false alarms" there only shows a rate under about 3 %.
+  - These experiments are added to the BEATs test.
 - **Building the best whole system** (the user, 13 Nov afternoon): the fewest false positives, the fewest misses, still early.
   The sound-fix session runs `system_search.py` on top of the model search, judged in the rotation, and the checker reviews it.
   - **Long persistence** on the score, which the early-warning result suggests.
