@@ -134,7 +134,8 @@ class Panel(QFrame):
         self.hint_label = _ElidedLabel(hint, self.head)
         self.hint_label.setProperty("role", "hint")
         self.hint_label.setFont(fonts.body())
-        self.hint_label.setVisible(bool(hint))
+        # Always in the layout, even empty: it holds the stretch that keeps the title
+        # at the left and the header controls at the right.
         hl.addWidget(self.title_label)
         hl.addWidget(self.hint_label, 1)
         self.header_end = QHBoxLayout()
@@ -164,7 +165,6 @@ class Panel(QFrame):
 
     def set_hint(self, hint: str) -> None:
         self.hint_label.setText(hint)
-        self.hint_label.setVisible(bool(hint))
 
     def title(self) -> str:
         return self.title_label._title
