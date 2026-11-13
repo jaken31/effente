@@ -63,9 +63,34 @@ def test_machine_picker_sets_state(window, state):
     assert window.topbar.machine.text() == "conveyor-08"
 
 
-def test_minimum_size(window):
-    assert window.minimumSize().width() == 1440
-    assert window.minimumSize().height() == 900
+def test_minimum_size_fits_half_a_screen(window):
+    assert window.minimumSize().width() == 960
+    assert window.minimumSize().height() == 660
+    # The sidebar and top bar lay out cleanly at that size.
+    hint = window.centralWidget().minimumSizeHint()
+    assert hint.width() <= 960
+    assert hint.height() <= 660
+
+
+def test_opens_at_the_mockup_size(qtbot, state):
+    from app.shell import MainWindow
+
+    w = MainWindow(state, placeholders=True)
+    qtbot.addWidget(w)
+    assert (w.width(), w.height()) == (1440, 900)
+
+
+def test_narrow_top_bar_drops_the_subtitle_not_the_names(window, qtbot):
+    bar = window.topbar
+    window.navigate("thermal")
+    assert bar.subtitle.isVisible()
+    window.resize(960, 660)
+    qtbot.waitUntil(lambda: window.width() == 960)
+    assert not bar.subtitle.isVisible()
+    for label in (bar.machine, bar.crumb, bar.title, bar.fresh):
+        assert label.width() >= label.sizeHint().width()
+    window.resize(1600, 1000)
+    qtbot.waitUntil(bar.subtitle.isVisible)
 
 
 def test_page_scrollbar_takes_no_content_width(window, qtbot):
