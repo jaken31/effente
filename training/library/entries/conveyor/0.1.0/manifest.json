@@ -1,0 +1,111 @@
+{
+  "manifest": "effente-entry-1",
+  "entry": "conveyor",
+  "version": "0.1.0",
+  "title": "Belt conveyor drive",
+  "status": "unverified",
+  "use": "watch",
+  "pipeline": "rotating-v1",
+  "features_version": "89613129193f",
+  "sensors": {
+    "required": [
+      "accelerometer",
+      "gyroscope"
+    ],
+    "optional": [
+      "imu_temperature"
+    ]
+  },
+  "mount": "rigid, on the drive-end bearing housing (as simulated)",
+  "profile": {
+    "machine_type": "conveyor",
+    "drive": "gearbox",
+    "speed": "fixed"
+  },
+  "fault_types": [
+    "vibration_too_high",
+    "unbalance_like",
+    "misalignment_like",
+    "looseness_or_rattle",
+    "repeating_knock",
+    "impacts",
+    "bearing_defect_like",
+    "speed_change",
+    "electrical_motor",
+    "new_tone_whine_squeal",
+    "grinding_or_hiss",
+    "alarm_or_beeping",
+    "overheating",
+    "heating_up_over_time",
+    "local_hot_spot",
+    "area_running_cold",
+    "excess_temperature_fluctuation",
+    "unsteady_vibration_or_sound",
+    "room_too_hot_or_humid",
+    "device_moved",
+    "camera_moved_or_blocked"
+  ],
+  "calibration": {
+    "unit": "seconds",
+    "min": 300
+  },
+  "fit_check": {
+    "entry_heldout_score_median": 3.563929799573504,
+    "entry_threshold": 24.532670858522994,
+    "rule": "open"
+  },
+  "trained_on": [
+    {
+      "name": "sim_conveyor_a",
+      "kind": "simulated",
+      "description": "simulated conveyor (effente.simulate_conveyor, realistic mode, with site disturbances): gearbox 4:1 then 5:1, 17 and 23 teeth, 0.5 m pulley, 60 m belt, load x1, room +0 degC, seed 11",
+      "running_seconds": 10800,
+      "heldout_score_median": 2.7556026727411504
+    },
+    {
+      "name": "sim_conveyor_b",
+      "kind": "simulated",
+      "description": "simulated conveyor (effente.simulate_conveyor, realistic mode, with site disturbances): gearbox 3:1 then 6:1, 19 and 29 teeth, 0.4 m pulley, 40 m belt, load x0.8, room +5 degC, seed 12",
+      "running_seconds": 10800,
+      "heldout_score_median": 2.8433113036843265
+    },
+    {
+      "name": "sim_conveyor_c",
+      "kind": "simulated",
+      "description": "simulated conveyor (effente.simulate_conveyor, realistic mode, with site disturbances): gearbox 5:1 then 4:1, 21 and 25 teeth, 0.63 m pulley, 90 m belt, load x1.15, room -4 degC, seed 13",
+      "running_seconds": 10800,
+      "heldout_score_median": 3.2970944992529385
+    },
+    {
+      "name": "sim_conveyor_d",
+      "kind": "simulated",
+      "description": "simulated conveyor (effente.simulate_conveyor, realistic mode, with site disturbances): gearbox 2.5:1 then 5:1, 15 and 31 teeth, 0.32 m pulley, 25 m belt, load x0.9, room +8 degC, seed 14",
+      "running_seconds": 10800,
+      "heldout_score_median": 4.911146087329634
+    },
+    {
+      "name": "sim_conveyor_e",
+      "kind": "simulated",
+      "description": "simulated conveyor (effente.simulate_conveyor, realistic mode, with site disturbances): gearbox 6.3:1 then 5:1, 13 and 37 teeth, 0.8 m pulley, 150 m belt, load x1.05, room -8 degC, seed 15",
+      "running_seconds": 10800,
+      "heldout_score_median": 7.477679354987901
+    }
+  ],
+  "scorecard": {
+    "measured_on_device": false,
+    "false_alarms_per_week": null,
+    "faults": []
+  },
+  "model_file": "model.json",
+  "model_sha1": "8dd04096e3bb8b538c8767dc67e564dc8b87282d",
+  "notes": [
+    "Built from simulated machines only. Nothing here has been checked on a real machine.",
+    "Accelerometer, gyro and IMU readings only: the simulators ran with the microphone, thermal camera and room sensor absent, because that is what the device has today.",
+    "No fault_classifier in the model file. The classifier is trained per machine today, and retraining it in calibration is not designed yet.",
+    "No baseline in the model file: the outside-normal levels belong to one machine.",
+    "Readings named in the model file's calibration.hold (time of day, trends, IMU temperature) cannot be refitted from a 5-minute calibration.",
+    "To be rebuilt with real recordings of the demo conveyor and relabelled demo.",
+    "Built from 54000 seconds of running in all (15.0 hours over 5 sources); the last 15 percent of each source was held out for the threshold.",
+    "The threshold (24.53) is 6.9 times the median held-out score (3.564). It is never below the highest held-out score, which site disturbances push up."
+  ]
+}
