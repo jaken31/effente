@@ -11,6 +11,7 @@ Every public method takes the one lock, so the HTTP handler threads can call
 them freely. Events go out through `emit(name, data)`, which must not block.
 """
 
+import bisect
 import datetime as dt
 import json
 import math
@@ -64,17 +65,23 @@ def _slim(record, spectrum, frames):
     return out
 
 
-def _parse_time(text):
-    """ISO time to a sortable UTC timestamp. Unparseable times sort first."""
+def parse_time(text):
+    """ISO time to a UTC timestamp, or None if it is not one. No zone means UTC."""
     if not isinstance(text, str):
-        return float("-inf")
+        return None
     try:
         value = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        return float("-inf")
+        return None
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt.timezone.utc)
     return value.timestamp()
+
+
+def _parse_time(text):
+    """ISO time to a sortable UTC timestamp. Unparseable times sort first."""
+    value = parse_time(text)
+    return float("-inf") if value is None else value
 
 
 def _number(value):
@@ -622,10 +629,24 @@ class Store:
 
     # ---- section 5: reads -------------------------------------------------
 
-    def machine_records(self, machine_id, limit, spectrum, frames=False):
+    def machine_records(self, machine_id, limit, spectrum, frames=False, since=None, after_seq=None):
+        """The newest `limit` records, oldest first. With `since` (a UTC timestamp)
+        or `after_seq`, the oldest `limit` records whose `at` is at or after `since`
+        and whose `seq` is above `after_seq` instead, so a range reads page by page."""
         with self.lock:
-            history = self.by_machine.get(machine_id, [])
-            chosen = history[-limit:] if limit > 0 else []
+            history = self.by_machine.get(machine_id, [])  # in seq order
+            if limit <= 0:
+                chosen = []
+            elif since is None and after_seq is None:
+                chosen = history[-limit:]
+            else:
+                start = 0 if after_seq is None else bisect.bisect_right(history, after_seq, key=lambda r: r["seq"])
+                chosen = []
+                for record in history[start:]:
+                    if since is None or _parse_time(record.get("at")) >= since:
+                        chosen.append(record)
+                        if len(chosen) == limit:
+                            break
         return [_slim(r, spectrum, frames) for r in chosen]
 
     def state(self):
