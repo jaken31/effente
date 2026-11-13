@@ -369,6 +369,8 @@ A comment line is sent every 5 seconds to keep the connection open. After a reco
 
 `GET /api/machines/conveyor-07/records?limit=300` returns `{"ok": true, "records": [...]}`, oldest first, the newest `limit` records (default 300, at most 2,000), without `spectrum` and without `heat.frames`. Add `&spectrum=1` or `&frames=1` to keep them.
 
+To read a longer stretch, page forward. `&since=2026-11-14T15:00:00Z` (an ISO 8601 time; no zone means UTC) returns the oldest `limit` records whose `at` is at or after it, instead of the newest. `&after_seq=N` returns only records with `seq` above `N`. Pass both, with `N` the `seq` of the last record you got, until a page comes back shorter than `limit`. A bad `since` or `after_seq` is a 400.
+
 `GET /api/machines/conveyor-07/agent-runs?limit=20` returns `{"ok": true, "runs": [...]}`, newest first.
 
 `GET /api/machines/conveyor-07/alarms?limit=20` returns `{"ok": true, "alarms": [...]}`, newest `start` first (default 20, at most 2,000).
