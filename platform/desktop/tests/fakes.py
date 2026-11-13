@@ -152,6 +152,10 @@ class FakeState(StateReads):
     def now_ms(self) -> float:
         return self._now
 
+    def stored_count(self):
+        """Every fixture record is stored, so the history is the whole count."""
+        return len(self._s["history"].get(self.current_machine()) or [])
+
     def advance(self, seconds: float) -> None:
         """Move the frozen clock on, for staleness tests."""
         self._now += seconds * 1000.0

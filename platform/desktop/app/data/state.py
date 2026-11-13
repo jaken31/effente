@@ -472,6 +472,17 @@ class DashboardState(StateReads):
             self._say("")
         self.runs_changed.emit()
 
+    def stored_count(self):
+        """Records the receiver has stored for the current machine, or None when the
+        receiver is not in this process. Read from the embedded receiver's store:
+        no route gives the count, and records() stops at the history length."""
+        machine = self.current_machine()
+        store = getattr(getattr(self.host, "receiver", None), "store", None)
+        if store is None or machine is None:
+            return None
+        with store.lock:
+            return len(store.by_machine.get(machine, []))
+
     # ---- simulator --------------------------------------------------------
 
     def sim(self):

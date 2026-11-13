@@ -273,7 +273,8 @@ def mode_name(mode) -> str:
 
 
 def stored_count(state) -> str:
-    """Records stored for the machine. Needs DashboardState.stored_count(); records()
-    is capped at the history length, so it would understate the count."""
+    """Records stored for the machine, or a dash when the receiver is not in this
+    process. records() is capped at the history length, so it would understate it."""
     count = getattr(state, "stored_count", None)
-    return f"{int(count()):,}" if callable(count) else "\u2013"
+    value = count() if callable(count) else None
+    return f"{int(value):,}" if value is not None else "\u2013"

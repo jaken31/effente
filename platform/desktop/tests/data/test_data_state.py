@@ -220,3 +220,16 @@ def test_fake_state_has_the_same_interface():
     public = {n for n in dir(DashboardState) if not n.startswith("_")}
     missing = {n for n in public - set(dir(FakeState)) if n not in ("start", "stop", "reader", "api", "host")}
     assert missing == set()
+
+
+def test_stored_count_reads_the_embedded_receiver_beyond_the_history_cap(qtbot, host, client, make_state):
+    batch = [normal(at=f"2026-11-14T16:{i // 60:02d}:{i % 60:02d}Z") for i in range(logic.HISTORY_CAP + 20)]
+    client.json("POST", "/api/records", batch)
+    state = make_state(host)
+    qtbot.waitUntil(lambda: len(state.records()) == logic.HISTORY_CAP, timeout=5000)
+    assert state.stored_count() == logic.HISTORY_CAP + 20
+
+    from app.data.state import DashboardState
+
+    elsewhere = DashboardState(host.url)  # a receiver in another process: no count to read
+    assert elsewhere.stored_count() is None
