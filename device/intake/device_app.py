@@ -432,9 +432,9 @@ class DeviceApp:
     def screen_lines(self) -> list[str]:
         """The screen's layout, design B (tiles): four lines the microcontroller draws as a header and four
         boxed readings (device/app/effente/sketch/sketch.ino, composeTiles()):
-          "@<header left>"   the mode, or what is wrong with a leading "!" (the header is then inverted)
+          "@<header left>"   the mode, or what is wrong with a leading "!" (not drawn; nothing is inverted)
           "<header right>"   the time, hours and minutes
-          "<tile to invert>" vib, peak, temp or hz: the reading that goes with what is wrong; else empty
+          "<tile>"           vib, peak, temp or hz: the reading that goes with what is wrong; else empty
           "<speed>"          running speed in Hz, a whole number, or "--"
         Vibration, peak and temperature (shown in F) come from the samples on the microcontroller, so they
         move at the screen's own rate; this changes only when the mode, the minute or what is wrong does."""

@@ -54,7 +54,7 @@ curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
 
 In inference, while nothing is wrong, the device also looks for a small change that has lasted or is creeping up, before it is big enough to count as wrong ([effente/early_warning.py](../../effente/early_warning.py)). It watches each group of readings (the same groups the descriptions come from) and the model's score, against this machine's normal given the other readings, in blocks of 60 summary periods: an hour after a long recording, a minute after a short one. Stopped time is skipped.
 
-- **Screen:** while nothing is wrong, the header's left side reads like `EARLY: HEATING UP` instead of the mode. The header is not inverted, since nothing is wrong.
+- **Screen:** while nothing is wrong, the header's left side reads like `EARLY: HEATING UP` instead of the mode.
 - **Stream:** an `early_warning` event (`text`: `TOO HOT CREEPING UP` or `TOO HOT SLIGHTLY UP`, plus `symptom`, `rising` and a coarse `speed`: "rising over hours" or "over days"). An `early_warning_cleared` event follows when it goes away.
 - **Status:** `/latest` has an `early_warning` field (`on`, `symptom`, `text`, `since`, …).
 

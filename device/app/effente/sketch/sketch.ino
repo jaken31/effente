@@ -314,8 +314,9 @@ void bigLine(uint8_t line, const char *s, uint8_t len) {
 }
 
 // ---- design B ("tiles", the user's pick, 13 Nov): a header, then four boxed readings drawn large.
-// The Linux side sends 4 lines: "@<header left>" ('!' first: something is wrong, the header is inverted),
-// the header's right side (the time), which tile to invert ("vib", "peak", "temp", "hz" or empty), and the
+// The Linux side sends 4 lines: "@<header left>" ('!' first: something is wrong; the '!' isn't drawn),
+// the header's right side (the time), the tile that goes with what is wrong ("vib", "peak", "temp", "hz" or
+// empty; no longer drawn differently, as the user asked on 13 Nov: no inverted, white backgrounds), and the
 // running speed. Vibration, peak and temperature come from the samples here, so they move every frame.
 void px(int x, int y, bool on) {
   if (x < 0 || x > 127 || y < 0 || y > 63) return;
@@ -361,15 +362,10 @@ void composeTiles() {
   const char *right = tmpl[1];
   int room = 127 - textWidth(right, 1) - 4;  // keep the left text clear of the time
   while (left[0] && textWidth(left, 1) > room) left[strlen(left) - 1] = 0;
-  if (alert) {
-    fillRect(0, 0, 128, 9, true);
-    drawText(1, 1, left, 1, false);
-    drawText(127 - textWidth(right, 1), 1, right, 1, false);
-  } else {
-    drawText(1, 0, left, 1, true);
-    drawText(127 - textWidth(right, 1), 0, right, 1, true);
-    for (int x = 0; x < 128; x++) px(x, 8, true);
-  }
+  // Nothing is drawn inverted (the user, 13 Nov: no white backgrounds); the header's words say what is wrong.
+  drawText(1, 0, left, 1, true);
+  drawText(127 - textWidth(right, 1), 0, right, 1, true);
+  for (int x = 0; x < 128; x++) px(x, 8, true);
   float mg = 1000 * sqrtf(shownRms2);
   if (mpuOk) {
     fnum(val[0], mg > 9999 ? 9999 : mg, 0);
@@ -385,11 +381,10 @@ void composeTiles() {
   static const char *keys[4] = {"vib", "peak", "temp", "hz"};
   for (uint8_t i = 0; i < 4; i++) {
     int bx = (i % 2) * 64, by = 10 + (i / 2) * 27;
-    bool inv = !strcmp(tmpl[2], keys[i]);
-    if (inv) fillRect(bx, by, 63, 26, true); else outline(bx, by, 63, 26);
-    drawText(bx + 3, by + 2, labels[i], 1, !inv);
-    if (units[i][0]) drawText(bx + 60 - textWidth(units[i], 1), by + 2, units[i], 1, !inv);
-    drawText(bx + 32 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, !inv);
+    outline(bx, by, 63, 26);
+    drawText(bx + 3, by + 2, labels[i], 1, true);
+    if (units[i][0]) drawText(bx + 60 - textWidth(units[i], 1), by + 2, units[i], 1, true);
+    drawText(bx + 32 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
   }
 }
 
