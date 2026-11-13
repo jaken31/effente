@@ -76,6 +76,23 @@ def episodes(flags):
     return out
 
 
+def alarm_share(alarm, judged=None) -> dict:
+    """Of the judged rows: how many, the share that alarm, and the number of alarm stretches."""
+    alarm = np.asarray(alarm, bool)
+    judged = np.ones(len(alarm), bool) if judged is None else np.asarray(judged, bool)
+    n = int(judged.sum())
+    hit = alarm & judged
+    return {"rows": n, "alarm_rows": int(hit.sum()), "share": float(hit.sum() / n) if n else None,
+            "episodes": len(episodes(hit))}
+
+
+def fault_outcome(t, alarm, start_s: float, end_s: float) -> dict:
+    """One fault: caught if any row in [start_s, end_s) alarms, and how long after it began."""
+    t = np.asarray(t, float)
+    hit = np.nonzero(np.asarray(alarm, bool) & (t >= start_s) & (t < end_s))[0]
+    return {"caught": bool(len(hit)), "after_s": float(t[hit[0]] - start_s) if len(hit) else None}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, help="learn-mode recording folder, with faults")
@@ -156,12 +173,11 @@ def main(argv=None) -> int:
         for f in faults:
             end = min(f.end_s, float(t.max()) + 60)
             short = f.end_s - f.start_s <= 3 * 3600
-            win = (t >= f.start_s) & (t < end + (1800 if short else 0)) & run
-            hit = np.nonzero(alarm & win)[0]
-            item = {"fault": f.kind, "caught": bool(len(hit))}
-            if len(hit):
-                first = float(t[hit[0]])
-                item["after_min"] = round((first - f.start_s) / 60.0, 1)
+            got = fault_outcome(t, alarm, f.start_s, end + (1800 if short else 0))  # alarm is running rows only
+            item = {"fault": f.kind, "caught": got["caught"]}
+            if got["caught"]:
+                first = f.start_s + got["after_s"]
+                item["after_min"] = round(got["after_s"] / 60.0, 1)
                 if not short:
                     item["share_of_wear"] = round((first - f.start_s) / max(end - f.start_s, 1.0), 2)
             per.append(item)
