@@ -582,3 +582,29 @@ def test_problem_order_is_the_contracts():
     assert [p["name"] for p in L.problem_order(odd)] == ["too_hot", "vibration_above_normal", "new_limit", "smells"]
     assert L.problem_order(None) == []
 
+
+@pytest.mark.parametrize("v, moved", [(6, True), (-6, True), (5.99, False), (-7.2, True), (0, False),
+                                      (None, False), ("9", False), (True, False), (float("nan"), False)])
+def test_is_evidence(v, moved):
+    assert L.is_evidence(v) is moved
+
+
+def test_evidence_matches_the_agent():
+    import sys
+
+    from app.data.paths import REPO
+
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    report = pytest.importorskip("device.agent.report")
+    assert report.EVIDENCE_SPREADS == L.EVIDENCE_SPREADS
+    for v in (6, -6, 5.99, -7.2, 0, None, "9", True):
+        assert report.moved(v) == L.is_evidence(v)
+
+
+def test_fault_type_tag():
+    assert L.fault_type_tag({"name": "unbalance_like", "validated": False}) == "possible · not validated"
+    assert L.fault_type_tag({"name": "unbalance_like"}) == "possible · not validated"
+    assert L.fault_type_tag({"name": "x", "validated": "true"}) == "possible · not validated"
+    assert L.fault_type_tag(None) == "possible · not validated"
+    assert L.fault_type_tag({"name": "vibration_too_high", "validated": True}) == ""

@@ -795,6 +795,25 @@ def problem_order(problems) -> list:
     return [p for _, p in sorted(enumerate(problems or []), key=key)]
 
 
+# Laptop only, no JS equivalent. docs/TRD.md: "A reading 6 or more spreads
+# from usual counts"; device/agent/report.py EVIDENCE_SPREADS and moved() use the same.
+EVIDENCE_SPREADS = 6.0
+
+
+def is_evidence(spreads) -> bool:
+    """Whether a reading, in spreads from its normal, moved enough to count, either way."""
+    return _is_num(spreads) and abs(spreads) >= EVIDENCE_SPREADS
+
+
+def fault_type_tag(fault_type) -> str:
+    """The tag next to a fault type: "possible · not validated" unless the model
+    announced it `validated: true` (contract section 1); "" for a validated one,
+    as the web page shows no tag then. Laptop only: the JS has only model_line's
+    `possible` flag and the bare word "possible" in index.html."""
+    validated = isinstance(fault_type, dict) and fault_type.get("validated") is True
+    return "" if validated else "possible · not validated"
+
+
 def is_unanswered(alarm) -> bool:
     return isinstance(alarm, dict) and alarm.get("answer") is None
 
