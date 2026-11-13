@@ -16,6 +16,7 @@ from app.pages.thermal import stats
 from app.pages.thermal.cells import CellGrid
 from app.pages.thermal.heat_image import ColourBar, HeatImage
 from app.pages.thermal.trend import HeatTrend
+from app.theme import fonts
 from app.theme import tokens as T
 from app.widgets import Button, KpiStrip, Panel, Segmented, Toggle
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
@@ -24,7 +25,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -71,6 +71,7 @@ def _legend_item(color: QColor, text: str) -> QWidget:
     lay.addWidget(_Swatch(color))
     lab = QLabel(text)
     lab.setProperty("role", "soft")
+    lab.setFont(fonts.small())
     lay.addWidget(lab)
     return w
 
@@ -97,20 +98,19 @@ class ThermalPage(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        self.stack = QStackedWidget()
-        outer.addWidget(self.stack)
 
         # Empty state.
         self.empty_panel = Panel("Thermal camera", "optional sensor", number=1)
         self.empty_label = QLabel(empty_message(None))
         self.empty_label.setProperty("role", "empty")
+        self.empty_label.setFont(fonts.body())
         self.empty_label.setWordWrap(True)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_panel.add(self.empty_label, 1)
-        self.stack.addWidget(self.empty_panel)
+        outer.addWidget(self.empty_panel)
 
         # Content.
-        content = QWidget()
+        self.content = content = QWidget()
         grid = QGridLayout(content)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(T.PAGE_GAP)
@@ -125,6 +125,7 @@ class ThermalPage(QWidget):
         self.view_seg = Segmented([("smooth", "Smooth"), ("pixels", "Pixels")], small=True)
         grid_label = QLabel("Grid")
         grid_label.setProperty("role", "muted")
+        grid_label.setFont(fonts.body())
         self.grid_toggle = Toggle(checked=True)
         for w in (self.scale_seg, self.view_seg, grid_label, self.grid_toggle):
             self.cam_panel.header_end.addWidget(w)
@@ -142,6 +143,7 @@ class ThermalPage(QWidget):
         fl = self.hover_line.row
         self.sim_label = QLabel("Simulator")
         self.sim_label.setProperty("role", "muted")
+        self.sim_label.setFont(fonts.body())
         self.sim_button = Button("Next heat source", kind="ghost", small=True)
         self.sim_button.setToolTip("The simulator's t key: camera, IMU only, none")
         self.sim_button.clicked.connect(self._next_heat_source)
@@ -176,7 +178,7 @@ class ThermalPage(QWidget):
         grid.setColumnStretch(1, 10)
         grid.setRowStretch(1, 1)
         grid.setRowStretch(2, 1)
-        self.stack.addWidget(content)
+        outer.addWidget(content)
 
         self.scale_seg.changed.connect(lambda _k: self._redraw())
         self.view_seg.changed.connect(lambda k: self.image.set_smooth(k == "smooth"))
@@ -230,7 +232,7 @@ class ThermalPage(QWidget):
         self._view = view
         self._arrived = time.monotonic()
         self._index = -1
-        self.stack.setCurrentIndex(1)
+        self._set_empty(False)
         self._fill_summary()
         self._tick()
 
@@ -238,7 +240,16 @@ class ThermalPage(QWidget):
         self._timer.stop()
         self._view, self._index, self._prev_frame = None, -1, None
         self.empty_label.setText(empty_message(view))
-        self.stack.setCurrentIndex(0)
+        self._set_empty(True)
+
+    def _set_empty(self, empty: bool) -> None:
+        # Shown and hidden rather than stacked, so the empty state does not
+        # inherit the full page's minimum size.
+        self.content.setVisible(not empty)
+        self.empty_panel.setVisible(empty)
+
+    def is_empty(self) -> bool:
+        return self.empty_panel.isVisibleTo(self)
 
     def _tick(self) -> None:
         """Show the frame due now and wait for the next one."""
@@ -250,8 +261,9 @@ class ThermalPage(QWidget):
             if self._index >= 0:
                 self._prev_frame = view["frames"][self._index]
             self._index = due["index"]
-            self._redraw()
-        elif self._index < 0:
+            if self.isVisible():  # a hidden page redraws when shown
+                self._redraw()
+        elif self._index < 0 and self.isVisible():
             self._redraw()  # no frames: the grid image
         if due["next_ms"] is not None:
             self._timer.start(max(1, round(due["next_ms"])))
@@ -348,7 +360,7 @@ class ThermalPage(QWidget):
         bg = v["background_c"]
         if self._index >= 0:
             t = v["frames"][self._index]["pixels"][row * stats.W + col]
-            above = f" · {t - bg:+.1f} above room" if bg is not None else ""
+            above = f" · {stats.one_decimal(t - bg, sign=True)} above room" if bg is not None else ""
             return f"Pixel {col}, {row} · {t:.1f} °C{above}"
         i = (row // 4) * stats.COLS + col // 4
         spot = v["spots"][i] if v["spots"] else None
@@ -366,13 +378,13 @@ class ThermalPage(QWidget):
         if latest is not None and (not recs or recs[-1].get("seq") != latest.get("seq")):
             recs = [*recs, latest]
         self.trend.set_points(stats.trend_points(recs, logic.parse_time))
-        hint = "last 2 min, above room"
+        note = ""
         imu = self._view["imu_temp_c"] if self._view else None
         if imu is not None:
             tr = logic.imu_trend(recs)
             change = f", {tr['delta_c']:+.1f} °C in {round(tr['span_ms'] / 60000, 1):g} min" if tr else ""
-            hint += f" · IMU {imu:.1f} °C{change}"
-        self.trend_panel.set_hint(hint)
+            note = f"IMU {imu:.1f} °C{change}"
+        self.trend.set_note(note)
 
     def showEvent(self, e) -> None:
         super().showEvent(e)

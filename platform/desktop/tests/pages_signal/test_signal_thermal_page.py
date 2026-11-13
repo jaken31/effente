@@ -95,7 +95,7 @@ def test_hover_reads_the_pixel(page):
     for col, row in ((3, 4), (20, 12)):
         hover(p.image, p.image.pixel_center(col, row))
         v = px[row * 32 + col]
-        assert p.hover_line.text() == f"Pixel {col}, {row} · {v:.1f} °C · {v - bg:+.1f} above room"
+        assert p.hover_line.text() == f"Pixel {col}, {row} · {v:.1f} °C · {stats.one_decimal(v - bg, sign=True)} above room"
     p.image.leaveEvent(None)
     assert p.hover_line.text() == "Hover the image to read a pixel."
 
@@ -103,8 +103,15 @@ def test_hover_reads_the_pixel(page):
 def test_cells_grid_is_the_records_cells(page):
     p, st = page
     h = st.latest()["heat"]
-    assert p.cells.cell_texts(0) == (f"{h['cells'][0]:.1f}", f"{h['spots'][0]:.1f}")
-    assert p.cells.cell_texts(47) == (f"{h['cells'][47]:.1f}", f"{h['spots'][47]:.1f}")
+    for i in (0, 47):
+        assert [float(x) for x in p.cells.cell_texts(i)] == pytest.approx([h["cells"][i], h["spots"][i]], abs=0.05)
+
+
+def test_one_decimal_has_no_negative_zero():
+    assert stats.one_decimal(-0.04) == "0.0"
+    assert stats.one_decimal(-0.04, sign=True) == "+0.0"
+    assert stats.one_decimal(-0.06) == "-0.1"
+    assert stats.one_decimal(2.25, sign=True) == "+2.2"
 
 
 @pytest.mark.parametrize(
@@ -123,11 +130,11 @@ def test_empty_state_without_heat(page, heat, words):
     else:
         rec["heat"] = heat
     st.push("record", rec)
-    assert p.stack.currentIndex() == 0
+    assert p.is_empty()
     assert words in p.empty_label.text()
     # And back when heat returns.
     st.push("record", _with_heat(st))
-    assert p.stack.currentIndex() == 1
+    assert not p.is_empty()
 
 
 def _with_heat(st):
@@ -167,7 +174,7 @@ def test_frame_time(page):
         p._index = k % len(view["frames"])
         t0 = time.perf_counter()
         p._redraw()
-        p.image.repaint()
+        p.image.grab()  # forces the paint, scaling included
         times.append((time.perf_counter() - t0) * 1000)
     times.sort()
     median, worst = times[len(times) // 2], times[-1]

@@ -28,7 +28,7 @@ class CellGrid(QWidget):
         self.update()
 
     def cell_texts(self, i: int) -> tuple[str, str]:
-        return f"{self._cells[i]:.1f}", f"{(self._spots or self._cells)[i]:.1f}"
+        return stats.one_decimal(self._cells[i]), stats.one_decimal((self._spots or self._cells)[i])
 
     def cell_fill(self, i: int) -> QColor:
         lo, hi = self._range

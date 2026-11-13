@@ -22,12 +22,21 @@ class HeatTrend(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._pts: list[tuple[float, float, float | None]] = []
+        self._note = ""
         self.setMinimumSize(240, 140)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_points(self, pts) -> None:
         self._pts = list(pts)
         self.update()
+
+    def set_note(self, text: str) -> None:
+        """A small line in the plot's top left, for the IMU temperature."""
+        self._note = text
+        self.update()
+
+    def note(self) -> str:
+        return self._note
 
     def top(self) -> int:
         return stats.trend_top([p[1] for p in self._pts])
@@ -51,6 +60,10 @@ class HeatTrend(QWidget):
             p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
             p.setPen(muted)
             p.drawText(QRectF(0, y - 8, M_LEFT - 8, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, f"{v:g} °C")
+
+        if self._note:
+            p.drawText(QRectF(plot.left() + 6, plot.top() + 4, plot.width() - 12, 16),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._note)
 
         pts = self._pts
         if len(pts) < 2:

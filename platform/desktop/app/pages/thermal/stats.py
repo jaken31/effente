@@ -104,6 +104,12 @@ def trend_top(values: Sequence[float]) -> int:
     return max(40, math.ceil(m / 10) * 10)
 
 
+def one_decimal(v: float, sign: bool = False) -> str:
+    """v to one decimal, never "-0.0"; with `sign`, positive values get a "+"."""
+    text = f"{v:+.1f}" if sign else f"{v:.1f}"
+    return text.replace("-0.0", "+0.0" if sign else "0.0") if text.lstrip("+-") == "0.0" else text
+
+
 def color_index(v: float, lo: float, hi: float) -> int:
     """0..255 position of v in the colour range."""
     return max(0, min(255, round((v - lo) / (hi - lo) * 255)))
