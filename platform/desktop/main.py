@@ -40,6 +40,7 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
+    from app import settings
     from app.theme import apply_theme, schemes
 
     # Before app.shell is imported: some widgets read colour tokens at import.
@@ -76,7 +77,7 @@ def main(argv=None) -> int:
         state.start()
         address = f"{host.host}:{host.port}"
 
-    window = MainWindow(state, receiver_address=address)
+    window = MainWindow(state, receiver_address=address, settings=settings.store())
     window.show()
 
     # Ctrl-C, a kill or a closed terminal quit through Qt, so the cleanup below runs.

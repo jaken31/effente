@@ -37,6 +37,9 @@ log = logging.getLogger("effente.desktop.shell")
 MIN_W, MIN_H = 960, 660
 DEFAULT_W, DEFAULT_H = 1440, 900  # the mockup's size
 
+# What the window remembers between runs: keys in the settings store.
+GEOMETRY, PAGE, MACHINE = "window/geometry", "window/page", "window/machine"
+
 
 class _Backdrop(QWidget):
     """The page background: the scheme's background with the mockup's two glows."""
@@ -120,13 +123,16 @@ class MainWindow(QMainWindow):
     `pages` maps a key to a ready page widget, for tests; missing keys are built from
     app.pages or shown as placeholders. `placeholders=True` uses placeholders only.
     `receiver_address` is shown on the device card, for example "0.0.0.0:8000".
+    `settings` is a QSettings the window keeps its size, page and machine in, so the
+    next run opens where this one closed; without it nothing is remembered.
     """
 
     def __init__(self, state=None, *, pages: Mapping[str, QWidget] | None = None,
-                 placeholders: bool = False, receiver_address: str | None = None):
+                 placeholders: bool = False, receiver_address: str | None = None, settings=None):
         super().__init__()
         self.state = state
         self.receiver_address = receiver_address
+        self.settings = settings
         self.setWindowTitle("effente")
         self.setMinimumSize(MIN_W, MIN_H)
         self.resize(DEFAULT_W, DEFAULT_H)
@@ -170,7 +176,13 @@ class MainWindow(QMainWindow):
 
         self.current = ""
         self._closing_after_agent = False
-        self.navigate("live")
+        geometry = self._remembered(GEOMETRY)
+        if geometry:
+            self.restoreGeometry(geometry)
+        # Picked again once the machine list is known: see refresh().
+        self._wanted_machine = self._remembered(MACHINE)
+        page = self._remembered(PAGE)
+        self.navigate(page if page in self.pages else "live")
 
         # Freshness ages even when nothing arrives.
         self._tick = QTimer(self)
@@ -191,6 +203,14 @@ class MainWindow(QMainWindow):
         holder.setAutoFillBackground(False)
         return area
 
+    # remembering
+    def _remembered(self, key: str):
+        return self.settings.value(key) if self.settings is not None else None
+
+    def _remember(self, key: str, value) -> None:
+        if self.settings is not None:
+            self.settings.setValue(key, value)
+
     # closing
     STOP, WAIT, CANCEL = "stop", "wait", "cancel"
 
@@ -198,6 +218,7 @@ class MainWindow(QMainWindow):
         """Closing during a report run this app started asks first: the receiver the
         run reads and writes to lives in this app, so quitting would cut it off."""
         s = self.state
+        self._remember(GEOMETRY, self.saveGeometry())
         if self._closing_after_agent or s is None or not getattr(s, "own_agent_running", lambda: False)():
             event.accept()
             return
@@ -242,6 +263,7 @@ class MainWindow(QMainWindow):
             return
         page = self.pages[key]
         self.current = key
+        self._remember(PAGE, key)
         self.stack.setCurrentIndex(KEYS.index(key))
         self.sidebar.set_active(key)
         self.topbar.set_page(getattr(page, "title", key), getattr(page, "subtitle", ""), child=key in CHILDREN)
@@ -269,6 +291,8 @@ class MainWindow(QMainWindow):
 
     def _machine_picked(self, machine: str) -> None:
         if self.state is not None and machine and machine != self.state.current_machine():
+            self._wanted_machine = None
+            self._remember(MACHINE, machine)
             self.state.set_machine(machine)
             self.refresh()
 
@@ -295,7 +319,14 @@ class MainWindow(QMainWindow):
     def refresh(self) -> None:
         if self.state is None:
             return
-        self.sidebar.set_machines(list(self.state.machines()), self.state.current_machine())
+        machines = list(self.state.machines())
+        if self._wanted_machine and machines:
+            # The machine picked last run, if it is still there the first time the
+            # list is known. If it is gone it is dropped, not waited for.
+            wanted, self._wanted_machine = self._wanted_machine, None
+            if wanted in machines and wanted != self.state.current_machine():
+                self.state.set_machine(wanted)
+        self.sidebar.set_machines(machines, self.state.current_machine())
         self.refresh_chrome()
         self.refresh_badges()
 
