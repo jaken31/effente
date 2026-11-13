@@ -1,13 +1,58 @@
 # Data check: data/fake/conveyor-eval
 
 Quality control of the generation. Reads only `.npz`/`.json`; nothing re-simulated.
-**Status: generation 3 started 23:57 (after S4); 0 of 33 finished.** Generation 1 (20:05) was stopped for S1;
-generation 2 (20:27) died at 23:54 in a low-battery hibernation and was replaced, after S4, by generation 3: all 33
-runs from scratch, with healthy vibration drift, full-minute nuisance labels and the Thursday start for slow
-faults (so no reruns this time). Fault tables below headed "generation 2" are kept for reference; their
-signatures should carry over except where the drift changes them, and every run is checked again.
+**Status: FINAL (13 Nov, 05:30). Generation 3 (started 23:57, finished 05:14, 0 failed): all 33 runs have
+`labels.json` and are checked. 9.6 GB.** Generation 1 (20:05) was stopped for S1; generation 2 (20:27) died at 23:54 in
+a low-battery hibernation and was replaced, after S4, by generation 3: all 33 runs from scratch, with healthy
+vibration drift, full-minute nuisance labels and the Thursday start for slow faults. Tables headed "generation 2"
+are kept for reference only.
+
+## Verdict: YES, good to share
+The data is complete, intact and realistic enough for the planned minute-level evaluation, with the known issues
+below documented rather than blocking (agreed with the main session).
+
+- **Integrity, all 33 runs:** one row a second from the scenario start, no gaps (`diff(t0) == 1` throughout), whole
+  seconds, 3600 rows per hour file, no partial files left; minute summaries every 60 s matching the rows; `minute_t0`
+  equal to the labels; no inf values. Vibration, sound, thermal and `imu_temp_c` present (NaN only in scheduled
+  sensor dropouts); the five `env_*` all-NaN (no room sensor) and long trends NaN only until enough history exists.
+  `trend_since_shock_s` stays NaN in 6 fault runs where no jolt happened in 2 days. Every hourly raw clip present
+  (48/48, 168/168); 5 clips are shorter because they fall in scheduled sensor dropouts (each matched to the second);
+  none unreadable.
+- **Labels:** no fault label before any onset; sudden faults switch at the onset minute; slow faults switch 3.5-7 h
+  (obvious) and 8-16 h (subtle) after the onset as designed (N1); normal weeks all `normal`; `running` matches the
+  vibration exactly; nuisances labelled for every minute they overlap (dropped objects 60-100 min a day, slams 10-22,
+  dropouts 6-10, forklifts 45-67, people 70-113, neighbour machine 8-11 h, door open 3-6 h).
+- **Healthy machine** (both training weeks): velocity 1.14/1.76/2.53 mm/s (p1/p50/p99), robust spread 19.6 %
+  (REALISM 1.7 mm/s, target about 17 %); 3.5 mg per axis and 1.04 g when stopped; sound 74-77 dB in shifts, 50 dB at
+  night; motor frame 33-49 C running; two shifts, breaks, Saturday half day, Sunday off; IMU temperature follows the
+  housing. heldout: +4 C by design plus weather and load (N6), 10 % busier, Wednesday 10:00-12:00 stop visible.
+  Pre-onset levels of every fault run sit inside the training range (percentiles 5-97).
+- **Faults:** all 30 runs move the readings REALISM.md lists for their kind, in the right direction and about the
+  stated size, subtle at about 0.3 of obvious; slow faults grow and reach full severity at the run's end (about 0.81
+  of it at the last running minute, the belt stopping at 22:00); sudden ones switch on at the onset. Subtle idler
+  bearing, motor bearing, gear wear and lubrication loss are nearly invisible at the drive end, as expected. Tables
+  below.
+
+**Before reading the evaluation, know:** splice damage and jam-subtle are invisible in minute medians (N7: use
+minute max or per-second features for them); misalignment doubles the speed tracker's reading, so its diagnosis is
+unreliable (S3, a device weakness); the held-out week sits up to about 9 C warmer in the camera than training (N6).
+**Fix in the next generation:** S5 (stop transient), N5 (gyro drift), N6 (camera-only weather).
 
 ## Serious
+
+### S5. At every stop the motor speeds up for about 1 s; in jam-obvious a 4 g burst (bug, found 04:50; KNOWN, fix next generation; per-second level)
+`simulate_conveyor._timeline` lines 224-225: `tail = np.arange(i1, i1 + 15); ramp[tail] = np.exp(-(tail - e) / tau)` with
+`i1 = int(e)`. The tail starts at the second before the stop time `e`, so `ramp[int(e)] = exp(+(e - int(e)) / tau)`
+is above 1: up to 1.95x speed at ordinary stops (tau 1.5 s), and 8.2x at the jam (tau 0.3 s, e 0.63 s past the
+second). Vibration scales with speed squared.
+Evidence: normal-w1, every 22:00 and Saturday 14:00 stop, in the last running second: `vib_speed_hz` 29.3 -> 37-42 Hz,
+velocity 1.8 -> 4.5-9.4 mm/s, `vib_peak_g` 0.07 -> 0.17-0.28 g, sound +6-7 dB, then the coast-down. jam-obvious raw
+clip: a 1.5 g rms buzz around 124 Hz from 1.1 s before to 0.5 s after the jam, peak 4.0 g on x (REALISM: a 1.6 g
+jolt; the jolt term alone peaks at 1.27 g). Generation 2 had the same.
+Impact: 1-2 s per stop, so minute medians (what `evaluate.py` reads) barely notice; per-second rows, recorder events
+and raw clips carry a physically impossible speed-up at every stop, and the jam jolt is about 3x too big.
+Fix: start the tail at `ceil(e)` (or cap the ramp at 1). Fixing the data needs a regeneration; proposed as "known,
+fix next generation".
 
 ### S4. Healthy vibration was almost perfectly constant: subtle vibration faults looked huge (generation 2; FIX in generation 3, to verify)
 normal-w1, 6 days, running minutes after the first hour (per-minute medians):
@@ -37,6 +82,12 @@ Fix in generation 3 (main session): each vibration source (motor, mesh, out/pull
 lognormal drift (2-day, 2-hour and day-to-day parts, about 18 % in all), motor and mesh scale with load
 (0.8 + 0.4 load), and the mesh is damped as the gearbox warms (1 - 0.006 t_gear). Their check: velocity median
 1.77, robust spread 16.6 %, p1-p99 1.37-2.64. To verify on the new weeks. One doubt: warmer, thinner oil usually
+First check on generation 3 (00:40, partial: about 1.2 days of each week, pre-onset of 3 fault runs, running minutes
+after the first hour): velocity p1/median/p99 normal-w1 1.15/1.49/1.76 (robust SD 6.8 %), normal-w2 1.01/1.43/1.74
+(9.8 %), heldout 1.44/1.98/2.33 (6.5 %), fault runs 1.43-2.27 median, 6-18 %. Within a day that is now realistic
+(about +-25 % extremes), and machines differ from run to run. The 2-day drift needs the full weeks; the week-level
+spread (target about 17 %) is to verify when they finish. `gyr_rms` stays constant (0.3 %), plausibly: it is the
+gyro's own noise floor, not the machine.
 damps a gear mesh less, not more, so the sign of the oil term is debatable (small: about -10 % at +16 C).
 
 ### S1. Slow faults reached only about a quarter of their stated size: FIXED in the restart
@@ -79,6 +130,23 @@ mislabelled orders: the device sees "huge 1x, small 2x", which reads as unbalanc
 artefact boost from a "speed doubled" jump no real belt can make. Fixing the tracker means regenerating, since
 features are computed during generation and raw data is only 10 s an hour. The other choice is to accept it and
 say in the evaluation that misalignment diagnosis is unreliable with this tracker. The main session decides.
+
+## Known, fix next generation (documented, not blocking this dataset)
+Agreed with the main session (04:10, S5 at 04:55): accepted for tonight's data, to be fixed in the simulator after this
+generation finishes.
+- **N5. Gyro's healthy level has no drift:** `gyr_rms` varies 0.3 %, so looseness's rocking stands out (z +86
+  subtle). Fix: apply the motor drift to the gyro's machine part in `simulate_conveyor._second`.
+- **N6. site_noise weather reaches only the camera, and is bigger than documented:** `site_noise.py:300` adds
+  `_weather` to the thermal frames (and :331 to the room sensor realistic mode lacks); `imu_temp` never gets it, and
+  the walk at :160 spans up to about 10 C a week instead of +-2 C. Fix: add the lagged weather to `imu_temp` and
+  scale the walk.
+- **S5. Stop transient (the ramp's tail starts at `int(e)`, the second before the stop):** at every stop the motor
+  briefly speeds up (up to 1.95x; 8.2x at the jam) and the inrush branch of `self.current` is skipped for that second
+  (`ramp < 1` is false). Touches per-second rows, recorder events and raw clips at every stop (twice a weekday in
+  every run), and jam-obvious's jolt (4.4 g, about 3x too big). Minute medians, and so `evaluate.py`, are barely
+  affected. Fix: start the tail at `ceil(e)` or cap the ramp at 1. (The main session called this N7; it is S5 here
+  because N7 was already taken by the minute-median note.)
+Details of N5 and N6 under Notable below, S5 under Serious.
 
 ## Notable (not wrong data, but worth knowing before reading the evaluation)
 
@@ -128,6 +196,36 @@ every closed hour file 3600 rows, minutes contiguous. The hour files show a 19-2
 heat) match scheduled site_noise sensor dropouts at those exact seconds. The sim and recorder run on simulated
 time, so a pause can't show in the data.
 
+- **N5. The gyro's healthy level got no drift (minor; found 03:25).** `gyr_rms` varies 0.3 % in normal running
+  (the machine part `0.05 x s2` in `_second` isn't multiplied by the motor drift, and the gyro's own noise floor
+  dominates). Looseness adds rocking, so `gyr_rms` jumps +28 % in looseness-subtle: z +86 against normal, against
+  +19.5 for kurtosis. A constant noise floor is realistic, but the rocking part should wander with the machine; with
+  `gm` on it the spread would be about 1-2 % and subtle looseness about 15-25 spreads in the gyro. Looseness stays
+  clearly detectable through kurtosis either way, so not worth regenerating; a method that leans on the gyro will
+  look a little better on looseness than it would on a real belt.
+
+- **N6. The held-out week is warmer than designed in the camera, and site_noise's weather reaches only the camera
+  (found 04:05; minor-moderate, accepted for this dataset unless the main session says otherwise).** Measured
+  heldout vs normal-w1 (all minutes): camera background +9.1 C, `th_max_c` +8.7 C, `imu_temp_c` +4.6 C. Decomposed:
+  the simulator's room is about 4 C warmer by design (3.9 C vs w1, 6.1 C vs w2 after each week's own weather; main
+  session's rebuild), plus about 1.4 C at the motor from the 10 % higher load; and in the camera only, the per-run
+  camera offset (+1.2 C, N2) and site_noise's weather walk (+4.0 C: mean over the run w1 -2.2, w2 -0.8, heldout
+  +1.7 C). That adds up to the measured +9.1 C. Two issues with the walk: (a) `SiteNoise._thermal` adds it to the
+  thermal frames only, while `imu_temp` passes through, so a warmer room warms what the camera sees but not the
+  housing the IMU is fixed to; (b) it is bigger than documented ("about +-2 C over a week"): over a run it spans
+  w1 -6.8..+1.0, w2 -7.8..+2.9, heldout -0.8..+4.8 C. Effect: the camera-vs-IMU relation shifts between weeks for no
+  physical reason (background minus IMU while running: w1 -19.9, w2 -19.4, heldout -16.3 C; training p5-p95
+  -24.7..-14.3), which costs a multivariate model some heldout false alarms; background-relative thermal features
+  are unaffected. Fix later: lagged weather on `imu_temp` too, and scale the walk to the documented size.
+
+- **N7. Minute medians hide impulsive faults (found 04:25; evaluation design, not data).** `evaluate.py` loads
+  `minute_median` rows. A splice knock once per 26 s lap (or a 5 s stall in jam-subtle) never reaches a minute's
+  median: in splice_damage-obvious the medians move only `knock_repeat` +1.8 and `vib_peak_g` +2.7 robust
+  spreads, while `minute_max` shows sound peak 83 -> 96 dB and vibration kurtosis 0.2 -> 15.6. Every method will
+  likely miss splice damage because of the aggregation, not the method. For the evaluation: add minute_max (or a
+  high percentile) for impulsive features (`vib_peak_g`, `snd_peak_db`, `vib_kurtosis`, `snd_kurt_hf`, `knock_*`),
+  or report splice and jam separately.
+
 ## Checks done so far (round 1, first generation, partial data)
 
 ### Process health
@@ -168,6 +266,55 @@ vibration, sound and heat readings). Heldout Monday is warmer as intended (backg
 A neighbouring machine ran in heldout Monday 03:00-05:00 (sound 60.6 dB, `vib_speed_hz` locks onto its 31.6 Hz
 tone): a site_noise nuisance, plausible.
 
+### Fault runs, generation 3 (current)
+Checked the same way as generation 2 below (integrity, labels, before/after shifts). The idler and belt_rub runs
+are identical in their fault signatures to generation 2 (same seeds; only the vibration drift is new), so the
+generation-2 rows for them stand. Integrity OK for all; no non-normal labels before onset; `running` agrees with
+vibration.
+
+| Run | Result |
+|---|---|
+| heldout | clean. Weekdays 16 h, Sat 8 h, Sun off; Wednesday 14.1 h (maintenance stop 10:00-12:00, `running` false in labels); velocity daily medians 1.82-2.08, robust SD 10.4 %; stopped 3.49 mg, 1.041 g; sound 76.4 / 50.0 dB; `th_max_c` 41-60 C running; all nuisances present. Warmer than training: see N6 |
+| normal-w1 | clean. Same week structure; velocity p1/p50/p99 1.17/1.85/2.61 mm/s, robust SD **20.6 %** (S4 fixed), daily medians 1.50-2.25; `vib_rms_x` 17 %, `vib_1x` 22 %; sound 74.0-77.3 dB; `th_max_c` 33-49 C; IMU 35-49 C; `trend_running` 0 at night from day 2; `running` labels = vibration (100 %) |
+| normal-w2 | clean; continuous with normal-w1 (last/first minutes match: background 10.2/9.9 C, IMU 25.9/25.5 C); velocity p1/p50/p99 1.06/1.67/2.22, robust SD 20.2 %; a cold start of the week (background 7-20 C Mon-Tue, `th_max_c` 34 C running) warming to 25-33 C. **Both training weeks together: velocity 1.14/1.76/2.53 mm/s, robust SD 19.6 %** (REALISM 1.7 mm/s, target about 17 %) |
+| belt_rub-subtle | clean, same as gen 2 (`th_spot_37` +3.3 C, 2.8 kHz squeal, +2.4 dB) |
+| idler_bearing-subtle | clean; idler heat `th_spot_36` +3.7 C only; with drift its vibration change (+2.5 robust spreads in velocity) is within normal wander, as REALISM.md expects |
+| idler_bearing-obvious | clean; BPFO envelope at 20 Hz, `th_spot_36` +12 C (level 0.81 at the last running hour; full 1.0 at 00:00 with the belt stopped) |
+| idler_seized-subtle | clean; `th_spot_37` +8 C, 1.6 kHz band +17 |
+| idler_seized-obvious | clean; tone 1580 Hz, +26 C, +8.2 dB |
+| belt_rub-obvious | clean; 2.8 kHz squeal 84 dB, `th_spot_37` +15 C, +8.5 dB |
+| belt_slip-subtle | clean; lap 26 -> 27 s, pulley cells +4 C; a device knock in the window (tilt to 4.5 deg, same as gen 2) |
+| belt_slip-obvious | clean; pulley +12-13 C, slip bursts +10 dB envelope, sound +4.1 dB; `knock_period_s` 13 s (M4) |
+| unbalance-subtle | clean; velocity 1.79 -> 3.26 mm/s (x1.8). Against the normal weeks so far (velocity p1/p50/p99 1.16/1.84/2.56, robust SD 21 %): **3.7 normal spreads**, above every normal minute. Subtle but detectable, as it should be (gen 2: 270) |
+| unbalance-obvious | clean; velocity 2.00 -> 8.30 mm/s (x4.2), 16.7 normal spreads; crest 2.1 -> 1.5 as the 1x dominates |
+| gear_wear-subtle | clean (Thursday-start version: Thu 13:03 -> Sat 00:00, last running minute Fri 21:57 at 0.25). Genuinely subtle: mesh band (`vib_band_15`, 158-200 Hz) +0.4 log of which about 0.3 is a mesh-drift step between Thu and Fri; 2x mesh band (`vib_band_18`) +0.3; gear cell +1.3 C; whine +0.4 dB. Label at +9.6 h |
+| gear_wear-obvious | clean; grows over the run: `vib_band_15` -3.5 -> -2.9 log (x4 in the last hours), 2x mesh `vib_band_18` -5.1 -> -4.2, whine: `snd_tone_hz` 497 -> 169 Hz (the 2nd-stage mesh becomes the loudest tone), `snd_tone_db` +3.2, gear cell +3.5 C (+8.3 true, blurred), kurtosis and envelope up. Label at +3.7 h |
+| motor_bearing-subtle | clean; nearly invisible (level 0.25 at the end): `vib_band_19` (400-500 Hz) +5.5 robust spreads, nothing in heat or sound. Realistic: an early bearing defect lives at kHz, which a 1 kHz accelerometer cannot see |
+| motor_bearing-obvious | clean; envelope 7 -> 105 Hz (order 3.58 = motor-bearing BPFO), `snd_kurt_hf` 0 -> 2.1 (pulsed hiss), `vib_band_19` +15, motor cell +3.8 C at the same hour of day (+4.9 true; before/after across hours is confounded by evening load) |
+| splice_damage-subtle | clean; in minute **max**: sound peak 83.1 -> 89.1 dB, `knock_repeat` 0.54 -> 0.77. Invisible in minute medians (N7) |
+| splice_damage-obvious | clean; in minute **max**: sound peak 83.1 -> 95.9 dB (+12.8; REALISM 74 -> 88 dB knock), vibration kurtosis 0.2 -> 15.6, peak g x2.3. In minute medians only `knock_repeat` +1.8 and `vib_peak_g` +2.7 spreads (N7). A device knock in the window |
+| jam-subtle | clean; all five 5 s stalls (h 10.2, 12.7, 15.2, 34.2, 36.7 after start) present per second: shudder 0.33-0.39 g (REALISM 0.35 g; normal peak about 0.075 g), gyro peak about 13 dps, speed dip 29.3 -> 21.7 Hz, 1.9 kHz squeal; the belt keeps running; one `jam` minute labelled per stall. Invisible in minute medians (N7) |
+| jam-obvious | clean apart from S5; the belt stops dead at the onset (running stops for 3 min, then a soft-start restart over about 8 s), 1.9 kHz slip squeal in the 3 s before, jolt peak 4.4 g (S5: should be about 1.3-1.6 g), gyro peak 62 dps; `jam` labelled in the onset minute |
+| overload-subtle | clean; same hours of day, pre-onset day vs last day: motor cell +4.3 C, `th_max_c` +4.1, IMU +4.0, sound +0.8 dB; vibration +2.8 spreads (motor and mesh scale with load) |
+| overload-obvious | clean; same hours: motor cell +13.3 C, gearbox +2.9, sound +1.9 dB, mesh band +0.34 log; `knock_period_s` 26 -> 53 s (louder material noise masks every other splice knock: a feature effect) |
+| lubrication_loss-subtle | clean (Thursday-start version, label +10.8 h); genuinely subtle: gear cells +0.4-0.6 C at the same hours, about +5 C true at the end |
+| lubrication_loss-obvious | clean; gear cells +3-4 C by mid-shift on day 2 and about +10 C in the last running hours (true +16.6 C at level 0.83, lagged and blurred), 3-6 kHz hiss: centroid +4.4 spreads. Vibration doesn't rise (the friction term is small; a real dry gearbox would get louder in vibration too: minor) |
+| cooling_blocked-subtle | clean; motor cell +7.3 C at the same hours (0.3 x 25 C), nothing in vibration or sound, as it should be |
+| cooling_blocked-obvious | clean; motor cell +24 C at the same hours (REALISM +25), `th_max_c` to 64.5 C, IMU +3.6 C (it sees 15 % of the motor), nothing in vibration or sound |
+| electrical-subtle | clean; mains hum `snd_mains_db` +3.6 dB (0.3 x 12), `vib_line_2x` x1.7, motor +2.1 C (0.3 x 8); the 120 Hz hum becomes the loudest tone |
+| electrical-obvious | clean; mains hum +12.1 dB (REALISM +12), `vib_line_2x` x4.5, motor cell +8.2 C (REALISM +8) at the same hours; the 120 Hz hum is the loudest tone |
+| looseness-subtle | clean; kurtosis -0.18 -> 0.86 (z +19.5 vs normal), harmonics 3-10x z +9.9, axial level z +2.9, velocity z +0.7 (hidden in normal wander); `gyr_rms` z +86 (N5) |
+| looseness-obvious | clean; kurtosis 2.66 (+2.8, REALISM +2.6), velocity 3.6 (z +5.3), rattle in sound (`snd_kurt_hf` 9.8), gyro rocking z +298 (N5) |
+| misalignment-subtle | clean; velocity unchanged (z 0.0), axial `vib_rms_z` z +3.8, kurtosis down (more sinusoidal). Speed tracker doubles (S3, accepted) |
+| misalignment-obvious | clean; velocity 1.76 -> 3.76 (z +5.7), `vib_rms_z` z +11.3, coupling cells warmer; speed tracker doubles (S3); a device knock in the window |
+
+Slow faults reach full severity at the run's end, 00:00, when the belt has been stopped since about 22:00; the last
+running minutes are at about 0.81 of full (obvious) and 0.25 (subtle). Agreed with the main session as fine.
+The sleep from 00:47 to 01:37 fell inside batch 1; all five runs are gap-free (the sim runs on simulated time).
+
+Nuisance labels are now whole-minute: per day dropped objects 62-103 minutes, door slams 10-22, sensor dropouts
+6-10, forklifts 45-67, people talking 70-113 (generation 2: 0-2 for the short ones).
+
 ### Fault runs, generation 2 (superseded; finished runs; median before onset vs after, robust spreads of "before")
 "After" is from 30 min past the onset for sudden faults, the last 3 running hours for slow faults, and the 5 minutes
 around the event for jams. All runs below: integrity OK (172,800 rows, no gaps, whole seconds, minute summaries
@@ -198,7 +345,7 @@ belt_slip-subtle leave 4.5 deg; over the 14-day chain several can accumulate. Pl
 some fault windows, which `evaluate.py` will count toward detection if a method alarms on them.
 
 ## Minor notes
-- **M1.** REALISM.md says the MPU-6500's 218 Hz low-pass is modelled; the simulator only band-limits the
+- **M1.** (Generation 3: the 2x-mesh band `vib_band_18`, 315-400 Hz, has almost no healthy content, so gear wear's 2x mesh shows strongly there even at small levels; through a real 218 Hz low-pass it would be weaker.) REALISM.md says the MPU-6500's 218 Hz low-pass is modelled; the simulator only band-limits the
   noise (260 Hz). Machine content above 218 Hz (looseness harmonics to 295 Hz, 2x mesh at 340 Hz with gear
   wear, the bearing band to 250 Hz) reaches the features unattenuated, so a real board would show those
   somewhat weaker.
