@@ -6,7 +6,7 @@
 
 Arguments match platform/run.py. Closing the window stops everything, the model
 server included if the app started it (Agents page).
-`python3 platform/desktop/install_launcher.py` adds it to the app launcher (Linux).
+`python3 platform/desktop/install_launcher.py` adds it to the app launcher (Linux, macOS).
 """
 
 from __future__ import annotations
