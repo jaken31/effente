@@ -89,7 +89,7 @@ class TestFaultTypes:
 class TestAgents:
     RUN: ClassVar[dict] = {
         "run_id": "run-1", "agent": "maintenance_report", "machine_id": "m", "at": "2026-11-14T16:03:00Z",
-        "status": "done", "ok": True, "model": "stand-in (no Claude call)", "simulated": True, "usage": {},
+        "status": "done", "ok": True, "model": "stand-in (no model call)", "simulated": True, "usage": {},
         "tool_calls": [{"at": "2026-11-14T16:03:01Z", "name": "get_readings", "input": {"since": ""}, "output": "{}"}],
         "report": {"summary": "Stand-in report: x", "priority": "medium", "cited_features": ["vib_1x"],
                    "recommended_action": "Check it.", "part_reference": ""},
@@ -118,7 +118,7 @@ class TestAgents:
     def test_run_rows(self):
         [row] = agents.run_rows([self.RUN])
         assert row.status == "report ready"
-        assert row.who == "maintenance_report · stand-in (no Claude call)"
+        assert row.who == "maintenance_report · stand-in (no model call)"
         assert agents.run_status(dict(self.RUN, status="running")) == "running"
 
 
