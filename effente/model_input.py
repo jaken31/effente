@@ -63,6 +63,18 @@ def _transform_raw(X: np.ndarray, names: list[str]) -> np.ndarray:
     return X
 
 
+def _centre_spread(T: np.ndarray):
+    """Per column: the median, and the spread (interquartile range as a standard deviation, or the
+    standard deviation for a mostly-constant count). The spread is NaN where the column never changes."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        centre = np.nanmedian(T, 0)
+        q1, q3 = np.nanpercentile(T, [25, 75], 0)
+        spread = (q3 - q1) / 1.349
+        std = np.nanstd(T, 0)
+    return centre, np.where(spread > 1e-9, spread, np.where(std > 1e-9, std, np.nan))
+
+
 class Prep:
     def __init__(self, columns, centre, scale, axis_col, missing_cols, names_in, version):
         self.columns = list(columns)  # names of the feature columns kept, in output order
@@ -104,16 +116,25 @@ class Prep:
             if np.nanmax(col) - np.nanmin(col) <= 0:
                 continue  # constant in training: nothing to learn from it
             keep.append(j)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            centre = np.nanmedian(T[:, keep], 0)
-            q1, q3 = np.nanpercentile(T[:, keep], [25, 75], 0)
-            spread = (q3 - q1) / 1.349
-            std = np.nanstd(T[:, keep], 0)
-        scale = np.where(spread > 1e-9, spread, np.where(std > 1e-9, std, 1.0))  # mostly-constant counts
+        centre, scale = _centre_spread(T[:, keep])
+        scale = np.where(np.isnan(scale), 1.0, scale)  # hardly changes: left unscaled
         missing = [s for s in SENSORS if any(F.FEATURE_SENSOR.get(n) == s for n in names)]
         axis = "vib_shock_axis" if "vib_shock_axis" in names else None
         return cls([names[j] for j in keep], centre, scale, axis, missing, names, _version(names))
+
+    def refit(self, X) -> "Prep":
+        """The same columns with another machine's median and spread, from its rows X.
+
+        For calibrating a library network to a machine (effente.calibration): the network's inputs
+        must stay the columns it was trained on, so no column is added or left out. A column this
+        machine gives no statistic for keeps the one it had: the median and spread if the reading is
+        NaN in more than MAX_NAN_FRAC of the rows, the spread alone if the reading never changes here."""
+        T = _transform_raw(np.asarray(X)[:, self._cols], self.columns)
+        centre, scale = _centre_spread(T)
+        absent = np.isnan(T).mean(0) > MAX_NAN_FRAC
+        return Prep(self.columns, np.where(absent, self.centre, centre),
+                    np.where(absent | np.isnan(scale), self.scale, scale),
+                    self.axis_col, self.missing_cols, self.names_in, self.features_version)
 
     # ------------------------------------------------------------ applying
     @property
