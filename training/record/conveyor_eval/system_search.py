@@ -1272,6 +1272,131 @@ def run_faint():
     write("faint.json", res)
 
 
+# ----------------------------------------------------------------- exp 10: per-group kNN, quantile-normalised
+
+KNN_K = (5, 10, 20)
+KNN_MEM = 5000
+
+
+def _group_knn_fit(Z, names, seed=0):
+    g = np.array([MS.input_group(n) for n in names])
+    rng = np.random.default_rng(seed)
+    mem = {}
+    for k in MS.GROUPS:
+        idx = np.nonzero(g == k)[0]
+        if not len(idx):
+            continue
+        M = Z[:, idx]
+        if len(M) > KNN_MEM:
+            M = M[rng.choice(len(M), KNN_MEM, replace=False)]
+        mem[k] = (idx, np.asarray(M, np.float32))
+    return mem
+
+
+def _group_knn_score(mem, Z):
+    """{group: (rows, len(KNN_K))}: the mean distance to the k nearest memory rows, per k."""
+    out = {}
+    kmax = max(KNN_K)
+    for k, (idx, M) in mem.items():
+        Q = np.asarray(Z[:, idx], np.float32)
+        m2 = (M ** 2).sum(1)
+        res = np.empty((len(Q), len(KNN_K)), np.float32)
+        for a in range(0, len(Q), 2000):
+            q = Q[a:a + 2000]
+            d2 = np.maximum((q ** 2).sum(1)[:, None] + m2[None, :] - 2 * q @ M.T, 0)
+            part = np.sqrt(np.partition(d2, kmax, axis=1)[:, :kmax])
+            part.sort(1)
+            res[a:a + 2000] = np.stack([part[:, :kk].mean(1) for kk in KNN_K], 1)
+        out[k] = res
+    return out
+
+
+def knn_crossfit(rot):
+    """Per-group kNN scores: out of sample for each training week (crossfit) and for every judged run (final memory)."""
+    chunks, names = MS.fold_chunks(MS._rot_fold(rot), "median")
+    R = MS.runs()
+    cal = []
+    for g in range(len(chunks)):
+        tr = [c for i, c in enumerate(chunks) if i != g]
+        t = np.concatenate([c[0] for c in tr]); X = np.vstack([c[1] for c in tr])
+        run = MS._running(X)
+        prep = MS.Prep.fit(X[run], names, t[run], running_only=False)
+        mem = _group_knn_fit(prep.transform(X[run]), prep.names_out)
+        Xg = chunks[g][1]
+        cal.append(_group_knn_score(mem, prep.transform(Xg[MS._running(Xg)])))
+    cal = {k: np.vstack([c[k] for c in cal]) for k in cal[0]}
+    t = np.concatenate([c[0] for c in chunks]); X = np.vstack([c[1] for c in chunks])
+    run = MS._running(X)
+    prep = MS.Prep.fit(X[run], names, t[run], running_only=False)
+    mem = _group_knn_fit(prep.transform(X[run]), prep.names_out)
+    raw = {n: _group_knn_score(mem, prep.transform(MS.make_input("median", R[n])[0])) for n in prepared()[rot].runs}
+    return cal, raw
+
+
+def _surprisal(ref, v):
+    """-log of the exceedance share of v against the reference (out-of-sample training) scores: an ECDF quantile."""
+    r = np.sort(ref)
+    q = np.searchsorted(r, v, "right") / (len(r) + 1.0)
+    return -np.log(np.maximum(1.0 - q, 1.0 / (len(r) + 1.0)))
+
+
+def knn_scores():
+    """{(k, combine): {rot: (cal, raw)}}: per-group quantiles (surprisal) against the crossfit training scores, combined
+    by mean or max."""
+    out = {}
+    for rot in ROTS:
+        t0 = time.time()
+        cal, raw = knn_crossfit(rot)
+        for ki, kk in enumerate(KNN_K):
+            calq = np.stack([_surprisal(cal[g][:, ki], cal[g][:, ki]) for g in cal], 1)
+            rawq = {n: np.stack([_surprisal(cal[g][:, ki], v[g][:, ki]) for g in cal], 1) for n, v in raw.items()}
+            for comb in ("mean", "max"):
+                f = (lambda A: A.mean(1)) if comb == "mean" else (lambda A: A.max(1))
+                out.setdefault((kk, comb), {})[rot] = (f(calq), {n: f(v) for n, v in rawq.items()})
+        print(f"kNN crossfit {rot}: {time.time() - t0:.0f} s", flush=True)
+    return out
+
+
+def run_knn():
+    sc = knn_scores()
+    for (kk, comb), v in sc.items():
+        np.savez_compressed(OUT / f"scores_knn_k{kk}_{comb}.npz", **{f"{rot}__cal": v[rot][0] for rot in ROTS},
+                            **{f"{rot}__run__{n}": x for rot in ROTS for n, x in v[rot][1].items()})
+    ps = per_second_flags()
+    jf, _, _ = jam_flags()
+    jam = {rot: {r: jf[rot][r][JAM_DEFAULT[0]] | jf[rot][r][JAM_DEFAULT[1]] for r in jf[rot]} for rot in ROTS}
+    namesA, modeA, rowA = SYSTEMS["model-search verified: group PCA + line EW"]
+    A = or_flags(flags_for({**rowA, "sensitivity": 0.6}, [source(n) for n in namesA], modeA), ps, jam)
+    res = {}
+    for (kk, comb), v in sc.items():
+        label = f"group kNN k{kk} {comb}"
+        rows = [r for r in judge_model_rotation(v, label) if r["min_caught"] > 0]
+        st = min(rows, key=rank_key)
+        pl = min(rows, key=lambda r: (r["plateau_worst_fp_week"], r["plateau_mean_missed"], r["mean_missed"], r["mean_lateness"]))
+        # the kNN alarm at its plateau pick, plus the line early warning like A, then the per-second set and jam rules; and OR system A
+        keys, cols = [], {rot: {r: [] for r in A[rot]} for rot in ROTS}
+        for sv in sorted({round(pl["sensitivity"] + d, 3) for d in (-0.025, 0.0, 0.025)}):
+            for lab, row in ((f"alarm s{sv}", {"smooth": pl["smooth"], "sensitivity": sv, "block": None}),
+                             (f"alarm s{sv} + line EW", {"smooth": pl["smooth"], "sensitivity": sv, "block": 30, "frac": 0.3,
+                                                         "hold": 6, "line_n": 10})):
+                f = flags_for(row, [v], "or")
+                for extra, ff in (("", f), (" + per-second + jam", or_flags(f, ps, jam)), (" OR system A", or_flags(f, A))):
+                    keys.append(lab + extra)
+                    for rot in ROTS:
+                        for r in A[rot]:
+                            cols[rot][r].append(ff[rot][r])
+        fl = {rot: {r: np.stack(x, 1) for r, x in cols[rot].items()} for rot in ROTS}
+        judged = dict(zip(keys, judge_rot(fl)))
+        res[label] = {"strict": st, "plateau": pl, "systems": {k: {x: j[x] for x in ("fp_by_rotation", "worst_fp_week", "mean_missed",
+                                                                                     "missed_by_rotation", "mean_lateness")}
+                                                               for k, j in judged.items()}}
+        print(f"\n{label}: alone strict {st['mean_missed']} {st['missed_by_rotation']} (n{st['smooth']} s{st['sensitivity']}) | "
+              f"plateau {pl['mean_missed']} (nb {pl['plateau_mean_missed']}, n{pl['smooth']} s{pl['sensitivity']})", flush=True)
+        for k, j in judged.items():
+            print(f"   {k:44s} fp {j['fp_by_rotation']} missed {j['mean_missed']} {j['missed_by_rotation']}", flush=True)
+    write("knn.json", res)
+
+
 # ----------------------------------------------------------------- exp 4: why unbalance-obvious is missed
 
 def _group_parts(det, Z):
@@ -1336,7 +1461,7 @@ def run_unbalance(run_name="unbalance-obvious", smooth=10, sens=0.625):
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=("seconds", "persist", "safety", "topk", "relheat", "unbalance", "combine", "combine_rel", "final2", "faint"))
+    ap.add_argument("step", choices=("seconds", "persist", "safety", "topk", "relheat", "unbalance", "combine", "combine_rel", "final2", "faint", "knn"))
     ap.add_argument("--workers", type=int, default=1)
     a = ap.parse_args(argv)
     t0 = time.time()
@@ -1354,6 +1479,8 @@ def main(argv=None) -> int:
         run_relheat()
     elif a.step == "combine":
         run_combine()
+    elif a.step == "knn":
+        run_knn()
     elif a.step == "faint":
         run_faint()
     elif a.step == "final2":

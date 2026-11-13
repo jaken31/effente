@@ -146,6 +146,19 @@ milder selection than picking columns by having 0 false alerts, but it is still 
    - Result: 5.67 at 0 false alerts (no gain). At sensitivities where it gains 1 fault, it costs 1–5 false alerts.
      **Stopped.**
 
+10. **Per-group kNN, the SSCC paper's method on our groups** (`knn.json`).
+    - **Setup:** each sensor group scored by the mean distance to its k nearest training minutes (k 5 / 10 / 20,
+      memory 5,000 per group). Each group's score becomes its ECDF quantile against cross-week out-of-sample training
+      scores (as −log exceedance), then the groups are averaged or maxed.
+    - **Alone:** 18.3–25.7 missed at its best (0–1 false alerts; plateau 20–24), against group PCA's 13.67.
+    - **With the per-second set and jam rules:** 13–17.
+    - **With the line early warning:** 6–46 false alerts a week. The quantile score of an unseen week sits high for
+      hours, so a 0.3× persistence line is far too low for it.
+    - **OR'd with system A:** 5.33 at best (k 5, mean, s 0.525; 0 false alerts), and one step more sensitive gives 1
+      false alert. k 10 / 20 add nothing (5.67).
+    - **Not adopted.** On minute medians from one fixed machine, the linear residual model (PCA) carries the useful
+      structure better than distances. The kNN is kept for the like-for-like SSCC comparison.
+
 **What is left** (A, every rotation): subtle idler bearing, lubrication loss and motor bearing. With heldout in
 training, also: subtle cooling blocked, gear wear and overload, and obvious lubrication loss. DATA_CHECK calls the
 subtle bearing and lubrication runs "nearly invisible at the drive end". Catching them would most likely need another
