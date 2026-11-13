@@ -6,7 +6,8 @@ file, says what state it is in, and stops it. It never starts a second server:
 if the port already answers, that server is used and left alone.
 
 No Qt here. `ModelServer.status()` asks the port, so it can take up to
-PROBE_TIMEOUT_S; call it off the Qt thread when polling.
+PROBE_TIMEOUT_S; call it off the Qt thread when polling. One lock guards the
+child, so `start`, `stop` and `status` may be called from different threads.
 
 The flags are from `llama-server --help` (build 11429): `-m`, `--host`,
 `--port`, `--offline`. UNVERIFIED: that a server still loading its model
@@ -21,6 +22,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -62,6 +64,7 @@ class Status:
     state: str
     message: str  # a plain sentence for the Agents page
     ours: bool = False  # this app started the server and will stop it
+    model: str = ""  # the file name this app started it with
 
 
 def probe(url: str = URL, timeout: float = PROBE_TIMEOUT_S) -> tuple[str, str]:
@@ -106,20 +109,24 @@ class ModelServer:
         self._model: Path | None = None
         self._problem: Status | None = None  # why the last start did nothing
         self._was_ready = False  # the child answered at least once
+        self._lock = threading.RLock()
 
     # ---- start and stop ---------------------------------------------------
 
     def start(self, model) -> Status:
         """Start llama-server with `model`, unless one already answers on the port.
         Returns at once: the model loads afterwards, and `status()` says when it is ready."""
-        model = Path(model).expanduser()
+        with self._lock:
+            return self._start(Path(model).expanduser())
+
+    def _start(self, model: Path) -> Status:
         self._problem = None
         if self._alive():
-            return self.status()
+            return self._status()
         state, _ = probe(self.url)
         if state != STOPPED:
             self._forget_child()
-            return self.status()  # one is already there: use it, do not start another
+            return self._status()  # one is already there: use it, do not start another
         path = shutil.which(self.binary)
         if path is None:
             self._problem = Status(
@@ -141,20 +148,21 @@ class ModelServer:
         self._output = output
         self._model = model
         self._was_ready = False
-        return Status(LOADING, f"Loading {model.name}. A large model takes a while.", ours=True)
+        return Status(LOADING, f"Loading {model.name}. A large model takes a while.", True, model.name)
 
     def stop(self) -> None:
         """Stop the server this app started. One that was already running is left alone."""
-        child = self._child
-        if child is not None and child.poll() is None:
-            child.terminate()
-            try:
-                child.wait(timeout=STOP_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                child.kill()
-                child.wait(timeout=STOP_TIMEOUT_S)
-        self._forget_child()
-        self._problem = None
+        with self._lock:
+            child = self._child
+            if child is not None and child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=STOP_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=STOP_TIMEOUT_S)
+            self._forget_child()
+            self._problem = None
 
     # ---- state ------------------------------------------------------------
 
@@ -163,13 +171,17 @@ class ModelServer:
         return self._alive()
 
     def status(self) -> Status:
+        with self._lock:
+            return self._status()
+
+    def _status(self) -> Status:
         if self._alive():
             state, _ = probe(self.url)
             name = self._model.name if self._model else "the model"
             if state == READY:
                 self._was_ready = True
-                return Status(READY, f"Running with {name}.", ours=True)
-            return Status(LOADING, f"Still loading {name}. A large model takes a while.", ours=True)
+                return Status(READY, f"Running with {name}.", True, name)
+            return Status(LOADING, f"Still loading {name}. A large model takes a while.", True, name)
         if self._child is not None:  # started here, and it exited
             return Status(FAILED, self._why_it_stopped())
         state, why = probe(self.url)
@@ -191,7 +203,7 @@ class ModelServer:
             try:
                 self._output.seek(0)
                 text = self._output.read()[-4000:].decode("utf-8", errors="replace")
-                lines = [_LOG_PREFIX.sub("", x.strip()) for x in text.splitlines() if x.strip()]
+                lines = [" ".join(_LOG_PREFIX.sub("", x.strip()).split()) for x in text.splitlines() if x.strip()]
                 line = lines[-1] if lines else ""
             except (OSError, ValueError):
                 pass

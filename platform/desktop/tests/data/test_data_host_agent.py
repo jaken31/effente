@@ -9,8 +9,9 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pytestqt")
 
-from app.data import paths
-from app.data.state import NO_KEY_MESSAGE
+from app.data import model_server, paths
+from app.data.state import NO_SERVER_HINT
+from fake_llama import answering, free_port, write_fake
 from fakes import sample_records
 from receiver_testkit import Client
 
@@ -114,18 +115,115 @@ def test_no_device_log_says_report_pys_own_message(qtbot, make_host, make_state,
     qtbot.waitUntil(lambda: not state.agent_running(), timeout=5000)
 
 
-def test_live_without_a_key_is_refused(qtbot, make_host, make_state, report_tree, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def machine_state(qtbot, make_host, make_state, **kw):
+    """A state with one machine to report on."""
     host = make_host()
     Client(host.port).json("POST", "/api/records", sample_records(heat=False)[0])
-    state = make_state(host, report_script=report_tree / "platform" / "report.py")
+    state = make_state(host, **kw)
     qtbot.waitUntil(lambda: state.current_machine() == SIM_MACHINE, timeout=5000)
+    return state
+
+
+@pytest.fixture
+def recording_report(tmp_path):
+    """A report.py that writes the arguments it was given and stops."""
+    script, args = tmp_path / "report.py", tmp_path / "report-args.json"
+    script.write_text(f"import json, sys\njson.dump(sys.argv[1:], open({str(args)!r}, 'w'))\n")
+    return script, args
+
+
+def test_local_run_is_refused_when_no_model_server_answers(qtbot, make_host, make_state, recording_report):
+    script, args = recording_report
+    models = model_server.ModelServer(port=free_port())
+    state = machine_state(qtbot, make_host, make_state, report_script=script, models=models)
     with qtbot.waitSignal(state.agent_message, timeout=1000) as sig:
-        assert state.start_agent("live") is False
-    assert sig.args[0] == NO_KEY_MESSAGE
+        assert state.start_agent("local") is False
+    assert sig.args[0] == f"No model server is running at {models.url}. {NO_SERVER_HINT}"
+    assert sig.args[0] == state.last_agent_message()
     assert state.agent_running() is False
-    with pytest.raises(ValueError):
-        state.start_agent("claude")
+    assert not args.exists()  # report.py was never run
+    for old in ("live", "claude"):
+        with pytest.raises(ValueError):
+            state.start_agent(old)
+
+
+def test_local_run_is_refused_while_the_model_is_loading(qtbot, make_host, make_state, recording_report):
+    with answering(status=503, body=b'{"error": {"message": "Loading model"}}') as port:
+        models = model_server.ModelServer(port=port)
+        state = machine_state(qtbot, make_host, make_state, report_script=recording_report[0], models=models)
+        assert state.start_agent("local") is False
+        assert state.last_agent_message() == (
+            f"The model server at {models.url} is still loading its model. Try again in a moment.")
+
+
+def test_local_run_names_the_backend_and_this_laptops_server(qtbot, make_host, make_state, recording_report,
+                                                              monkeypatch):
+    script, args = recording_report
+    monkeypatch.setenv("EFFENTE_LLM_URL", "http://elsewhere.test:9")  # must not win
+    with answering() as port:
+        models = model_server.ModelServer(port=port)
+        state = machine_state(qtbot, make_host, make_state, report_script=script, models=models)
+        assert state.start_agent("local") is True
+        qtbot.waitUntil(args.exists, timeout=10000)
+        qtbot.waitUntil(lambda: not state.own_agent_running(), timeout=10000)
+    given = json.loads(args.read_text())
+    assert given[-4:] == ["--backend", "local", "--llm-url", f"http://127.0.0.1:{port}"]
+    assert state.last_agent_message() == ""
+
+
+def test_stand_in_run_needs_no_model_server(qtbot, make_host, make_state, recording_report):
+    script, args = recording_report
+    models = model_server.ModelServer(port=free_port())
+    state = machine_state(qtbot, make_host, make_state, report_script=script, models=models)
+    assert state.start_agent("standin") is True
+    qtbot.waitUntil(args.exists, timeout=10000)
+    qtbot.waitUntil(lambda: not state.own_agent_running(), timeout=10000)
+    assert json.loads(args.read_text())[-2:] == ["--backend", "standin"]
+
+
+def test_state_starts_the_model_server_and_stops_it_on_close(qtbot, make_host, make_state, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    binary, args = write_fake(tmp_path, monkeypatch)
+    folder = tmp_path / "models"
+    folder.mkdir()
+    (folder / "large.gguf").write_bytes(b"not a real model")
+    store = QSettings(str(tmp_path / "effente.ini"), QSettings.Format.IniFormat)
+    models = model_server.ModelServer(binary=str(binary), port=free_port())
+    state = machine_state(qtbot, make_host, make_state, settings=store, models=models)
+    qtbot.waitUntil(lambda: state.model_status().state == model_server.STOPPED, timeout=5000)
+
+    state.set_model_folder(folder)
+    state.start_model_server()  # small.gguf is not there
+    assert state.model_status() == model_server.Status(
+        model_server.MODEL_MISSING, f"The model file {folder / 'small.gguf'} is missing.")
+    with qtbot.waitSignal(state.model_changed, timeout=1000):
+        state.set_model_size("large")
+    assert (store.value("model_folder"), store.value("model_size")) == (str(folder), "large")
+
+    state.start_model_server()
+    assert state.model_status().state == model_server.LOADING
+    qtbot.waitUntil(lambda: state.model_status().state == model_server.READY, timeout=10000)
+    assert state.model_status() == model_server.Status(model_server.READY, "Running with large.gguf.", True, "large.gguf")
+    assert json.loads(args.read_text())[:2] == ["-m", str(folder / "large.gguf")]
+
+    child = models._child
+    state.stop()  # what closing the app does
+    assert child.poll() is not None
+    assert model_server.probe(models.url)[0] == model_server.STOPPED
+
+
+def test_stopping_the_model_server_shows_it_stopped(qtbot, make_host, make_state, tmp_path, monkeypatch):
+    binary, _ = write_fake(tmp_path, monkeypatch)
+    (tmp_path / "small.gguf").write_bytes(b"not a real model")
+    models = model_server.ModelServer(binary=str(binary), port=free_port())
+    state = machine_state(qtbot, make_host, make_state, models=models)
+    state.set_model_folder(tmp_path)
+    state.start_model_server()
+    qtbot.waitUntil(lambda: state.model_status().state == model_server.READY, timeout=10000)
+    state.stop_model_server()
+    qtbot.waitUntil(lambda: state.model_status() == model_server.Status(model_server.STOPPED, "Not running."),
+                    timeout=5000)
 
 
 def test_fake_state_reads(qtbot):

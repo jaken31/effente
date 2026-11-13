@@ -3,80 +3,16 @@ one's flags and answers GET /v1/models. No Qt, no real model, nothing outside 12
 
 import json
 import os
-import socket
-import stat
-import sys
-import threading
-import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from app.data import model_server as ms
-
-FAKE = '''#!{python}
-"""Fake llama-server. FAKE_LLAMA says how it behaves: ready, loading or broken."""
-import argparse, json, os, sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-p = argparse.ArgumentParser()
-p.add_argument("-m", required=True)
-p.add_argument("--host", required=True)
-p.add_argument("--port", type=int, required=True)
-p.add_argument("--offline", action="store_true")
-a = p.parse_args()
-with open(os.environ["FAKE_LLAMA_ARGS"], "w") as f:
-    json.dump(sys.argv[1:], f)
-mode = os.environ.get("FAKE_LLAMA", "ready")
-if mode == "broken":
-    print("0.00.100.000 I srv    load_model: loading")
-    print("0.00.625.026 E srv  llama_server: exiting due to model loading error", flush=True)
-    sys.exit(1)
-
-
-class H(BaseHTTPRequestHandler):
-    def do_GET(self):
-        ready = mode == "ready" and self.path == "/v1/models"
-        body = json.dumps({{"data": [{{"id": os.path.basename(a.m)}}]}} if ready else {{"error": {{"message": "Loading model"}}}})
-        self.send_response(200 if ready else 503)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body.encode())
-
-    def log_message(self, *args):
-        pass
-
-
-HTTPServer((a.host, a.port), H).serve_forever()
-'''
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def wait_for(check, timeout=10.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        value = check()
-        if value:
-            return value
-        time.sleep(0.05)
-    raise AssertionError("timed out")
+from fake_llama import answering, free_port, wait_for, write_fake
 
 
 @pytest.fixture
 def fake(tmp_path, monkeypatch):
     """(path of the fake binary, file its arguments are written to)."""
-    binary = tmp_path / "llama-server"
-    binary.write_text(FAKE.format(python=sys.executable))
-    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-    args = tmp_path / "args.json"
-    monkeypatch.setenv("FAKE_LLAMA_ARGS", str(args))
-    monkeypatch.setenv("FAKE_LLAMA", "ready")
-    return binary, args
+    return write_fake(tmp_path, monkeypatch)
 
 
 @pytest.fixture
@@ -106,7 +42,7 @@ def test_starts_the_binary_with_the_real_flags_and_stops_it(server, fake, model)
     started = server.start(model)
     assert started.state == ms.LOADING and started.ours
     ready = wait_for(lambda: (s := server.status()).state == ms.READY and s)
-    assert ready == ms.Status(ms.READY, "Running with small.gguf.", ours=True)
+    assert ready == ms.Status(ms.READY, "Running with small.gguf.", True, "small.gguf")
     assert server.owns_server()
     assert json.loads(fake[1].read_text()) == [
         "-m", str(model), "--host", "127.0.0.1", "--port", str(server.port), "--offline"]
@@ -132,23 +68,8 @@ def test_start_twice_keeps_the_one_child(server, model):
 @pytest.fixture
 def already_running():
     """Some other model server on a port, as if started outside the app."""
-
-    class H(BaseHTTPRequestHandler):
-        def do_GET(self):
-            body = b'{"data": [{"id": "other.gguf"}]}'
-            self.send_response(200)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *args):
-            pass
-
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    yield httpd.server_address[1]
-    httpd.shutdown()
-    httpd.server_close()
+    with answering() as port:
+        yield port
 
 
 def test_no_second_server_when_the_port_already_answers(fake, model, already_running):
@@ -184,7 +105,7 @@ def test_failed_to_start_gives_the_servers_last_line(server, model, monkeypatch)
     server.start(model)
     failed = wait_for(lambda: (s := server.status()).state == ms.FAILED and s)
     assert failed.message == (f"{server.binary} failed to start (exit code 1): "
-                              "srv  llama_server: exiting due to model loading error")
+                              "srv llama_server: exiting due to model loading error")
     assert not failed.ours and not server.owns_server()
     monkeypatch.setenv("FAKE_LLAMA", "ready")  # starting again clears the failure
     server.start(model)
@@ -197,7 +118,7 @@ def test_still_loading_is_not_ready(server, model, monkeypatch):
     state, why = wait_for(lambda: (r := ms.probe(server.url))[0] == ms.LOADING and r)
     assert why == f"The model server at {server.url} is still loading its model. Try again in a moment."
     assert server.status() == ms.Status(
-        ms.LOADING, "Still loading small.gguf. A large model takes a while.", ours=True)
+        ms.LOADING, "Still loading small.gguf. A large model takes a while.", True, "small.gguf")
 
 
 def test_a_server_that_dies_later_is_said_to_have_stopped(server, model):
@@ -209,20 +130,12 @@ def test_a_server_that_dies_later_is_said_to_have_stopped(server, model):
 
 
 def test_probe_tells_a_program_that_is_not_a_model_server():
-    class H(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(404)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        def log_message(self, *args):
-            pass
-
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    try:
-        url = f"http://127.0.0.1:{httpd.server_address[1]}"
+    with answering(status=404, body=b"") as port:
+        url = f"http://127.0.0.1:{port}"
         assert ms.probe(url) == (ms.STOPPED, f"The program at {url} is not a model server (it answered HTTP 404).")
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
+    with answering(body=b"<html>hello</html>") as port:
+        url = f"http://127.0.0.1:{port}"
+        assert ms.probe(url) == (ms.STOPPED, f"The program at {url} is not a model server (its answer was not JSON).")
+    with answering(body=b'{"data": []}') as port:
+        url = f"http://127.0.0.1:{port}"
+        assert ms.probe(url) == (ms.STOPPED, f"The model server at {url} has no model loaded.")
