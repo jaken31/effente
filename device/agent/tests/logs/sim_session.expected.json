@@ -1,0 +1,31 @@
+{
+  "note": "Made by platform/sim/sim_model.py (seed 11, spectra dropped): every case the simulated device has, including stopped and warming up, whose unknown_score is null. Must cite vib_1x (it moves past 6 spreads in the unbalance-like windows); vib_harm_3_10 may be cited for looseness or rattle. Priority high: two fault types and an unrecognised pattern.",
+  "model_file": "model-sim.json",
+  "runs": [
+    {
+      "machine_id": "demo-fan-1",
+      "diagnoses": {
+        "warming_up": 2,
+        "normal": 6,
+        "unbalance_like": 5,
+        "stopped": 3,
+        "looseness_or_rattle": 4,
+        "unrecognised_pattern": 3
+      },
+      "may_cite": [
+        "vib_1x",
+        "vib_harm_3_10"
+      ],
+      "must_cite": [
+        "vib_1x"
+      ],
+      "priority": [
+        "high"
+      ],
+      "ok": true,
+      "reason": "",
+      "model_version": "sim-3",
+      "note_contains": ""
+    }
+  ]
+}

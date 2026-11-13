@@ -85,7 +85,7 @@ def test_runs_are_posted_running_then_each_tool_call_then_done(tmp_path):
 def test_a_failed_report_is_posted_with_problems_and_no_report(tmp_path):
     def cites_rattle(machine_id, records, table, schema, tools):
         report, usage = stand_in_call(machine_id, records, table, schema, tools)
-        return {**report, "cited_features": ["rattle"]}, usage
+        return {**report, "cited_features": ["vib_harm_3_10"]}, usage
 
     with Receiver() as platform:
         stand_in(tmp_path=tmp_path, platform_url=platform.url, call=cites_rattle)
@@ -93,7 +93,7 @@ def test_a_failed_report_is_posted_with_problems_and_no_report(tmp_path):
     check_contract_shape(*platform.puts[-1])
     assert final["status"] == "done" and final["ok"] is False and final["report"] is None
     assert final["reason"] == "report failed checks"
-    assert final["problems"] == ["cites feature that was not active in the readings: rattle"]
+    assert final["problems"] == ["cites feature that did not move in the readings: vib_harm_3_10"]
 
 
 def test_agent_unavailable_is_posted_as_done_with_the_reason(tmp_path):

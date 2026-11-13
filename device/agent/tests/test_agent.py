@@ -6,10 +6,10 @@ from device.agent.data import load_feature_table, load_log, summarize_readings
 from device.agent.harness import AgentUnavailable, run_agent
 from device.agent.report import build_report_schema, check_report
 
-FEATURES = ["once_per_turn", "rattle"]
+FEATURES = ["vib_1x", "vib_harm_3_10"]
 
 
-def record(machine_id="fan-1", at="2026-11-14T16:00:00Z", diagnosis="imbalance", **features):
+def record(machine_id="fan-1", at="2026-11-14T16:00:00Z", diagnosis="unbalance_like", **features):
     return {
         "device_id": "effente-01",
         "machine_id": machine_id,
@@ -20,7 +20,7 @@ def record(machine_id="fan-1", at="2026-11-14T16:00:00Z", diagnosis="imbalance",
     }
 
 
-def good_report(cited=("once_per_turn",)):
+def good_report(cited=("vib_1x",)):
     return {
         "summary": "Imbalance on the fan.",
         "priority": "medium",
@@ -34,9 +34,9 @@ def good_report(cited=("once_per_turn",)):
 def paths(tmp_path):
     log = tmp_path / "device.jsonl"
     records = [
-        record(at="2026-11-14T16:00:01Z", once_per_turn=0.8, rattle=0.05),
-        record(at="2026-11-14T16:00:00Z", once_per_turn=0.7, rattle=0.02),
-        record(machine_id="fan-2", diagnosis="normal", once_per_turn=0.0, rattle=0.0),
+        record(at="2026-11-14T16:00:01Z", vib_1x=9.6, vib_harm_3_10=0.6),
+        record(at="2026-11-14T16:00:00Z", vib_1x=8.4, vib_harm_3_10=0.24),
+        record(machine_id="fan-2", diagnosis="normal", vib_1x=0.0, vib_harm_3_10=0.0),
     ]
     log.write_text("\n".join(json.dumps(r) for r in records) + "\n")
     model = tmp_path / "model.json"
@@ -44,8 +44,8 @@ def paths(tmp_path):
         json.dumps(
             {
                 "features": [
-                    {"name": "once_per_turn", "sentence": "strong vibration once per turn"},
-                    {"name": "rattle", "sentence": "rattling pattern"},
+                    {"name": "vib_1x", "sentence": "strong vibration once per turn"},
+                    {"name": "vib_harm_3_10", "sentence": "rattling pattern"},
                 ]
             }
         )
@@ -54,8 +54,8 @@ def paths(tmp_path):
 
 
 def test_schema_limits_cited_features_to_the_table():
-    schema = build_report_schema(["rattle", "once_per_turn"])
-    assert schema["properties"]["cited_features"]["items"]["enum"] == ["once_per_turn", "rattle"]
+    schema = build_report_schema(["vib_harm_3_10", "vib_1x"])
+    assert schema["properties"]["cited_features"]["items"]["enum"] == ["vib_1x", "vib_harm_3_10"]
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == set(schema["properties"])
 
@@ -65,13 +65,20 @@ def test_schema_needs_at_least_one_verified_feature():
         build_report_schema([])
 
 
-def test_check_passes_a_report_whose_feature_was_active():
-    assert check_report(good_report(), [record(once_per_turn=0.8)], FEATURES) == []
+def test_check_passes_a_report_whose_feature_moved_either_way():
+    assert check_report(good_report(), [record(vib_1x=9.6)], FEATURES) == []
+    assert check_report(good_report(), [record(vib_1x=-6.0)], FEATURES) == []
 
 
-def test_check_rejects_a_feature_that_was_not_active():
-    problems = check_report(good_report(["rattle"]), [record(once_per_turn=0.8, rattle=0.05)], FEATURES)
-    assert problems == ["cites feature that was not active in the readings: rattle"]
+def test_check_rejects_a_feature_that_did_not_move():
+    problems = check_report(good_report(["vib_harm_3_10"]), [record(vib_1x=9.6, vib_harm_3_10=5.9)], FEATURES)
+    assert problems == ["cites feature that did not move in the readings: vib_harm_3_10"]
+
+
+@pytest.mark.parametrize("diagnosis", ["normal", "stopped", "warming_up", "unrecognised_pattern"])
+def test_check_rejects_a_feature_that_moved_only_without_a_fault_type(diagnosis):
+    problems = check_report(good_report(), [record(diagnosis=diagnosis, vib_1x=9.6)], FEATURES)
+    assert problems == ["cites feature that moved only in windows with no fault type: vib_1x"]
 
 
 def test_check_rejects_an_unverified_feature():
@@ -87,14 +94,25 @@ def test_load_log_keeps_one_machine_in_time_order(paths):
 
 def test_load_feature_table(paths):
     _, model, _ = paths
-    assert load_feature_table(model)["rattle"] == "rattling pattern"
+    assert load_feature_table(model)["vib_harm_3_10"] == "rattling pattern"
 
 
 def test_summary_counts_diagnoses_and_feature_activity():
-    summary = summarize_readings([record(once_per_turn=0.6), record(once_per_turn=0.8)])
+    summary = summarize_readings([record(vib_1x=7.2), record(vib_1x=-9.6)])
     assert summary["windows"] == 2
-    assert summary["diagnoses"] == {"imbalance": 2}
-    assert summary["feature_activity"]["once_per_turn"] == {"mean": 0.7, "peak": 0.8}
+    assert summary["diagnoses"] == {"unbalance_like": 2}
+    assert summary["feature_activity"]["vib_1x"] == {"mean": -1.2, "peak": 9.6}
+    assert summary["peak_by_diagnosis"] == {"unbalance_like": {"vib_1x": 9.6}}
+
+
+def test_summary_takes_stopped_and_warming_up_records():
+    # unknown_score is null while stopped or warming up (contract message 2).
+    stopped = dict(record(diagnosis="stopped"), unknown_score=None, features={})
+    warming = dict(record(diagnosis="warming_up"), unknown_score=None, features={})
+    summary = summarize_readings([record(vib_1x=7.2), stopped, warming])
+    assert summary["diagnoses"] == {"unbalance_like": 1, "stopped": 1, "warming_up": 1}
+    assert summary["max_unknown_score"] == 0.1
+    assert summarize_readings([stopped])["max_unknown_score"] is None
 
 
 def test_run_agent_returns_a_checked_report_and_logs_it(paths):
@@ -107,7 +125,7 @@ def test_run_agent_returns_a_checked_report_and_logs_it(paths):
 
 def test_run_agent_discards_a_report_that_fails_checks(paths):
     log, model, agent_log = paths
-    result = run_agent("fan-1", log, model, agent_log, call=lambda *_: (good_report(["rattle"]), {}))
+    result = run_agent("fan-1", log, model, agent_log, call=lambda *_: (good_report(["vib_harm_3_10"]), {}))
     assert not result.ok and result.report is None
     assert result.reason == "report failed checks"
 
