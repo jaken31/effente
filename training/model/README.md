@@ -32,6 +32,72 @@ python3 -m training.model.train --rows data/real/nasa-ims/test2_bearing1.npz --l
 
 `--run` takes a learn-mode folder and uses its per-minute medians. `--rows` takes any file with `t`, `X` and `feature_names`. Running rows only. The last 15 % of the time is held out to set the threshold, never a random split. Training takes seconds on a laptop.
 
+## Calibrate a library entry
+
+```bash
+python3 -m training.model.calibrate --entry library/conveyor --run data/rec/conveyor-07 --out models/conveyor-07.json
+```
+
+`--entry` is a library entry folder: `manifest.json` and `model.json`. `--run` and `--rows` are the same inputs as for training. Calibration ([effente/calibration.py](../../effente/calibration.py), the code the device runs too) keeps the entry's network and refits to this machine what the trainer fits for one machine, with the trainer's own steps:
+
+- the preparation statistics (`Prep`: median and spread of each reading the entry uses)
+- the spread of each reading's residual
+- the alarm threshold
+- the fault classifier
+- the safety baseline
+
+It refuses less running time than the trainer does (300 summary periods: 5 minutes at 1 s), or `--min-running-s`. The output is an ordinary model file: no format change. Its `training_report` names the entry and holds the fit check.
+
+The manifest fields calibration reads, in the layout of `training/library` (PR #33, not merged yet):
+
+```json
+{"entry_id": "conveyor", "version": "0.1.0",
+ "heldout_score_quantiles": {"p50": 2.09, "p90": 2.58, "p99": 26.3, "max": 40.0}}
+```
+
+Only `p50` is needed. The quantiles are the entry model's scores on its own held-out rows, the last 15 % of its training recording (`effente.calibration.score_quantiles` gives the same four numbers).
+
+### Fit check
+
+The TRD leaves the rule open. The proposal: score the calibration rows on the entry as shipped, before anything is refitted, and divide their median by the entry's own held-out median. The machine fits if that ratio is at most `FIT_MAX_MEDIAN_RATIO` = 20 (starting value, set on simulated data). If it doesn't fit, the model is still written and the report says so.
+
+Measured on the simulators only, 13 Nov (unverified on real machines). Four stand-in entries: 30 minutes of a simulated conveyor, seeds 1 and 11, in both simulator modes. Each machine below gave 7 minutes of rows; the conveyors were also scored on their first 5:
+
+| Machine | Median ratio |
+|---------|--------------|
+| 10 other conveyors of the entry's mode: other seeds, load 0.8 to 1.2, room -6 to +8 C, 06:00 to 20:00, one with factory disturbances, one straight after start-up | 3.7 to 12.9 |
+| 7 server racks: 6 seeds and hours, one with data-center disturbances | 33.8 to 60.3 |
+| The same conveyor in the simulator's other mode (another mounting and sensor set) | 10.0 to 13.5 |
+
+The limit of 20 is about 1.5 times the worst conveyor and 1.7 times below the best server rack. Entries trained on 15 and 20 minutes gave the same picture (conveyors 5.4 to 11.7, server racks 38.7 to 52.4).
+
+The two entries of PR #33 (built in the simulator's realistic mode), read from its branch and scored on the same machines:
+
+| Machine | `conveyor` entry | `generic_rotating` entry |
+|---------|------------------|--------------------------|
+| 12 conveyors in realistic mode | 4.1 to 13.5 | 2.8 to 7.6 |
+| 7 server racks | 61.1 to 65.2 | 37.5 to 40.0 |
+| 10 conveyors in the other mode (another mounting and sensor set) | 16.2 to 22.2 | 9.9 to 13.3 |
+
+So a conveyor mounted and sensed differently from the entry's machines sits at the limit on the `conveyor` entry and passes on `generic_rotating`. The server rack fails both.
+
+What didn't work: comparing the calibrated model's scores with the entry's. Once each reading is in spreads of its own machine's normal, the server rack scored 0.6 to 0.9 times the entry's held-out median, the same as another conveyor.
+
+Expect the limit to move. A conveyor of the right type scores 4 to 13 times the entry's own data here because these entries saw 30 minutes of one machine. An entry trained on days of several machines should put the right type much nearer 1.
+
+### How quiet a calibrated model stays (simulator)
+
+A short calibration only knows the minutes it saw. On the simulated conveyor the load drifts over tens of minutes, and one-a-second rows from 5 to 30 minutes weren't enough to stay quiet for the half hour after, for a calibrated model or for one trained on the machine alone from the same rows:
+
+| Rows used | Calibrated: alarm seconds in the next 5 minutes (3 runs) | Trained alone |
+|-----------|--------------|---------------|
+| 5 minutes | 131, 153, 231 of 300 | 164, 228, 218 |
+| 10 minutes | 7, 4, 0 | 42, 13, 0 |
+| 15 minutes | 40, 90, 61 | 62, 60, 0 |
+| 20 minutes | 9, 0, 0 | 1, 0, 24 |
+
+So calibration is no noisier than full training on the same rows, but neither is safe at these lengths on this simulator. The readings that drift furthest include the hour of the day (`time_hour_sin`, `time_hour_cos`), which only ever moves one way in a few minutes. This is the TRD's risk "calibration too short to set a good threshold". It needs measuring on the real conveyor before the demo.
+
 ## Run on the device
 
 ```bash
@@ -74,6 +140,8 @@ The first stops a reading that's high for a normal reason, such as full load, fr
 
 - **Synthetic machine** (`python3 -m training.model.tests.test_model`, 6 tests): the int8 runtime matches; a new normal day gives at most 1 % alarm minutes; a once-per-turn rise is named `unbalance_like`; a swinging temperature is named `excess_temperature_fluctuation`; a stopped machine isn't judged; the device's model slot loads the file and refuses one made with other features.
 - **Real bearing run to failure** (NASA/IMS test 2, bearing 1, as an MPU6050 would record it): learned on 72 h, no false alarms in the next 68 h, first alarm 9.8 h before the failure, named `vibration_too_high`. The fault type is unsure there: the signatures aren't tuned on real faults, and the very last snapshot (the rig stopping) was misread.
+
+- **Calibration** (`python3 -m training.model.tests.test_calibration`, 8 tests, about half a minute, needs scipy for the simulators): the network's int8 weights are unchanged; the result loads in the runtime and scores; the int8 runtime matches the float network on the new machine; a model calibrated on simulated conveyor B from an entry trained on conveyor A is quiet in the 4 minutes after a 10-minute calibration and alarms when looseness starts in those minutes, where the entry as shipped alarms nearly all the time; the fit check passes for conveyor B and fails for the server rack; too little running time and unusable entries are refused; the command line.
 
 ## Limits
 
