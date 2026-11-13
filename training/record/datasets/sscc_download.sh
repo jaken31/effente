@@ -49,7 +49,7 @@ echo "$PARTS" | while read -r id path; do
     total=$(remote_size "$id")
     if [ -z "$total" ]; then
       log "$path: no size from Drive (throttled?), waiting ${wait}s"; sleep $wait
-      wait=$(( wait < 1800 ? wait * 2 : 1800 )); continue
+      wait=$(( wait < 300 ? wait * 2 : 300 )); continue
     fi
     have=$(fsize "$f")
     if [ "$have" = "$total" ]; then log "$path: done, $total bytes"; break; fi
@@ -62,8 +62,10 @@ echo "$PARTS" | while read -r id path; do
     now=$(fsize "$f"); dt=$(( $(date +%s) - t0 + 1 ))
     log "$path: curl exit $rc, now $now bytes, $(( (now - have) / dt / 1048576 )) MiB/s"
     if [ "$now" = "$total" ]; then log "$path: done, $total bytes"; break; fi
-    if head -c 200 "$f" 2>/dev/null | grep -qi "<html"; then log "$path: got a web page, not the file; removing"; rm -f "$f"; fi
-    [ "$now" -gt "$have" ] && wait=60 || { sleep $wait; wait=$(( wait < 1800 ? wait * 2 : 1800 )); }
+    if [ "$now" -lt 100000 ] && grep -qi "<html" "$f" 2>/dev/null; then
+      log "$path: got a web page, not the file (Drive quota?); removing, waiting ${wait}s"; rm -f "$f"; now=0
+    fi
+    [ "$now" -gt "$have" ] && wait=60 || { sleep $wait; wait=$(( wait < 300 ? wait * 2 : 300 )); }
   done
 done
 log "all parts checked"
