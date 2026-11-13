@@ -74,6 +74,13 @@ HEAD = dict(
     lid_t=1.5, lip_h=1.5, lip_w=1.2, lid_clear=0.15,
     relief_len=7.0, relief_w=14.0, relief_z0=1.0,
     tie_slot=(3.0, 2.0), tie_cz=11.5, tie_x=4.0,
+    # lid clamp: a snap clip on each long side of the lid, sitting flush in a
+    # recess in the head's outside wall, whose wedge hook clicks into a window
+    # through the wall. Pry the clip's foot out with a fingernail to open.
+    clip_x=3.0, clip_w=6.0, clip_t=1.2, clip_gap=0.15,
+    clip_recess=1.5,                       # wall left behind the clip: 1.0 mm
+    clip_hook=0.8, clip_win=(11.0, 13.0),  # hook depth; window bottom, top (Z)
+    clip_nail=1.5,                         # recess below the clip foot for a fingernail
 )
 
 BODY = dict(
@@ -383,6 +390,38 @@ def add_head_extras(comp):
     # full length of the board, so its solder tails and plugs reach the ends
     b.zbox(g['x0'] - 1.0, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
            g['zb1'] - H['header_band'], top, 'cut', cr)
+    add_head_clips(comp)
+
+
+def add_head_clips(comp):
+    """Snap clips that clamp the head lid on: one per long (Y) side."""
+    b, H, g = Builder(comp), HEAD, head_geo()
+    T, W2 = g['T'], g['W'] / 2
+    head = [bd for bd in comp.bRepBodies if bd.name == 'Sensor head'][0]
+    lid = [bd for bd in comp.bRepBodies if bd.name == 'Head lid'][0]
+    cx, hw, t, gap = H['clip_x'], H['clip_w'] / 2, H['clip_t'], H['clip_gap']
+    w0, w1 = H['clip_win']
+    yr = W2 - H['clip_recess']                     # recess floor (wall's new outer face)
+    h0, h1 = w0 + 0.15, w1 - 0.15                  # hook, inside the window
+    for sgn in (-1, 1):
+        # recess in the outside wall, open at the top, with fingernail room
+        ya, yb = sorted((sgn * yr, sgn * (W2 + 1.0)))
+        b.zbox(cx - hw - 0.4, ya, cx + hw + 0.4, yb, w0 - H['clip_nail'], T + 0.5, 'cut', head)
+        # window through the wall that is left
+        ya, yb = sorted((sgn * (g['ih'] / 2 - 0.5), sgn * (yr + 0.5)))
+        b.zbox(cx - hw - 0.3, ya, cx + hw + 0.3, yb, w0, w1, 'cut', head)
+        # clip: hangs from the lid, flush with the head's outside
+        yt = sgn * (yr + gap)                      # clip's inner face
+        ya, yb = sorted((yt, yt + sgn * t))
+        b.zbox(cx - hw, ya, cx + hw, yb, T + 0.5, h0, 'join', lid)
+        # wedge hook: flat top catches the window's top edge, slope lets it in
+        sk = b.sketch('x', cx)
+        lines = sk.sketchCurves.sketchLines
+        pts = [b._sp(sk, cx, yt + sgn * 0.05, h1), b._sp(sk, cx, yt - sgn * H['clip_hook'], h1),
+               b._sp(sk, cx, yt + sgn * 0.05, h0)]
+        for i in range(3):
+            lines.addByTwoPoints(pts[i], pts[(i + 1) % 3])
+        b.extrude(sk.profiles.item(0), H['clip_w'], 'join', lid, symmetric=True)
 
 
 # ---------------------------------------------------------------- handheld body
@@ -792,7 +831,8 @@ def run_checks(head_comp, body_comp):
         for pn, pb in (('sensor head', head), ('IMU cradle', cradle), ('head lid', hlid)):
             if not (name == 'imu' and pn == 'head lid'):
                 pairs.append((name, d[name], pn, pb))
-    pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid)]
+    pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid),
+              ('head lid', hlid, 'sensor head', head)]
     if 'Bank holder' in bb:
         hold, g = bb['Bank holder'], bank_geo()
         ext_bank = tbox(g['xb0'], g['yb0'], g['zb0'], g['xb1'], g['yb1'], g['zb1'])
