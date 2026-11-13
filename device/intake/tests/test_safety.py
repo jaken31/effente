@@ -151,8 +151,7 @@ def test_more_impacts_than_normal_is_learned_and_counted_once_a_second():
     lv = SF.learn_spike_levels(t, {"snd_kurt_hf": snd, "vib_kurtosis": kurt}, np.ones(n, bool))
     assert set(lv["features"]) == {"snd_kurt_hf", "vib_kurtosis"} and lv["window_s"] == 1800 and lv["factor"] == 2
     assert lv["features"]["snd_kurt_hf"]["count"] >= 1
-    assert SF.learn_spike_levels(t[:1000], {"snd_kurt_hf": snd[:1000]}, np.ones(1000, bool))["short"]  # under an hour: the short form
-    assert SF.learn_spike_levels(t[:50], {"snd_kurt_hf": snd[:50]}, np.ones(50, bool)) is None  # too little for either
+    assert SF.learn_spike_levels(t[:1000], {"snd_kurt_hf": snd[:1000]}, np.ones(1000, bool)) is None  # under an hour
     base = {"levels": {}, "spikes": lv}
     limit = 2 * max(lv["features"]["snd_kurt_hf"]["count"], 1)
 
@@ -175,57 +174,6 @@ def test_more_impacts_than_normal_is_learned_and_counted_once_a_second():
     assert p["symptom"] == "knocking_or_jolts" and SF.screen_text(p) == "KNOCKING OR JOLTS"
     assert "more_impacts" not in [p["name"] for p in SF.Safety({"levels": {}}).problems()]  # no levels: no check
     assert SF.Safety({"levels": {}}).spikes is None
-
-
-def test_more_impacts_from_a_short_recording_counts_knocks_in_the_last_minute():
-    """5 minutes of learning: no false alarm in 10 clean minutes, none from one bump, a knock every 3 to 5 s shows
-    within 15 s as KNOCKING OR JOLTS, and it clears within about a minute of the knocks stopping."""
-    rng = np.random.default_rng(1)
-    n = 300
-    kurt, peak = rng.normal(0.0, 0.3, n), rng.normal(-1.30, 0.02, n)
-    lv = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_kurtosis": kurt, "vib_peak_g": peak}, np.ones(n, bool))
-    assert lv["short"] and lv["window_s"] == 60 and lv["factor"] == 2 and set(lv["features"]) == {"vib_kurtosis", "vib_peak_g"}
-    for name, v in (("vib_kurtosis", kurt), ("vib_peak_g", peak)):  # above everything seen, with headroom
-        f = lv["features"][name]
-        assert f["count"] == 0 and f["level"] >= v.max() + SF.SPIKE_SHORT_FLOOR[name] - 1e-3 and not (v > f["level"]).any()
-    assert SF.learn_spike_levels(np.arange(50.0), {"vib_kurtosis": kurt[:50]}, np.ones(50, bool)) is None  # too little
-    long = SF.learn_spike_levels(np.arange(4000.0), {"vib_kurtosis": rng.normal(0, 0.3, 4000)}, np.ones(4000, bool))
-    assert "short" not in long and long["window_s"] == 1800  # an hour or more: the long form, as before
-
-    def make(knock_at):  # knock_at(second) -> a knock early in that second: it is in that second's whole-second
-        def f(tt):         # row, and in the overlapping rows of the second before
-            x = row(kurt=float(rng.normal(0.0, 0.3)), peak_g=10 ** float(rng.normal(-1.30, 0.02)))
-            x[F.INDEX["trend_running"]] = 1
-            sec, frac = int(tt), tt - int(tt)
-            if knock_at(sec) and frac == 0 or knock_at(sec + 1) and frac > 0.2:
-                x[F.INDEX["vib_kurtosis"]], x[F.INDEX["vib_peak_g"]] = 40.0, math.log10(0.4)
-            return x
-        return f
-
-    s = SF.Safety({"levels": {}, "spikes": lv})
-    assert feed(s, 600, make=make(lambda sec: False)) == ([], [])  # 10 clean minutes
-    assert feed(s, 120, start=600, make=make(lambda sec: sec in (630, 631))) == ([], [])  # one bump, two seconds long
-    for lap, t0 in ((3, 1000), (5, 2000)):
-        s = SF.Safety({"levels": {}, "spikes": lv})
-        feed(s, 60, start=t0 - 60, make=make(lambda sec: False))
-        when, starts, clears = None, 0, []
-        for k in range(4 * 30):
-            tt = t0 + k * 0.25
-            a, c = s.update(tt, make(lambda sec: sec >= t0 and (sec - t0) % lap == 0)(tt))
-            starts, clears = starts + len(a), clears + c
-            if a and when is None:
-                when = tt - t0
-                assert a[0]["name"] == "more_impacts" and SF.screen_text(a[0]) == "KNOCKING OR JOLTS", a
-        assert when is not None and when <= 15, (lap, when)  # the third knock
-        assert starts == 1 and not clears, (lap, starts, clears)  # on once, and it stays on while the knocks go on
-        _, cleared = feed(s, 75, start=t0 + 30, make=make(lambda sec: False))  # the coin is out
-        assert cleared == ["more_impacts"] and not s.problems(), (lap, cleared)
-    still = SF.Safety({"levels": {}, "spikes": lv})  # a stopped machine's seconds don't count
-    def stopped(tt):
-        x = make(lambda sec: True)(tt)
-        x[F.INDEX["trend_running"]] = 0
-        return x
-    assert feed(still, 60, make=stopped) == ([], [])
 
 
 def test_baseline_levels_dropped_limits_and_warnings():

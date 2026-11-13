@@ -42,10 +42,8 @@ class FakeBoard:
 
     sensors = ("accel", "gyro", "imu_temp")
 
-    def __init__(self, seconds, level_mg, presses=(), seed=0, knock_g=None):
+    def __init__(self, seconds, level_mg, presses=(), seed=0):
         self.seconds, self.level_mg, self.presses = seconds, level_mg, list(presses)
-        self.knock_g = knock_g  # knock_g(second) -> the size of a 30 ms knock 0.3 s into that second (0: none)
-        self.problems = []  # (second, names of the problems the checks have on), once a second
         self.info = SourceInfo(accel_lsb_per_g=LSB, accel_range_g=32768.0 / LSB)
         self.rng = np.random.default_rng(seed)
         self.app, self.clock = None, None
@@ -74,11 +72,6 @@ class FakeBoard:
             g[:, 2] = 1.018
             g += self.rng.normal(0, 0.003, g.shape)
             g[:, 0] += self.level_mg(s) / 1000.0 * np.sqrt(2) * np.sin(2 * np.pi * 60 * (s + n / RATE))
-            k = self.knock_g(s) if self.knock_g else 0.0
-            if k:
-                ph = np.arange(30) / RATE
-                g[300:330, 2] += k * np.sin(2 * np.pi * 180 * ph) * np.exp(-ph / 0.01)
-            self.problems.append((s, [p["name"] for p in self.app.problems]))
             counts = np.clip(np.round(g * LSB), -32768, 32767).astype(np.int16)
             self.counts.append(counts)
             self.times.append(t)
@@ -90,9 +83,9 @@ class FakeBoard:
                 yield Packet("imu_temp", t[a + BATCH - 1:a + BATCH], np.array([[28.0]], np.float32))
 
 
-def flow(tmp, seconds, level_mg, presses, stream=None, knock_g=None):
+def flow(tmp, seconds, level_mg, presses, stream=None):
     clock, shown = Clock(), []
-    board = FakeBoard(seconds, level_mg, presses, knock_g=knock_g)
+    board = FakeBoard(seconds, level_mg, presses)
     app = DeviceApp(tmp, board, screen=shown.append, clock=clock, stream=stream)
     board.app, board.clock = app, clock
     first = app.screen_lines()[0]
@@ -122,7 +115,7 @@ def test_still_device_idle_record_train_watch_with_no_complaints_on_the_screen()
         d = json.loads(app.model_path.read_text())
         rep = d["training_report"]
         assert rep["learned_from_all_rows"] and rep["period_s"] == 1 and 230 <= rep["rows_learned"] + rep["rows_calibration"] <= 271, rep
-        assert rep["patterns_kept"] >= 1 and np.isfinite(rep["threshold"]), rep
+        assert rep["line"].startswith("tail") and rep["patterns_kept"] >= 1 and np.isfinite(rep["threshold"]), rep
         assert any("counted as running" in w for w in rep["warnings"]), rep["warnings"]
         # the notes about the learning are in status, for us, and not on the screen
         assert app.status().get("learning_notes") and d["baseline"]["warnings_screen"], app.status()
@@ -189,26 +182,6 @@ def test_recorded_rows_minutes_and_clips_are_the_unsmoothed_samples():
         with np.load(clips[0]) as c:
             i0 = int(np.searchsorted(times, c["accel_t_us"][0] / 1e6 - 1e-7))
             assert len(c["samples"]) >= 9000 and np.array_equal(c["samples"], counts[i0:i0 + len(c["samples"])])
-
-
-def test_a_coin_after_a_five_minute_recording_shows_as_knocking_and_clears():
-    """The demo: 5 minutes of learning, 10 untouched minutes, then a knock every 4 s (a coin on the belt) for a
-    minute, then the coin out. The impact counter learned from the short recording stays off while untouched and
-    through one bump, is on by the third knock, and clears within about a minute of the coin coming out."""
-    with tempfile.TemporaryDirectory() as tmp:
-        rec0, rec1 = 20, 320
-        bump, coin0, coin1, end = rec1 + 300, rec1 + 600, rec1 + 660, rec1 + 760
-        knock = lambda s: 0.15 if s == bump or (coin0 <= s < coin1 and (s - coin0) % 4 == 0) else 0.0
-        app, board, headers = flow(tmp, end, lambda s: 30.0, presses=(rec0, rec1), knock_g=knock)
-        d = json.loads(app.model_path.read_text())
-        sp = d["baseline"]["spikes"]
-        assert sp["short"] and sp["window_s"] == 60 and {"vib_kurtosis", "vib_peak_g"} <= set(sp["features"]), sp
-        on = {s: "more_impacts" in names for s, names in board.problems}
-        assert not any(on[s] for s in range(rec1, coin0)), [s - rec1 for s in range(rec1, coin0) if on[s]][:5]
-        first = next((s for s in range(coin0, coin1) if on[s]), None)
-        assert first is not None and first - coin0 <= 15, first  # knocks at 0, 4 and 8 s: on by the third
-        assert all(on[s] for s in range(first, coin1)), "went off while the coin was in"
-        assert not on[end - 1] and any(h == "@!KNOCKING OR JOLTS" for h in headers), sorted(set(headers))
 
 
 def test_the_stream_has_the_state_and_live_readings_in_every_mode():

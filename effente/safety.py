@@ -51,11 +51,7 @@ the last SPIKE_WINDOW_S with an impulsiveness reading (SPIKE_FEATURES: 2-7 kHz s
 99.9th percentile while learning, against SPIKE_FACTOR x the most any such window had while learning. It catches
 repeating knocks too short or too sparse for the minute model (on the simulated conveyor: splice damage, looseness).
 Its levels are learned from the recording's one-a-second rows (learn_spike_levels) and kept in the baseline
-("spikes"); a baseline without them has no such check. Sensitivity doesn't change it. Only whole-second rows are
-counted, as the levels were learned, so one knock is one second however many overlapping rows a second arrive.
-A recording under an hour gets a simpler form (SPIKE_SHORT_*): seconds over a level above anything seen while
-learning, more than 2 of them in the last minute. Being a count over a window, it shows as soon as the count is
-over (no 10 s hold) and clears like the others.
+("spikes"); a baseline without them has no such check. Sensitivity doesn't change it.
 
 A check counts once it has held for most of HOLD_S (80 % of the rows) and clears once it has mostly
 stopped (20 %), so a bump, a door slam or one odd reading never shows.
@@ -123,14 +119,6 @@ COVER_SHARE = 0.5  # judged once the values in the window span this share of the
 # while learning (system C, simulated conveyor only: unverified on a real machine).
 SPIKE_FEATURES = ("snd_kurt_hf", "vib_kurtosis")
 SPIKE_Q, SPIKE_WINDOW_S, SPIKE_FACTOR = 99.9, 1800.0, 2.0
-# A short recording (under an hour of running seconds, at least SPIKE_SHORT_MIN_S): too little to say what is rare, so
-# a knock-second is one over a level set above anything seen while learning: the highest, plus as much again as the
-# highest stood over the median (SPIKE_SHORT_HEADROOM), and at least SPIKE_SHORT_FLOOR. More than SPIKE_SHORT_FACTOR
-# of them in the last SPIKE_SHORT_WINDOW_S counts (the 3rd knock within a minute; one bump is one or two seconds).
-# The peak is watched too. Simulated and test data only: unverified on a real machine.
-SPIKE_FEATURES_SHORT = SPIKE_FEATURES + ("vib_peak_g",)
-SPIKE_SHORT_MIN_S, SPIKE_SHORT_WINDOW_S, SPIKE_SHORT_FACTOR, SPIKE_SHORT_HEADROOM = 100, 60.0, 2.0, 1.0
-SPIKE_SHORT_FLOOR = {"snd_kurt_hf": 1.0, "vib_kurtosis": 1.0, "vib_peak_g": 0.15}  # the peak is log10 g: x1.4
 
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
@@ -298,11 +286,10 @@ class Safety:
         return out
 
     def _impacts(self, t0: float, x) -> tuple[bool, float]:
-        """(more impacts than normal, the highest count over its limit). Whole-second rows only, as the levels were
-        learned (a knock is in one such row, but in the overlapping rows of two seconds), so the row rate doesn't
-        matter; running rows only (trend_running NaN counts as running)."""
+        """(more impacts than normal, the highest count over its limit). One count per whole second, so the row
+        rate doesn't matter; running rows only (trend_running NaN counts as running)."""
         sec, over, ratio = math.floor(t0 + 1e-6), False, 0.0
-        running = not (x[F.INDEX["trend_running"]] < 0.5) and abs(t0 - round(t0)) < 1e-6
+        running = not (x[F.INDEX["trend_running"]] < 0.5)
         window = float(self.spikes.get("window_s", SPIKE_WINDOW_S))
         factor = float(self.spikes.get("factor", SPIKE_FACTOR))
         for name, lv in self.spikes.get("features", {}).items():
@@ -353,12 +340,12 @@ class Safety:
             share = sum(o for _, o in h) / len(h)
             covered = t0 - h[0][0] >= 0.9 * self.hold_s
             if name in self.active:
-                if share <= OFF_SHARE and not (name in RATES and over):  # a count still over stays on
+                if share <= OFF_SHARE:
                     del self.active[name]
                     cleared.append(name)
                 elif math.isfinite(value):
                     self.active[name]["value"] = _round(value)
-            elif (covered and share >= ON_SHARE) or (name in RATES and over):  # a count over a window: no hold
+            elif covered and share >= ON_SHARE:
                 self.active[name] = {"name": name, "symptom": SYMPTOM[name], "what": WHAT[name][0],
                                      "value": _round(value), "since": t0}
                 started.append(self.active[name])
@@ -450,26 +437,12 @@ def learn_baseline(X, names, running=None, period_s=None) -> dict:
 def learn_spike_levels(t, values: dict, running) -> dict | None:
     """The more_impacts check's levels from one-a-second rows (t in seconds, values {feature: array}, running per
     row): per SPIKE_FEATURES reading its SPIKE_Q percentile while running, and the most seconds over it in any
-    SPIKE_WINDOW_S. With under an hour of running seconds (too few to say what is rare) the short form instead
-    (SPIKE_SHORT_*): a level above anything seen, counted over the last minute. None under SPIKE_SHORT_MIN_S."""
+    SPIKE_WINDOW_S. None if under an hour of running seconds (too few to say what is rare)."""
     t = np.asarray(t, float)
     run = np.asarray(running, bool)
     order = np.argsort(t, kind="stable")
     t, run = t[order], run[order]
     feats = {}
-    for name in SPIKE_FEATURES_SHORT:  # the short form, where a reading has too few seconds for the long one
-        if name not in values:
-            continue
-        v = np.asarray(values[name], float)[order]
-        ok = run & np.isfinite(v)
-        if SPIKE_SHORT_MIN_S <= ok.sum() < 3600:
-            top, mid = float(v[ok].max()), float(np.median(v[ok]))
-            level = top + max(SPIKE_SHORT_HEADROOM * (top - mid), SPIKE_SHORT_FLOOR[name])
-            feats[name] = {"level": round(level, 4), "count": 0}
-    if feats:
-        return {"features": feats, "window_s": SPIKE_SHORT_WINDOW_S, "factor": SPIKE_SHORT_FACTOR, "short": True,
-                "note": f"short recording: seconds over a level above anything seen while learning, in the last "
-                        f"{SPIKE_SHORT_WINDOW_S:.0f} s; alert above {SPIKE_SHORT_FACTOR:g} of them"}
     for name in SPIKE_FEATURES:
         if name not in values:
             continue
