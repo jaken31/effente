@@ -133,7 +133,7 @@ def test_fault_types_show_as_possible(qtbot, state):
     model_types = state.model()["fault_types"]
     assert m.rowCount() == len(model_types) > 0
     for row, ft in enumerate(model_types):
-        expected = "validated" if ft.get("validated") is True else "possible · not validated"
+        expected = "" if ft.get("validated") is True else "possible · not validated"
         assert m.text(row, 3) == expected
     assert all(ft.get("validated") is not True for ft in model_types)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.data import logic
 from app.theme import fonts
 from app.theme import tokens as T
 from app.theme.qss import css
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .bars import CentredBar, FillBar
-from .view import EVIDENCE_SPREADS, MOVED_BAR_FULL, FaultEvidence, MovedRow
+from .view import MOVED_BAR_FULL, FaultEvidence, MovedRow
 
 ROLE = {T.TEXT: "strong", T.SOFT: "soft", T.MUTED: "muted"}
 
@@ -89,7 +90,7 @@ class MovedList(RowList):
             if r.text:
                 names.append(label(r.name, T.MUTED, mono=True))
             w.top(names, label(r.value_text, T.SOFT))
-            w.box.addWidget(CentredBar(r.fraction, EVIDENCE_SPREADS / MOVED_BAR_FULL, r.evidence))
+            w.box.addWidget(CentredBar(r.fraction, logic.EVIDENCE_SPREADS / MOVED_BAR_FULL, r.evidence))
             w.evidence = r.evidence
             w.feature = r.name
             out.append(w)
