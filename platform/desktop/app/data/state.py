@@ -546,9 +546,8 @@ class DashboardState(StateReads):
         if mode == "live" and not os.environ.get(LIVE_KEY, "").strip():
             self._say(NO_KEY_MESSAGE)
             return False
-        args = [self.report_script, "--machine", machine, "--port", str(self._port())]
-        if mode == "live":
-            args.append("--live")
+        args = [self.report_script, "--machine", machine, "--port", str(self._port()),
+                "--backend", "standin" if mode == "standin" else "local"]
         proc = QProcess(self)
         proc.setProcessEnvironment(QProcessEnvironment.systemEnvironment())
         proc.setProcessChannelMode(QProcess.MergedChannels)
