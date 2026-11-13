@@ -5,8 +5,8 @@ Everything here is simulated: effente.simulate_conveyor and effente.simulate_ser
 effente.site_noise on top. No recording of a real machine exists yet, so every number this prints
 is "simulated" and says nothing certain about real machines (unverified).
 
-    python3 -m training.calibration.measure --entry training/library/entries/conveyor/0.1.0 \\
-        --entry training/library/entries/generic_rotating/0.1.0 --out calibration-sim.json
+    python3 -m training.calibration.measure --entry training/library/entries/conveyor \\
+        --entry training/library/entries/generic_rotating --out calibration-sim.json
 
 --entry is a library entry folder (model.json and manifest.json); give it once per entry.
 
@@ -115,10 +115,11 @@ def run_calibrate(model, manifest, t, X, min_running_s=300):
 
 
 def watch(d, t, X):
-    """The device's Watcher over rows: (seconds judged, seconds abnormal, alarm stretches, first alarm time, names)."""
+    """The device's Watcher over rows: (seconds judged, seconds abnormal, alarm stretches, first alarm time,
+    names, the reading that moved most in each abnormal second)."""
     w = RT.Watcher(RT.Model(d))
     judged = abnormal = stretches = 0
-    first, names, last, was = None, Counter(), None, False
+    first, names, last, was, moved = None, Counter(), None, False, Counter()
     for ti, x in zip(t, X):
         r = w.predict_at(float(ti), x)
         if r.get("minute") is None or r.get("minute") == last:
@@ -132,18 +133,26 @@ def watch(d, t, X):
         if bad:
             abnormal += 1
             names[r["diagnosis"]] += 1
+            if r.get("features"):
+                moved[max(r["features"], key=lambda k: abs(r["features"][k]))] += 1
             if first is None:
                 first = float(r["minute"])
             if not was:
                 stretches += 1
         was = bad
-    return judged, abnormal, stretches, first, names
+    return judged, abnormal, stretches, first, names, moved
+
+
+def slow_reading(name: str) -> bool:
+    """A reading the library's manifests list under calibration.hold: the clock, trends, the IMU's temperature."""
+    return name.startswith(("time_", "trend_")) or name == "imu_temp_c"
 
 
 def share(d, t, X):
-    judged, abnormal, stretches, _, _ = watch(d, t, X)
+    judged, abnormal, stretches, _, _, moved = watch(d, t, X)
     return {"judged_s": judged, "alarm_s": abnormal, "alarm_share": round(abnormal / max(judged, 1), 4),
-            "alarm_stretches": stretches}
+            "alarm_stretches": stretches, "moved_most": dict(moved.most_common(3)),
+            "alarm_s_led_by_a_slow_reading": sum(n for k, n in moved.items() if slow_reading(k))}
 
 
 def main(argv=None) -> int:
@@ -201,6 +210,10 @@ def main(argv=None) -> int:
                 print(f"   {mname:40s} ratio {v['ratio']:5.2f} {'pass' if v['ok'] else 'FAIL'} threshold "
                       f"{v['threshold']:7.2f} (fitted here {v.get('threshold_fitted_here', float('nan')):7.2f})  alarm {row['first_300s']['alarm_share']:.3f} / "
                       f"{row['all_2400s']['alarm_share']:.3f}  alone {row['trained_alone_2400s']['alarm_share']:.3f}")
+                if row["all_2400s"]["alarm_s"]:
+                    a2 = row["all_2400s"]
+                    print(f"      of its {a2['alarm_s']} alarm seconds, {a2['alarm_s_led_by_a_slow_reading']} were led by a clock, "
+                          f"trend or IMU temperature reading; moved most: {a2['moved_most']}")
 
         rows = [r for r in out["calibrated_300s"] if "threshold_fitted_here" in r]
         above = sum(r["threshold_fitted_here"] >= r["threshold"] for r in rows)
@@ -238,8 +251,8 @@ def main(argv=None) -> int:
                 cal, _ = run_calibrate(d, manifest, t[sel], X[sel])
                 before = (t >= t[0] + FAULT_CALIB_S) & (t < t[0] + FAULT_ONSET_S)
                 during = t >= t[0] + FAULT_ONSET_S
-                jb, ab, _, _, _ = watch(cal, t[before], X[before])
-                jd, ad, _, first, names = watch(cal, t[during], X[during])
+                jb, ab = watch(cal, t[before], X[before])[:2]
+                jd, ad, _, first, names, _ = watch(cal, t[during], X[during])
                 row = {"entry": ename, "fault": fault, "severity": sev,
                        "alarm_share_before": round(ab / max(jb, 1), 4), "alarm_share_during": round(ad / max(jd, 1), 4),
                        "seconds_to_alarm": None if first is None else round(first - (t[0] + FAULT_ONSET_S), 1),
