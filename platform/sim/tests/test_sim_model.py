@@ -151,3 +151,57 @@ def test_announcement_and_model_file():
     f = m.model_file()
     assert f["simulated"] is True and f["model_version"] == "sim-3"
     assert f["features"][0] == {"name": "vib_1x", "unit_indices": [], "sentence": "vibration once per turn"}
+
+
+# ---- sensitivity (contract section 7) ---------------------------------------
+
+
+def test_alarm_line_follows_the_contract():
+    assert [m.alarm_line(s) for s in (0, 0.25, 0.5, 0.75, 1)] == [4.0, 2.0, 1.0, 0.5, 0.25]
+
+
+def test_sensitivity_moves_only_the_line():
+    for s in (0.0, 0.5, 1.0):
+        r = m.make_record("unbalance", random.Random(3), [], sensitivity=s)
+        assert (r["sensitivity"], r["alarm_line"]) == (s, m.alarm_line(s))
+    # Same case, same readings: only the diagnosis changes with the line.
+    low = m.make_record("unbalance", random.Random(3), [], sensitivity=0.0)
+    mid = m.make_record("unbalance", random.Random(3), [], sensitivity=0.5)
+    assert mid["diagnosis"] == "unbalance_like" and mid["wrong"] is True
+    assert low["diagnosis"] == "normal" and low["wrong"] is False and low["abnormal_minutes"] == 0
+    assert "fault_types" not in low and "diagnosis_this_minute" not in low and low["reason"] == ""
+    assert low["unknown_score"] == mid["unknown_score"] and low["features"] == mid["features"]
+
+    high = m.make_record("normal", random.Random(3), [], sensitivity=1.0)
+    assert high["diagnosis"] == "unrecognised_pattern" and high["reason"] == m.UNRECOGNISED_REASON
+    assert high["wrong"] is True and high["abnormal_minutes"] == 1
+    assert m.make_record("normal", random.Random(3), [], sensitivity=0.5)["diagnosis"] == "normal"
+
+
+def test_stopped_and_warming_up_ignore_sensitivity():
+    for case in ("stopped", "warming_up"):
+        for s in (0.0, 1.0):
+            assert m.make_record(case, random.Random(1), [], sensitivity=s)["diagnosis"] == m.DIAGNOSIS[case]
+
+
+def test_outside_normal_problems_follow_the_margin_and_limits_do_not():
+    checks = m.ProblemChecks(hold_s=0)
+    checks.start("too_hot", 0.0, "t0")
+    checks.start("vibration_above_normal", 0.0, "t0")
+
+    def names(s):
+        return [p["name"] for p in checks.current(m.WATCHING, random.Random(1), 1.0, s)]
+
+    assert names(0.5) == ["too_hot", "vibration_above_normal"]
+    assert names(0.0) == ["too_hot"]  # 2.3 times normal is not beyond 5 times
+    assert m.margins(0.5) == {"vibration_above_normal": 2.0, "hotter_than_normal": 15.0, "louder_than_normal": 6.0}
+
+
+def test_new_sensitivity_restarts_the_outside_normal_hold():
+    checks = m.ProblemChecks(hold_s=10)
+    checks.start("too_hot", 0.0, "t0")
+    checks.start("vibration_above_normal", 0.0, "t0")
+    checks.restart_outside_normal(20.0, "t20")
+    rng = random.Random(1)
+    assert [p["name"] for p in checks.current(m.WATCHING, rng, 25.0)] == ["too_hot"]
+    assert [p["name"] for p in checks.current(m.WATCHING, rng, 30.0)] == ["too_hot", "vibration_above_normal"]

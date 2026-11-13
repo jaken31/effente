@@ -26,8 +26,12 @@ FEATURES_VERSION = "sim-features-3"
 DEVICE_ID = "effente-sim-01"
 MACHINE_ID = "demo-fan-1"
 LIBRARY_ENTRY = "generic_rotating"
-SENSITIVITY = 0.5  # the default; the simulator does not take settings (contract section 7)
-ALARM_LINE = 1.0  # 4 ** (1 - 2 * SENSITIVITY)
+SENSITIVITY = 0.5  # the default; the dashboard can change it (contract section 7)
+ALARM_LINE = 1.0  # alarm_line(SENSITIVITY)
+
+# How far beyond normal an outside-normal problem must be at sensitivity 0.5, as
+# effente/safety.py OUTSIDE_NORMAL: times normal for vibration, degC, dB.
+OUTSIDE_NORMAL = {"vibration_above_normal": 2.0, "hotter_than_normal": 15.0, "louder_than_normal": 6.0}
 
 # 20 vibration bands, 5 to 500 Hz, spaced evenly on a log scale (as effente/features.py VIB_EDGES_HZ).
 SPECTRUM_EDGES_HZ = [round(5.0 * 100.0 ** (i / 20), 2) for i in range(21)]
@@ -38,6 +42,10 @@ WATCHING = "watching"
 MODES = [WATCHING, "display", "calibrating", "recording", "training"]  # all but watching send check-ins
 
 CASES = ["normal", "unbalance", "looseness", "unrecognised", "stopped", "warming_up"]
+# Each judged case's typical smoothed unknown_score. The diagnosis compares this
+# with the alarm line, so a case does not flip each second near the line, as the
+# device's smoothing keeps it from flipping. Made up, like everything here.
+TYPICAL_SCORE = {"normal": 0.4, "unbalance": 2.4, "looseness": 2.0, "unrecognised": 1.65}
 DIAGNOSIS = {
     "normal": "normal",
     "unbalance": "unbalance_like",
@@ -92,6 +100,29 @@ HOLD_S = 10.0  # a problem shows once it has held this long (as effente/safety.p
 CLEAR_SHARE = 0.8  # and clears once it has been gone for this share of HOLD_S
 
 
+def alarm_line(sensitivity: float) -> float:
+    """The contract's alarm_line: 4 at 0, 1 at the default 0.5, 0.25 at 1."""
+    return round(4.0 ** (1.0 - 2.0 * sensitivity), 4)
+
+
+def margins(sensitivity: float) -> dict[str, float]:
+    """How far beyond normal each outside-normal problem must be, as effente/safety.py
+    margins(): 0.5 gives OUTSIDE_NORMAL, each 0.25 up halves the departure."""
+    k = 4.0 ** (2.0 * sensitivity - 1.0)
+    vib = OUTSIDE_NORMAL["vibration_above_normal"]
+    return {
+        "vibration_above_normal": 1.0 + (vib - 1.0) / k,
+        "hotter_than_normal": OUTSIDE_NORMAL["hotter_than_normal"] / k,
+        "louder_than_normal": OUTSIDE_NORMAL["louder_than_normal"] / k,
+    }
+
+
+def judged_abnormal(case: str, sensitivity: float = SENSITIVITY) -> bool:
+    """Whether the model calls this case abnormal at this sensitivity."""
+    score = TYPICAL_SCORE.get(case)
+    return score is not None and score > alarm_line(sensitivity)
+
+
 def now_iso() -> str:
     return iso(datetime.now(timezone.utc))
 
@@ -142,7 +173,8 @@ def make_spectrum(case: str, rng: random.Random) -> list[float]:
 
 # --------------------------------------------------------------- messages
 
-def model_announcement(device_id: str = DEVICE_ID, machine_id: str = MACHINE_ID) -> dict:
+def model_announcement(device_id: str = DEVICE_ID, machine_id: str = MACHINE_ID,
+                       sensitivity: float = SENSITIVITY) -> dict:
     """Contract message 1."""
     return {
         "device_id": device_id,
@@ -152,7 +184,7 @@ def model_announcement(device_id: str = DEVICE_ID, machine_id: str = MACHINE_ID)
         "library_entry": LIBRARY_ENTRY,
         "source": "calibrated",
         "threshold": 1.0,
-        "sensitivity": SENSITIVITY,
+        "sensitivity": sensitivity,
         "fault_types": [dict(t, validated=False) for t in FAULT_TYPES],
         "features": [dict(f) for f in FEATURES],
         "spectrum_edges_hz": list(SPECTRUM_EDGES_HZ),
@@ -178,8 +210,28 @@ def _r(rng: random.Random, lo: float, hi: float) -> float:
     return round(rng.uniform(lo, hi), 2)
 
 
-def diagnose(case: str, rng: random.Random, abnormal_minutes: int = 1) -> dict:
-    """The model's side of a record for a case: diagnosis, scores, readings."""
+def diagnose(case: str, rng: random.Random, abnormal_minutes: int = 1, sensitivity: float = SENSITIVITY) -> dict:
+    """The model's side of a record for a case, judged at a sensitivity.
+
+    The case sets the readings and the score; the sensitivity only moves the
+    line. An abnormal case under the line reads as normal, and a normal case
+    over it as an unrecognised pattern.
+    """
+    out = _case(case, rng, abnormal_minutes)
+    abnormal = judged_abnormal(case, sensitivity)
+    if case in ABNORMAL_CASES and not abnormal:
+        return {"diagnosis": "normal", "confidence": out["confidence"], "unknown_score": out["unknown_score"],
+                "reason": "", "features": out["features"], "abnormal_minutes": 0,
+                "out_of_range": out["out_of_range"], "note": out["note"]}
+    if case == "normal" and abnormal:
+        diagnosis = DIAGNOSIS["unrecognised"]
+        out.update(diagnosis=diagnosis, diagnosis_this_minute=diagnosis, reason=UNRECOGNISED_REASON,
+                   confidence=0.3, fault_types={}, abnormal_minutes=max(1, abnormal_minutes))
+    return out
+
+
+def _case(case: str, rng: random.Random, abnormal_minutes: int) -> dict:
+    """The case's own readings and diagnosis, at the default sensitivity."""
     if case not in DIAGNOSIS:
         raise ValueError(f"unknown case {case!r}")
     diagnosis = DIAGNOSIS[case]
@@ -231,10 +283,11 @@ def make_record(
     machine_id: str = MACHINE_ID,
     at: str | None = None,
     abnormal_minutes: int = 1,
+    sensitivity: float = SENSITIVITY,
 ) -> dict:
-    """Contract message 2 for one second of a case, with the problems on now."""
+    """Contract message 2 for one second of a case, with the problems on now, judged at `sensitivity`."""
     problems = [dict(p) for p in (problems or [])]
-    model = diagnose(case, rng, abnormal_minutes)
+    model = diagnose(case, rng, abnormal_minutes, sensitivity)
     record = {
         "device_id": device_id,
         "machine_id": machine_id,
@@ -247,8 +300,8 @@ def make_record(
     record.update(
         confidence=model["confidence"],
         unknown_score=model["unknown_score"],
-        sensitivity=SENSITIVITY,
-        alarm_line=ALARM_LINE,
+        sensitivity=sensitivity,
+        alarm_line=alarm_line(sensitivity),
         reason=model["reason"],
         features=model["features"],
     )
@@ -267,7 +320,7 @@ def make_record(
 
 
 def make_check_in(mode: str, problems: list[dict] | None = None, machine_id: str = MACHINE_ID,
-                  at: str | None = None) -> dict:
+                  at: str | None = None, sensitivity: float = SENSITIVITY) -> dict:
     """Contract message 3. Only limits can be on outside watching."""
     if mode not in MODES or mode == WATCHING:
         raise ValueError(f"a check-in is for a device that is not watching, not {mode!r}")
@@ -278,7 +331,7 @@ def make_check_in(mode: str, problems: list[dict] | None = None, machine_id: str
         "at": at or now_iso(),
         "wrong": bool(problems),
         "problems": problems,
-        "sensitivity": SENSITIVITY,
+        "sensitivity": sensitivity,
         "simulated": True,
     }
 
@@ -298,7 +351,9 @@ class ProblemChecks:
     `start(name)` makes the condition true; the problem shows once it has held
     for `hold_s`. `stop(name)` makes it false; the problem clears once it has
     been gone for most of `hold_s`. Outside-normal checks run only while
-    watching, so outside watching only limits are reported.
+    watching, so outside watching only limits are reported, and only when the
+    problem's value is beyond the margin for the sensitivity (`margins`).
+    Changing the sensitivity starts their hold again (`restart_outside_normal`).
     """
 
     def __init__(self, hold_s: float = HOLD_S):
@@ -322,6 +377,12 @@ class ProblemChecks:
         else:
             self.start(name, now, now_text)
 
+    def restart_outside_normal(self, now: float, now_text: str) -> None:
+        """A new sensitivity: outside-normal problems must hold again before they show."""
+        for name in list(self.started):
+            if PROBLEMS[name][0] != "limit" and self.wanted(name):
+                self.started[name] = (now, now_text)
+
     def wanted(self, name: str) -> bool:
         """The condition is true now (it may not show yet)."""
         return name in self.started and name not in self.stopped
@@ -342,15 +403,19 @@ class ProblemChecks:
                 del self.stopped[name]
                 del self.started[name]
 
-    def current(self, mode: str, rng: random.Random, now: float) -> list[dict]:
+    def current(self, mode: str, rng: random.Random, now: float, sensitivity: float = SENSITIVITY) -> list[dict]:
         """The problems the device reports now, in the names table's order."""
         out = []
+        margin = margins(sensitivity)
         for name in PROBLEM_NAMES:
             if self.status(name, now) not in ("on", "clearing"):
                 continue
             if PROBLEMS[name][0] != "limit" and mode != WATCHING:
                 continue
-            out.append(make_problem(name, rng, self.started[name][1]))
+            problem = make_problem(name, rng, self.started[name][1])
+            if name in margin and problem["value"] <= margin[name]:
+                continue
+            out.append(problem)
         return out
 
 

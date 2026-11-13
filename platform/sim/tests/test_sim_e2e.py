@@ -267,3 +267,31 @@ def test_keys_restore_after_exception():
     finally:
         os.close(master)
         os.close(slave)
+
+
+def test_takes_the_sensitivity_from_the_platform_reply():
+    with FakePlatform() as fp:
+        fp.settings = {"sensitivity": 0.0}
+        p = run_sim("--case", "unbalance", "--interval", "0.1", "--count", "4", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        first, *rest = fp.records
+        assert (first["sensitivity"], first["diagnosis"]) == (0.5, "unbalance_like")  # before any reply
+        assert all((r["sensitivity"], r["alarm_line"], r["diagnosis"]) == (0.0, 4.0, "normal") for r in rest)
+        assert "sensitivity set to 0" in p.stderr
+
+
+def test_check_ins_carry_the_sensitivity_taken():
+    with FakePlatform() as fp:
+        fp.settings = {"sensitivity": 0.8}
+        p = run_sim("--mode", "recording", "--interval", "0.1", "--count", "3", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        assert [body["sensitivity"] for _, body in fp.check_ins] == [0.5, 0.8, 0.8]
+
+
+def test_sensitivity_option():
+    with FakePlatform() as fp:
+        p = run_sim("--case", "normal", "--sensitivity", "1", "--interval", "0.1", "--count", "2", url=fp.url)
+        assert p.returncode == 0, p.stderr
+        assert fp.models[0]["sensitivity"] == 1.0
+        assert all(r["diagnosis"] == "unrecognised_pattern" and r["alarm_line"] == 0.25 for r in fp.records)
+    assert run_sim("--sensitivity", "2", "--count", "1").returncode == 2

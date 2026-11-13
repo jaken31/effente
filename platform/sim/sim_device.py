@@ -84,11 +84,12 @@ class Sim:
         self.rng = random.Random(args.seed)
         self.case = args.case
         self.mode = args.mode
+        self.sensitivity = args.sensitivity
         self.checks = model.ProblemChecks(hold_s=args.hold)
         now = time.monotonic()
         for name in args.problem or []:
             self.checks.start(name, now, model.now_iso())
-        self.stretch_start = now if self.case in model.ABNORMAL_CASES else None
+        self.stretch_start = None  # when the current abnormal stretch began, set by next_record
         self.heat = sim_heat.HeatSim(args.heat, args.seed)
         self.reachable = None  # None until the first attempt
         self.need_announce = True
@@ -105,10 +106,24 @@ class Sim:
     def set_case(self, case: str) -> None:
         if case != self.case:
             self.case = case
-            self.stretch_start = time.monotonic() if case in model.ABNORMAL_CASES else None
+            self.stretch_start = None  # a new case is a new stretch
 
     def next_mode(self) -> None:
         self.mode = model.MODES[(model.MODES.index(self.mode) + 1) % len(model.MODES)]
+
+    def set_sensitivity(self, value: float) -> None:
+        """Take a sensitivity, as the device does from the platform's replies (contract section 7)."""
+        if value == self.sensitivity:
+            return
+        self.sensitivity = value
+        self.checks.restart_outside_normal(time.monotonic(), model.now_iso())
+        self.err.write(f"\nsensitivity set to {value:g} by the platform (alarm line {model.alarm_line(value):g})\n")
+
+    def _take_settings(self, result) -> None:
+        settings = result.body.get("settings") if result.ok else None
+        value = settings.get("sensitivity") if isinstance(settings, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1:
+            self.set_sensitivity(float(value))
 
     def toggle_problem(self, name: str) -> None:
         self.checks.toggle(name, time.monotonic(), model.now_iso())
@@ -142,7 +157,7 @@ class Sim:
         """Send message 1 when due. Returns False if the platform is unreachable."""
         if not self.need_announce:
             return True
-        r = self.link.announce(model.model_announcement(self.args.device, self.args.machine))
+        r = self.link.announce(model.model_announcement(self.args.device, self.args.machine, self.sensitivity))
         self._note(r)
         if r.ok:
             self.need_announce = False
@@ -155,6 +170,7 @@ class Sim:
         batch = self.pending + [record]
         r = self.link.send_records(batch)
         self._note(r)
+        self._take_settings(r)
         if not r.reachable:
             self._queue([record])
             return
@@ -170,7 +186,9 @@ class Sim:
         """Message 3. A check-in is not queued: only the newest one matters."""
         if not self.announce_if_needed():
             return
-        self._note(self.link.check_in(body))
+        r = self.link.check_in(body)
+        self._note(r)
+        self._take_settings(r)
 
     # --- messages ---------------------------------------------------------
     def abnormal_minutes(self) -> int:
@@ -179,15 +197,19 @@ class Sim:
         return 1 + int((time.monotonic() - self.stretch_start) // 60)
 
     def next_record(self):
-        problems = self.checks.current(model.WATCHING, self.rng, time.monotonic())
+        problems = self.checks.current(model.WATCHING, self.rng, time.monotonic(), self.sensitivity)
         if self.replay is not None:
             if self.replay_index >= len(self.replay):
                 return None
             src = self.replay[self.replay_index]
             self.replay_index += 1
             return self.replayer.record(src)
+        if not model.judged_abnormal(self.case, self.sensitivity):
+            self.stretch_start = None
+        elif self.stretch_start is None:
+            self.stretch_start = time.monotonic()
         record = model.make_record(self.case, self.rng, problems, self.args.device, self.args.machine,
-                                   abnormal_minutes=self.abnormal_minutes())
+                                   abnormal_minutes=self.abnormal_minutes(), sensitivity=self.sensitivity)
         heat = self.heat.heat(record["at"], self.args.interval)
         if heat is not None:
             record["heat"] = heat
@@ -196,8 +218,8 @@ class Sim:
     def step(self) -> bool:
         """Send one record (watching) or check-in (any other mode). False when there is nothing more to send."""
         if self.mode != model.WATCHING:
-            problems = self.checks.current(self.mode, self.rng, time.monotonic())
-            body = model.make_check_in(self.mode, problems, self.args.machine)
+            problems = self.checks.current(self.mode, self.rng, time.monotonic(), self.sensitivity)
+            body = model.make_check_in(self.mode, problems, self.args.machine, sensitivity=self.sensitivity)
             self.last_sent = self._describe("check-in " + self.mode, body["problems"])
             self.produced += 1
             self.check_in(body)
@@ -246,7 +268,7 @@ class Sim:
             plat = "platform ok"
         if self.pending:
             plat += f" ({len(self.pending)} queued)"
-        return (f"[SIM] {self.mode} | case {source} | problems {', '.join(checks) or 'none'} | heat {self.heat.mode} | "
+        return (f"[SIM] {self.mode} | case {source} | sensitivity {self.sensitivity:g} | problems {', '.join(checks) or 'none'} | heat {self.heat.mode} | "
                 f"sent {self.last_sent or 'nothing yet'} | {plat}")
 
     # --- main loop --------------------------------------------------------
@@ -311,6 +333,9 @@ def parse_args(argv=None):
                    help="watching sends records; any other mode sends check-ins (default watching)")
     p.add_argument("--problem", action="append", choices=model.PROBLEM_NAMES, metavar="NAME",
                    help="a problem on from the start (repeatable): " + ", ".join(model.PROBLEM_NAMES))
+    p.add_argument("--sensitivity", type=float, default=model.SENSITIVITY,
+                   help="0 (least sensitive) to 1 (most) to start at; the platform's settings replace it "
+                        f"(default {model.SENSITIVITY:g})")
     p.add_argument("--hold", type=float, default=model.HOLD_S,
                    help=f"seconds a problem must hold before it shows (default {model.HOLD_S:g}, as on the device)")
     p.add_argument("--interval", type=float, default=1.0, help="seconds between records or check-ins (at most 2)")
@@ -325,6 +350,8 @@ def parse_args(argv=None):
     if not 0 < args.interval <= MAX_INTERVAL_S:
         p.error(f"--interval must be above 0 and at most {MAX_INTERVAL_S:g} (the platform counts a device "
                 "silent for 5 s as gone, and the contract asks for a request every 2 s)")
+    if not 0 <= args.sensitivity <= 1:
+        p.error("--sensitivity must be from 0 to 1")
     if args.hold < 0:
         p.error("--hold must be 0 or more")
     if args.replay and args.mode != model.WATCHING:
