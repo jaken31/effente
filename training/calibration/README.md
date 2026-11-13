@@ -5,13 +5,16 @@ Calibration fits a library entry to the machine the device was just snapped onto
 Nothing here has been checked on a real machine. Every number below is simulated (unverified).
 
 ```python
+import json
 from effente.calibration import calibrate, fit_check
 
+entry_model = json.load(open("training/library/entries/conveyor/model.json"))
+manifest = json.load(open("training/library/entries/conveyor/manifest.json"))
 model, report = calibrate(entry_model, t, X, names, min_running_s=300, seed=0)
 verdict = fit_check(report, manifest)     # {"ok": bool, "ratio": float, "reason": str}
 ```
 
-`entry_model` is the entry's `model.json` as a dict, `manifest` its `manifest.json`. `t, X, names` are one-a-second feature rows, as for `effente.trainer.train_model`. The result loads in `effente.model_runtime.Model` unchanged. `calibrate` raises `ValueError` if the machine ran for less than `min_running_s`.
+`t, X, names` are one-a-second feature rows, as for `effente.trainer.train_model`. The result loads in `effente.model_runtime.Model` unchanged. `calibrate` raises `ValueError` if the machine ran for less than `min_running_s`. It reads the model file only, never the manifest.
 
 One more keyword, after `seed`: `threshold_floor_share` (default 0.25, see below).
 
@@ -19,93 +22,84 @@ One more keyword, after `seed`: `threshold_floor_share` (default 0.25, see below
 
 Kept from the entry: the network, the PCA score scales, the readings it uses, the summary period, the persistence.
 
-Fitted to this machine: the median and spread of each reading (`Prep`), the residual spreads, the alarm threshold, the safety baseline, and the fault classifier if the entry carries one. The time split is the trainer's: the last 15 % is held out for the threshold.
+Fitted to this machine: the median and spread of each reading (`Prep`), the residual spreads, the alarm threshold, the safety baseline, and the fault classifier if the entry carries one (the library's entries do). The time split is the trainer's: the last 15 % is held out for the threshold.
 
 No key is added to the model file. `training_report` holds the calibration report (`"calibrated": true`), with the entry's own report under `entry_training_report`.
 
-## The two floors are deliberate, and the threshold floor costs sensitivity
+## The floors
 
 A few minutes cannot show how far readings move in an hour. So the entry guards the fit:
 
-- **Spread floor.** A reading's spread is never taken below the entry's own. If the entry carries `calibration.widen` factors (the entries of branch `track3/library-build` do), the fitted spread is multiplied by them instead.
-- **Threshold floor.** The threshold is `max(fitted here, threshold_floor_share x the entry's threshold)`. The default share is 0.25 (`THRESHOLD_FLOOR_SHARE`). There is no upper bound.
-- **Not judged.** Readings the entry lists in `calibration.hold`, and readings this machine did not give while calibrating, get a huge spread. That includes a 10-minute trend that only starts after a 5-minute calibration.
+- **Spread floor.** A reading's spread is never taken below the entry's own.
+- **Threshold floor.** The threshold is `max(fitted here, threshold_floor_share x the entry's threshold)`. The default share is 0.25 (`THRESHOLD_FLOOR_SHARE`). There is no upper bound. The rule is open and may be replaced.
+- **Not judged.** A reading this machine did not give while calibrating (NaN in more than half the rows) gets a huge spread and is never judged, also when it appears later. A 10-minute trend that only starts after a 5-minute calibration is one.
 
-The default of 0.25 is a starting value, simulated only. It is tied to the entry's threshold, so a different entry may need a different share. Where it came from: reported by the coordinating session, not reproduced here, from 12 simulated conveyors on a two-day stand-in entry. My own measurements of it follow.
+The default of 0.25 is a starting value, simulated only. It is tied to the entry's threshold, so a different entry may need a different share. Where it came from: reported by the coordinating session, not reproduced here, from 12 simulated conveyors on a two-day stand-in entry.
 
-All numbers below are simulated. Machines: the repo's conveyor simulator with four seeds, loads and room temperatures, and its server rack with three seeds, device sensors only. Entries: the conveyor entries of `feat/model-library` (73bda18, threshold 59.85) and `track3/library-build` (1be1879, threshold 24.53, with widen and hold), each copied out with `git show`.
+### What the library's `widen` and `hold` do here: nothing
 
-### False alarms after a 300 s calibration
+The library's entries keep `calibration.widen` and `calibration.hold` in `manifest.json` only. Their `model.json` has no `calibration` key, and `calibrate` does not read the manifest. So on the library's entries:
+
+- **No widen factor is applied.** The entry's own spreads are the floor. A test checks this on the committed conveyor entry. The library session reports the factors measured worse than this floor: 14 to 48 % against 9 to 15 % alarm share (simulated; reported by the library session, not reproduced here).
+- **No reading is held.** The clock, trend and IMU temperature readings are treated like any other. On a simulated conveyor with the `conveyor` entry (22 such readings), a 300 s calibration left 17 not judged because they had no value yet (the trends of 10 minutes and longer, and the heat trends), and refitted and judged 5: `imu_temp_c`, `time_hour_sin`, `time_hour_cos`, `trend_shocks_10m`, `trend_since_shock_s`. Those 5 get this machine's median and at least the entry's spread.
+
+`calibrate` still honours `calibration.widen` and `calibration.hold` if a model file itself carries them (tested with a fixture). No entry on master does.
+
+## Measured on simulated machines
+
+Entries: the two on master, `training/library/entries/conveyor` (threshold 50.84) and `generic_rotating` (46.14). Machines: the repo's conveyor simulator with four seeds, loads and room temperatures, and its server rack with three seeds, device sensors only. The simulators need SciPy. Default share 0.25 throughout.
+
+### After a 300 s calibration
 
 ```bash
-python3 -m training.calibration.measure --entry <conveyor> --threshold-floor-share 0.25    # and with 1, the earlier default
+python3 -m training.calibration.measure --entry training/library/entries/conveyor --entry training/library/entries/generic_rotating
 ```
 
-Share of seconds in alarm during the 40 minutes of normal running that follow (simulated, 7 machines per entry):
+Simulated, 7 machines per entry, 40 minutes of normal running after calibration:
 
-| Entry | Share 0.25 | Share 1 | Trained on the same 300 s alone |
-|-------|-----------:|--------:|--------------------------------:|
-| conveyor, `feat/model-library` | 0.000 on all 7 | 0.000 on all 7 | 0.730 to 0.978 |
-| conveyor, `track3/library-build` | 0.072, 0.030, 0.060 and 0.000 on the four conveyors; 0.000 on the three server racks | 0.000 to 0.002 | 0.730 to 0.978 |
+| | `conveyor` | `generic_rotating` |
+|---|---|---|
+| Share of seconds in alarm | 0.000 on 6 machines, 0.002 on one | 0.000 on 6 machines, 0.002 on one |
+| The same for a model trained on the same 300 s alone | 0.730 to 0.978 | 0.730 to 0.978 |
+| Threshold fitted from the machine | 1.84 to 4.16 | 1.55 to 2.23 |
+| Threshold used (the floor) | 12.71 | 11.54 |
+| Fit check ratio, conveyors | 0.23 to 0.24 | 0.07 to 0.08 |
+| Fit check ratio, server racks | 0.37 to 0.38 | 0.09 to 0.10 |
 
-**0.25 is worse than 1 here.** With the `track3/library-build` entry, three of the four simulated conveyors alarmed in 3 to 7 % of normal seconds at 0.25, against at most 0.2 % at 1. None of those alarms fell in the first 5 minutes after calibration.
+- **The threshold refit is inert.** In 14 of 14 calibrations the fitted threshold was below the floor, so the floor decided it. A calibrated model alarms as high as 0.25 x the entry's threshold, whatever the machine.
+- **False alarms and the slow readings.** The 0.002 is 4 seconds on one conveyor. None of those seconds was led by a clock, trend or IMU temperature reading (the readings that moved most were `slow_band_00`, `vib_env_peak`, `vib_peak2`). So no false alarm here traces to the readings the manifest would hold. That is 40 minutes; it says nothing about a whole day.
+- **A longer watch looks worse.** Reported by the library session, not reproduced here: over the next 24 simulated hours the calibrated entries alarmed about 9 % of the running time, one episode a day at the end of the shift, which a calibration at 08:00 never saw.
 
-The last column is what a short fit does with no guard at all. There is no committed run with only the spread floor switched off.
+### Calibration length
 
-**The threshold refit is inert on the simulators.** In every calibration (14 of 14 at share 0.25 and 14 of 14 at share 1, the two conveyor entries on 7 machines) the threshold fitted from the machine was below the floor, so the floor decided it. The fitted value was 0.69 to 2.04 on the `feat/model-library` conveyor entry and 1.88 to 4.00 on the `track3/library-build` one. A calibrated model alarms as high as share x the entry's threshold, whatever the machine.
+Same command, simulated. From 60 s to 1200 s the alarm share after calibration stayed between 0.000 and 0.002 on all 7 machines and both entries. Since the floor set the threshold every time, this says little about how short a calibration can be. It is not a reason to shorten it on real machines.
 
 ### Faults
 
-Four faults (unbalance and looseness, obvious and subtle) on one simulated conveyor, switched on 10 minutes after a 300 s calibration (simulated):
+Four faults on one simulated conveyor (seed 2), switched on 10 minutes after a 300 s calibration (simulated):
 
 ```bash
-python3 -m training.calibration.measure --entry <conveyor> --faults-only --threshold-floor-share 0.25    # also 0, 0.5 and 1
+python3 -m training.calibration.measure --entry training/library/entries/conveyor --entry training/library/entries/generic_rotating --faults-only
 ```
 
-| Entry | Share | Alarm share before the fault | Faults that raised an alarm | First alarm |
-|-------|------:|-----------------------------:|----------------------------:|------------:|
-| conveyor, `feat/model-library` | 0 | 0.796 | 4 of 4 (already alarming) | 0 s |
-| | 0.25 | 0.000 | 1 of 4 (obvious looseness) | 23 s |
-| | 0.5 | 0.000 | 0 of 4 | never |
-| | 1 | 0.000 | 0 of 4 | never |
-| conveyor, `track3/library-build` | 0 | 0.023 | 4 of 4 | 3 to 12 s |
-| | 0.25 | 0.000 | 4 of 4 | 6 to 25 s |
-| | 0.5 | 0.000 | 4 of 4 | 9 to 36 s |
-| | 1 | 0.000 | 4 of 4 | 12 to 50 s |
+| Entry | Fault | Alarm share before | Alarm share during | First alarm | Named |
+|-------|-------|-------------------:|-------------------:|------------:|-------|
+| `conveyor` | unbalance, obvious | 0.000 | 0.977 | 21 s | unbalance_like |
+| | unbalance, subtle | 0.000 | 0.777 | 59 s | vibration_too_high |
+| | looseness, obvious | 0.000 | 0.984 | 14 s | misalignment_like (wrong) |
+| | looseness, subtle | 0.000 | 0.956 | 40 s | looseness_or_rattle |
+| `generic_rotating` | unbalance, obvious | 0.000 | 0.976 | 22 s | unbalance_like |
+| | unbalance, subtle | 0.000 | 0.000 | never | - |
+| | looseness, obvious | 0.000 | 0.983 | 15 s | looseness_or_rattle |
+| | looseness, subtle | 0.000 | 0.950 | 45 s | looseness_or_rattle |
 
-**0.25 still misses three of four faults on the `feat/model-library` entry**: both unbalances and the subtle looseness raised no alarm. That is better than 1 (none caught) and not good enough for the demo's unbalance case. On the `track3/library-build` entry 0.25 catches all four, sooner than 1 does.
-
-So 0.25 cuts both ways: fewer missed faults than 1 on one entry, more false alarms than 1 on the other. One fault machine and four faults were measured; that is too few to settle a default.
-
-## Fault names
-
-Simulated, `track3/library-build` conveyor entry, share 1, run with `--classifier` added:
-
-| Fault | Named, signatures alone | Named, classifier fitted in calibration |
-|-------|-------------------------|------------------------------------------|
-| unbalance, obvious | unbalance_like | impacts |
-| unbalance, subtle | unbalance_like | vibration_too_high |
-| looseness, obvious | unbalance_like (wrong) | unbalance_like (wrong) |
-| looseness, subtle | looseness_or_rattle | looseness_or_rattle |
-
-A classifier is fitted only if the entry carries one. The `track3/library-build` entries carry none. The `feat/model-library` entries do, so calibrating them refits it.
-
-## Calibration length
-
-Simulated, `track3/library-build` entries, share 1: from 60 s to 1200 s the alarm share after calibration stayed between 0.000 and 0.002 on all 7 machines. Since the entry's threshold was the one used every time, this says little about how short a calibration can be. It is not a reason to shorten it on real machines. Not re-measured at share 0.25.
+The `conveyor` entry caught 4 of 4, `generic_rotating` 3 of 4 (the subtle unbalance never alarmed). Two of the four were named as another type with the `conveyor` entry. The coordinating session reports 4 of 4 for full-size unbalance, misalignment and looseness on four unseen simulated conveyors (not reproduced here). This run agrees for the two full-size faults it has; it did not run misalignment, and it used one machine.
 
 ## The fit check does not tell machine types apart
 
 The rule is `ratio <= 3`, where ratio is this machine's median held-out score after calibration over the entry's own held-out median (`heldout_score_quantiles.p50` in the manifest). The limit is a starting value, simulated only. The TRD lists the rule as open, and it stays open.
 
-On the simulators every machine passed on every entry (simulated):
-
-| Entry | Conveyors | Server racks |
-|-------|----------:|-------------:|
-| conveyor, `feat/model-library` | 0.23 to 0.25 | 0.25 to 0.27 |
-| conveyor, `track3/library-build` | 0.38 to 0.42 | 0.52 to 0.56 |
-
-Once each reading is in spreads of its own machine, a server rack scores about like a conveyor. A pass means only that no gross mismatch was found. It does not show the machine is of the entry's type. A check that could not be made (no held-out median in the manifest, another feature list) is reported as failed, with the reason.
+In the table above every machine passed on every entry: server racks scored 0.37 to 0.38 on the `conveyor` entry against 0.23 to 0.24 for conveyors (simulated). A pass means only that no gross mismatch was found. It does not show the machine is of the entry's type. A check that could not be made (no held-out median in the manifest, another feature list) is reported as failed, with the reason.
 
 ## From a laptop
 
@@ -113,7 +107,7 @@ Once each reading is in spreads of its own machine, a server rack scores about l
 python3 -m training.calibration.calibrate --entry training/library/entries/conveyor --run <recording folder> --out models/conveyor-07.json
 ```
 
-Exit code 0 if the fit check passed, 2 if it failed (the file is still written), 1 if there was too little running.
+Exit code 0 if the fit check passed, 2 if it failed (the file is still written), 1 if there was too little running. A test runs it on the committed entry folder.
 
 ## Tests
 
@@ -121,16 +115,24 @@ Exit code 0 if the fit check passed, 2 if it failed (the file is still written),
 python3 -m training.calibration.tests.test_calibration
 ```
 
-21 tests on synthetic machines, NumPy only. The library entry in them is a fixture built in the test file.
+23 tests, NumPy only. Two use the committed `conveyor` entry and its manifest. The rest use synthetic machines and a fixture entry built in the test file.
+
+## Earlier results, on entries that are not on master
+
+Kept for the record. Both entries below were superseded; neither is in `training/library/`.
+
+- **`feat/model-library` at 73bda18, conveyor entry with threshold 59.85** (simulated, one conveyor, four faults, `--faults-only --threshold-floor-share S`): share 0 alarmed in 0.796 of normal seconds; 0.25 caught 1 of 4 faults; 0.5 and 1 caught none.
+- **`track3/library-build` at 1be1879, conveyor entry with threshold 24.53 and widen and hold in the model file** (simulated, same runs): every share from 0.25 to 1 caught 4 of 4 with no alarm before them. At 0.25 three of four conveyors alarmed in 3 to 7 % of the 40 normal minutes, against at most 0.2 % at 1. A classifier fitted in calibration named an obvious unbalance "impacts"; the signatures alone named it unbalance_like.
+
+What carries over: the right share depends on the entry's threshold.
 
 ## Known issues
 
 - **Copied code.** `calibrate` repeats the trainer's fault-classifier block (inject, fit, quantize, about 12 lines of `effente.trainer.train_model`), and `refit_prep` repeats the median and spread statistics of `effente.model_input.Prep.fit`. Sharing them needs an edit to existing shared code, which needs the team's agreement. Until then a change to either original must be made here too.
 - **Simulated only.** No number here says anything certain about a real machine.
-- **Threshold floor.** See above: the refit is inert on the simulators, 0.25 misses three of four simulated faults on the `feat/model-library` conveyor entry, and it raises false alarms to 3 to 7 % on three simulated conveyors with the `track3/library-build` entry.
+- **Threshold floor.** The refit is inert on the simulators: the floor sets the threshold every time. The rule is open.
 - **No upper bound on the threshold.** Reported by the coordinating session, not reproduced here: in 2 of 12 simulated runs the fitted threshold was 2.3 to 3 times the entry's and that machine caught nothing. `max()` cannot fix that; it needs a ceiling share, which is not built.
-- **Fault names and the calibration-length sweep** were measured at share 1 and not repeated at 0.25.
+- **`hold` and `widen` are not applied on the library's entries**, because they are in the manifest and `calibrate` reads the model file only. Five clock, trend and IMU temperature readings are refitted from 5 minutes and judged.
 - **Fit check.** Cannot tell machine types apart; rule open.
-- **Short calibration and the classifier.** A classifier fitted to 5 minutes named a simulated unbalance wrongly.
+- **Fault names.** With the classifier refitted in calibration, 2 of 4 simulated faults were named as another type on the `conveyor` entry.
 - **Early warning.** The device app also needs `effente.early_warning.calibrate` after this. That call is in `device/intake/device_app.py`, track 1's.
-- **Two library layouts.** `feat/model-library` and `track3/library-build` write different manifests and model files. `fit_check` reads both manifests.

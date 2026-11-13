@@ -14,28 +14,29 @@ and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
                            too (injected patterns on this machine's own normal variation, as in
                            full training)
   with the entry as guard  two deliberate floors and one switch-off (refit_prep, calibrate):
-                           - spreads: widened by the entry's calibration.widen factors, or, for
-                             an entry without them, never below the entry's own spreads
+                           - spreads: never below the entry's own spreads
                            - threshold: never below threshold_floor_share (default 0.25) of the
                              entry's own threshold
-                           - readings the entry holds, or this machine did not give while
-                             calibrating, are not judged
+                           - readings this machine did not give while calibrating are not judged
+
+Only the model file is read, never the manifest. The library's entries (training/library) keep
+their calibration.widen factors and calibration.hold list in manifest.json, so neither is applied
+to them: the entry's spreads are the floor, and the clock, trend and IMU temperature readings are
+fitted and judged like any other. A model file that itself carries a "calibration" key with widen
+or hold is honoured (_entry_settings); no entry on master does.
 
 Why the floors, and what they cost (all SIMULATED, unverified; commands and numbers in
 training/calibration/README.md). A few minutes cannot show how far readings wander in an hour. A
 model fitted to 300 s alone, with no entry behind it, alarmed in 73 to 98 % of the following 40
-minutes of normal running. With the floors the calibrated entries alarmed in 0 to 0.2 %.
+minutes of normal running. The library's two entries, calibrated, alarmed in 0 to 0.2 %.
 The threshold floor is the blunt one. In every simulated calibration the threshold fitted from this
-machine was far below the entry's, so the floor decided the threshold: the refit itself is inert on
-the simulators, and a calibrated model alarms as high as share x the entry's threshold. That costs
-sensitivity, and how much depends on the entry. With the conveyor entry of branch feat/model-library
-(threshold 59.85), of four simulated faults share 1.0 and 0.5 caught none, the default 0.25 caught
-one, and share 0 alarmed in 80 % of normal seconds. With the conveyor entry of track3/library-build
-(threshold 24.53) every share from 0.25 to 1 caught all four with no alarm before them, but at
-0.25 three of four simulated conveyors alarmed in 3 to 7 % of the 40 normal minutes after
-calibration, against at most 0.2 % at 1.0.
+machine was far below the floor, so the floor decided the threshold: the refit itself is inert on
+the simulators, and a calibrated model alarms as high as share x the entry's threshold. How much
+sensitivity that costs depends on the entry's threshold. With the library's conveyor entry
+(threshold 50.84) four of four simulated faults raised an alarm at the default share; with an
+earlier entry (threshold 59.85, no longer in the library) only one of four did.
 The default of 0.25 is a starting value, simulated only, and tied to the entry's threshold: a
-different entry may need a different share.
+different entry may need a different share. The rule is open and may be replaced.
 
 It follows effente.trainer.train_model step for step and reuses its parts, so a calibrated model
 and one trained on the machine alone differ only in where the network came from: running rows
@@ -107,11 +108,10 @@ NOT_JUDGED = 1e12  # a spread this large makes a reading always read as usual: i
 def _entry_settings(entry_model: dict, columns: list[str]):
     """What the entry itself says about calibrating it: (widen factors or None, held mask).
 
-    The library's entries (training/library) carry "calibration": {"widen": one factor per reading,
-    "hold": names or prefixes ending in "_"}. widen multiplies the spread fitted here, because a few
-    minutes see less variation than the hours the entry was built from. hold names readings a short
-    calibration cannot fit (the clock, trends, the IMU's temperature): they are not judged.
-    An entry without it (a plain trained model) gets no widening and nothing held; its own spreads
+    A model file may carry "calibration": {"widen": one factor per reading, "hold": names or prefixes
+    ending in "_"}. widen multiplies the spread fitted here; hold names readings that are not judged.
+    The library's entries on master do not carry it (theirs is in manifest.json, which calibrate
+    never reads), so for them this returns no widening and nothing held, and the entry's own spreads
     are then the floor (refit_prep)."""
     cal = entry_model.get("calibration")
     cal = cal if isinstance(cal, dict) else {}
@@ -226,10 +226,9 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     model = RT.Model(d)
 
     # The fault classifier, as in full training (this machine's own normal deviations with the fault-type
-    # signatures added; no real labelled faults, unverified), for an entry that carries one. An entry
-    # without one (the library's) gets none: faults are then named by the signatures alone. On the
-    # simulated conveyor a classifier fitted to 5 minutes named an unbalance "impacts"; the signatures
-    # alone named it unbalance_like (training/calibration/README.md).
+    # signatures added; no real labelled faults, unverified), for an entry that carries one: the
+    # library's entries do. An entry without one gets none, and faults are then named by the
+    # signatures alone.
     classes, acc = [], None
     if "fault_classifier" in entry_model:
         rng = np.random.default_rng(seed)
