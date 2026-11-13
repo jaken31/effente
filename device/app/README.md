@@ -15,7 +15,11 @@ plug in ──> DISPLAY ──button──> RECORDING ──button──> TRAINI
 | Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on. A day or more trains from the per-minute summaries, so a week fits in memory |
 | Inference | `NOTHING WRONG`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
 
-Pressing the button while in inference starts a new recording, to relearn. After a power cut, the app resumes what it was doing. If it was in inference, it carries on with the saved model. If it was recording, it carries on recording into the same folder.
+Pressing the button while in inference starts a new recording, to relearn. Recording happens only in the recording mode, and only a button press starts it. After a power cut:
+
+- **Inference:** it carries on with the saved model.
+- **Training:** it carries on training. If training then fails, it goes back to not recording, not to recording.
+- **Recording:** the recording stops. What was kept stays in its folder, and the app comes back not recording: inference with the saved model if there is one, otherwise streaming. The status message says `power cut ended the recording; press to record again`. The next press starts a new recording.
 
 ## What counts as wrong
 
@@ -67,6 +71,8 @@ It never counts as wrong: `wrong` stays false. While something is wrong it is se
 | MPU6050 (on this board's module: an MPU-6500, WHO_AM_I 0x70) | Third I2C bus (`Wire2`), address 0x68 | Accelerometer ±8 g, gyro ±250 °/s, 1 kHz. Accelerometer low-pass 218 Hz (6500) or 184 Hz (6050) |
 | OLED 128×64 | `Wire2`, address 0x3C | SSD1306/SSD1309. For an SH1106, set `OLED_COL_OFFSET` to 2 in the sketch |
 | Button | D9 to GND | Internal pull-up, debounced. Until it's wired, `adb shell touch /home/arduino/ArduinoApps/effente/data/press` counts as a press |
+| Microphone INMP441 (not fitted yet) | I2S, pins not chosen | Slot only: the Linux side takes an `audio` notification and the status has `sound_db`, but no sketch reads the microphone yet. Off unless `EFFENTE_MIC=1`. Raw 16 kHz audio won't fit on the Bridge line (see below) |
+| Thermal camera MLX90640-D55 (not fitted yet) | I2C, address 0x33, bus not chosen | Slot only: the Linux side takes a `thermal` notification (24 × 32, hundredths of a °C) and the status has `thermal_max_c`, but no sketch reads the camera yet. Off unless `EFFENTE_THERMAL=1` |
 
 ## Deploy, and connect to the stream
 

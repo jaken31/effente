@@ -178,8 +178,9 @@ bool oledBegin() {
 // One page (an eighth of the screen, about 3.5 ms at 400 kHz) per loop pass, never the whole screen at
 // once: a whole frame held the bus for about 27 ms, and with the sensor read on top the MPU-6500's 512-byte
 // FIFO (42 ms of samples) overflowed and the samples after it came out of step (12 Nov, on the board).
-void oledPage(uint8_t page) {
+bool oledPage(uint8_t page) {  // false if any write failed: the page is then sent again
   BUS.setClock(OLED_I2C_HZ);
+  bool ok = true;
   const uint8_t pos[3] = {(uint8_t)(0xB0 + page), (uint8_t)(0x00 + (OLED_COL_OFFSET & 0x0F)),
                           (uint8_t)(0x10 + (OLED_COL_OFFSET >> 4))};
   oledCmds(pos, 3);
@@ -188,11 +189,13 @@ void oledPage(uint8_t page) {
     BUS.write(0x40);
     for (uint16_t i = 0; i < oledChunk && x + i < 128; i++) BUS.write(fb[page][x + i]);
     if (BUS.endTransmission() != 0) {
+      ok = false;
       oledErrors++;
       if (oledChunk > 16) oledChunk = oledChunk > 32 ? 32 : 16;  // the bus refused a long write
     }
   }
   BUS.setClock(MPU_I2C_HZ);
+  return ok;
 }
 
 void textLine(uint8_t line, const char *s, uint8_t len) {
@@ -463,6 +466,8 @@ bool screen(MsgPack::str_t text) {
 uint32_t seq = 0, lastRead = 0, lastStatus = 0, batches = 0, presses = 0, notifyUs = 0, lastFrameAt = 0;
 bool buttonDown = false;
 uint32_t buttonChange = 0;
+uint32_t lastSampleMs = 0;  // when the FIFO last gave a sample
+uint32_t sensorRestarts = 0;
 
 void setup() {
   Bridge.begin();
@@ -474,6 +479,7 @@ void setup() {
   BUS.begin();
   BUS.setClock(100000);  // the first look at a gentle 100 kHz
   mpuOk = mpuBegin();
+  lastSampleMs = millis();
   oledOk = oledBegin();
   BUS.setClock(MPU_I2C_HZ);
   Bridge.provide_safe("screen", screen);
@@ -515,6 +521,7 @@ void readFifo() {
       n = take = got;  // send what was read, then stop until the next read
     }
     if (take == 0) break;
+    lastSampleMs = millis();
     uint32_t t = micros();
     uint8_t tb[2] = {0, 0};
     mpuRead(0x41, tb, 2);  // TEMP_OUT: the IMU's temperature sensor
@@ -532,6 +539,15 @@ void readFifo() {
 
 void loop() {
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
+  // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
+  // its power-on state (asleep, FIFO off) and reports an empty FIFO for ever (13 Nov, on the board: the
+  // samples stopped for good 35 s in, with the sensor still "found"). Set it up again.
+  if (mpuOk && millis() - lastSampleMs > 500) {
+    mpuOk = false;
+    gravInit = false;
+    sensorRestarts++;
+    lastTry = millis() - 2000;  // now, not in 2 s
+  }
   if ((!mpuOk || !oledOk) && millis() - lastTry >= 2000) {
     lastTry = millis();
     busRecover();
@@ -543,7 +559,10 @@ void loop() {
       screenKnown = false;
     }
     BUS.setClock(MPU_I2C_HZ);
-    if (mpuOk) lastRead = micros();
+    if (mpuOk) {
+      lastRead = micros();
+      lastSampleMs = millis();  // half a second to give its first sample
+    }
   }
   uint32_t now = micros();
   if (mpuOk && now - lastRead >= READ_EVERY_US) {
@@ -557,12 +576,19 @@ void loop() {
     lastFrameAt = at;
     compose();
     nextPage = 0;
+    static uint32_t lastFullAt = 0;  // every 2 s, send every page: a garbled write the bus didn't report can't stick
+    if (millis() - lastFullAt >= 2000) {
+      lastFullAt = millis();
+      screenKnown = false;
+    }
   }
   while (oledOk && nextPage < 8 && screenKnown && !memcmp(fb[nextPage], onScreen[nextPage], 128))
     nextPage++;  // unchanged: nothing to send
   if (oledOk && nextPage < 8) {  // one changed page per pass, so the FIFO is read in between
-    oledPage(nextPage);
-    memcpy(onScreen[nextPage], fb[nextPage], 128);
+    if (oledPage(nextPage))
+      memcpy(onScreen[nextPage], fb[nextPage], 128);
+    else
+      memset(onScreen[nextPage], 0xA5, 128);  // unknown: differs from anything drawn, so it goes again next frame
     nextPage++;
   }
   if (oledOk && nextPage == 8 && lastFrameAt) {
@@ -575,7 +601,8 @@ void loop() {
   if (millis() - lastBeat >= 1000) {
     lastBeat = millis();
     Bridge.notify("hb", (uint32_t)millis(), mpuOk, oledOk, (uint32_t)whoAmI, (uint32_t)lastBusClocks,
-                  (uint32_t)busTries, sdaWasHigh, sclWasHigh, (uint32_t)readErrors);
+                  (uint32_t)busTries, sdaWasHigh, sclWasHigh, (uint32_t)readErrors, (uint32_t)oledErrors,
+                  (uint32_t)frames);
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
   if (down != buttonDown && millis() - buttonChange > 30) {  // 30 ms debounce
