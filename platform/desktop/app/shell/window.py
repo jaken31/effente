@@ -31,7 +31,11 @@ from .topbar import TopBar
 
 log = logging.getLogger("effente.desktop.shell")
 
-MIN_W, MIN_H = 1440, 900
+# The smallest size the sidebar and top bar still lay out cleanly: half of a 1920px
+# screen, so the window can sit beside a terminal. Pages narrower than their content
+# scroll sideways.
+MIN_W, MIN_H = 960, 660
+DEFAULT_W, DEFAULT_H = 1440, 900  # the mockup's size
 
 
 class _Backdrop(QWidget):
@@ -125,6 +129,7 @@ class MainWindow(QMainWindow):
         self.receiver_address = receiver_address
         self.setWindowTitle("effente")
         self.setMinimumSize(MIN_W, MIN_H)
+        self.resize(DEFAULT_W, DEFAULT_H)
 
         root = _Backdrop(self)
         self.setCentralWidget(root)
