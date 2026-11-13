@@ -1,0 +1,308 @@
+{
+ "check": "fit",
+ "status": "ok",
+ "reason": "",
+ "command": "python3 -m training.validation.check_fit --seeds 1,2,3,4,5",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); effente.simulate_server + effente.site_noise (datacenter)",
+ "label": "simulated",
+ "notes": [],
+ "standin": null,
+ "library_code": "training/library/entries (track 3) calibrated by effente.calibration.calibrate (track 3)",
+ "features_version": "89613129193f",
+ "created": "2026-11-13T17:15:24+00:00",
+ "rows": [
+  {
+   "entry": "conveyor",
+   "metric": "fit check, conveyor machines (right entry): share that pass",
+   "value": 1.0,
+   "n": "5 machines",
+   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "fit check, conveyor machines (right entry): median calibration score over the entry's threshold, median over machines",
+   "value": 0.0625,
+   "n": "5 machines",
+   "range": "0.0464 to 0.0679"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "fit check, conveyor machines (right entry): median calibration score over the entry's own held-out median score, median over machines",
+   "value": 0.4302,
+   "n": "5 machines",
+   "range": "0.3194 to 0.4674"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "fit check, server machines (wrong entry): share that fail",
+   "value": 0.0,
+   "n": "5 machines",
+   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "fit check, server machines (wrong entry): median calibration score over the entry's threshold, median over machines",
+   "value": 0.1013,
+   "n": "5 machines",
+   "range": "0.0995 to 0.1078"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "fit check, server machines (wrong entry): median calibration score over the entry's own held-out median score, median over machines",
+   "value": 0.6973,
+   "n": "5 machines",
+   "range": "0.6849 to 0.7421"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "fit check, conveyor machines (neither right nor wrong): share that pass",
+   "value": 1.0,
+   "n": "5 machines",
+   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "fit check, conveyor machines (neither right nor wrong): median calibration score over the entry's threshold, median over machines",
+   "value": 0.0131,
+   "n": "5 machines",
+   "range": "0.0099 to 0.0138"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "fit check, conveyor machines (neither right nor wrong): median calibration score over the entry's own held-out median score, median over machines",
+   "value": 0.5936,
+   "n": "5 machines",
+   "range": "0.4486 to 0.6254"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "fit check, server machines (right entry): share that pass",
+   "value": 1.0,
+   "n": "5 machines",
+   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "fit check, server machines (right entry): median calibration score over the entry's threshold, median over machines",
+   "value": 0.0204,
+   "n": "5 machines",
+   "range": "0.0197 to 0.0219"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "fit check, server machines (right entry): median calibration score over the entry's own held-out median score, median over machines",
+   "value": 0.9244,
+   "n": "5 machines",
+   "range": "0.8927 to 0.9924"
+  }
+ ],
+ "detail": [
+  {
+   "entry": "conveyor",
+   "machine": "conveyor",
+   "seed": 1,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0464,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.3194
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "conveyor",
+   "seed": 1,
+   "right_entry": null,
+   "passes": true,
+   "score_over_entry_line": 0.0099,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.4486
+  },
+  {
+   "entry": "conveyor",
+   "machine": "conveyor",
+   "seed": 2,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0679,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.4674
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "conveyor",
+   "seed": 2,
+   "right_entry": null,
+   "passes": true,
+   "score_over_entry_line": 0.0138,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.6254
+  },
+  {
+   "entry": "conveyor",
+   "machine": "conveyor",
+   "seed": 3,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0648,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.4461
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "conveyor",
+   "seed": 3,
+   "right_entry": null,
+   "passes": true,
+   "score_over_entry_line": 0.0133,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.6027
+  },
+  {
+   "entry": "conveyor",
+   "machine": "conveyor",
+   "seed": 4,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0625,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.4302
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "conveyor",
+   "seed": 4,
+   "right_entry": null,
+   "passes": true,
+   "score_over_entry_line": 0.0131,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.5936
+  },
+  {
+   "entry": "conveyor",
+   "machine": "conveyor",
+   "seed": 5,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0623,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.4289
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "conveyor",
+   "seed": 5,
+   "right_entry": null,
+   "passes": true,
+   "score_over_entry_line": 0.0124,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.5619
+  },
+  {
+   "entry": "conveyor",
+   "machine": "server",
+   "seed": 1,
+   "right_entry": false,
+   "passes": true,
+   "score_over_entry_line": 0.105,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.7228
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "server",
+   "seed": 1,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0216,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.9788
+  },
+  {
+   "entry": "conveyor",
+   "machine": "server",
+   "seed": 2,
+   "right_entry": false,
+   "passes": true,
+   "score_over_entry_line": 0.1013,
+   "share_rows_over_entry_line": 0.0067,
+   "score_over_entry_heldout_median": 0.6973
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "server",
+   "seed": 2,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0204,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.9244
+  },
+  {
+   "entry": "conveyor",
+   "machine": "server",
+   "seed": 3,
+   "right_entry": false,
+   "passes": true,
+   "score_over_entry_line": 0.1007,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.6932
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "server",
+   "seed": 3,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.02,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.9063
+  },
+  {
+   "entry": "conveyor",
+   "machine": "server",
+   "seed": 4,
+   "right_entry": false,
+   "passes": true,
+   "score_over_entry_line": 0.1078,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.7421
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "server",
+   "seed": 4,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0219,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.9924
+  },
+  {
+   "entry": "conveyor",
+   "machine": "server",
+   "seed": 5,
+   "right_entry": false,
+   "passes": true,
+   "score_over_entry_line": 0.0995,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.6849
+  },
+  {
+   "entry": "generic_rotating",
+   "machine": "server",
+   "seed": 5,
+   "right_entry": true,
+   "passes": true,
+   "score_over_entry_line": 0.0197,
+   "share_rows_over_entry_line": 0.0,
+   "score_over_entry_heldout_median": 0.8927
+  }
+ ]
+}

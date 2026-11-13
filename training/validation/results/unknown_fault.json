@@ -1,0 +1,520 @@
+{
+ "check": "unknown_fault",
+ "status": "ok",
+ "reason": "",
+ "command": "python3 -m training.validation.check_unknown_fault --seeds 1,2,3,4,5",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: readings in no fault type signature; effente.simulate_server + effente.site_noise (datacenter); injected: readings in no fault type signature",
+ "label": "simulated, unverified",
+ "notes": [],
+ "standin": null,
+ "library_code": "training/library/entries (track 3) calibrated by effente.calibration.calibrate (track 3)",
+ "features_version": "89613129193f",
+ "created": "2026-11-13T17:14:38+00:00",
+ "rows": [
+  {
+   "entry": "conveyor",
+   "metric": "uncovered patterns: share with an alarm after the onset",
+   "value": 0.4,
+   "n": "10 patterns",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "uncovered patterns: share whose twin without the pattern alarms in the same window",
+   "value": 0.0,
+   "n": "10 patterns",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "uncovered patterns: share of alarmed ones shown as unrecognised_pattern on the screen",
+   "value": 1.0,
+   "n": "4 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "uncovered patterns: share of alarm periods that are unrecognised_pattern",
+   "value": 1.0,
+   "n": "178 alarm periods",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "uncovered patterns: share with an alarm after the onset",
+   "value": 0.0,
+   "n": "10 patterns",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "uncovered patterns: share whose twin without the pattern alarms in the same window",
+   "value": 0.0,
+   "n": "10 patterns",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "uncovered patterns: share of alarmed ones shown as unrecognised_pattern on the screen",
+   "value": null,
+   "n": "0 alarmed",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: readings in no fault type signature"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "uncovered patterns: share of alarm periods that are unrecognised_pattern",
+   "value": null,
+   "n": "0 alarm periods",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: readings in no fault type signature"
+  }
+ ],
+ "detail": [
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_08",
+    "vib_band_09",
+    "vib_band_10"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_02",
+    "slow_band_03",
+    "slow_band_04"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_15",
+    "vib_band_16",
+    "vib_band_17"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_02",
+    "slow_band_03",
+    "slow_band_04"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_14",
+    "vib_band_15",
+    "vib_band_16"
+   ],
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 548.0,
+   "named": "unrecognised_pattern",
+   "symptom": "unusual_vibration",
+   "unrecognised_on_screen": true,
+   "alarm_periods": 2,
+   "unrecognised_periods": 2,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_03",
+    "slow_band_04",
+    "slow_band_05"
+   ],
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 255.0,
+   "named": "unrecognised_pattern",
+   "symptom": "unusual_vibration",
+   "unrecognised_on_screen": true,
+   "alarm_periods": 10,
+   "unrecognised_periods": 10,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_13",
+    "vib_band_14",
+    "vib_band_15"
+   ],
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 35.0,
+   "named": "unrecognised_pattern",
+   "symptom": "unusual_vibration",
+   "unrecognised_on_screen": true,
+   "alarm_periods": 96,
+   "unrecognised_periods": 96,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_01",
+    "slow_band_02",
+    "slow_band_03"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_12",
+    "vib_band_13",
+    "vib_band_14"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_03",
+    "slow_band_04",
+    "slow_band_05"
+   ],
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 243.0,
+   "named": "unrecognised_pattern",
+   "symptom": "unusual_vibration",
+   "unrecognised_on_screen": true,
+   "alarm_periods": 70,
+   "unrecognised_periods": 70,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_08",
+    "vib_band_09",
+    "vib_band_10"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_02",
+    "slow_band_03",
+    "slow_band_04"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_15",
+    "vib_band_16",
+    "vib_band_17"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_02",
+    "slow_band_03",
+    "slow_band_04"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_14",
+    "vib_band_15",
+    "vib_band_16"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_03",
+    "slow_band_04",
+    "slow_band_05"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_13",
+    "vib_band_14",
+    "vib_band_15"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_01",
+    "slow_band_02",
+    "slow_band_03"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "pattern": "vib_band_",
+   "moved": [
+    "vib_band_12",
+    "vib_band_13",
+    "vib_band_14"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "pattern": "snd_band_",
+   "skipped": "fewer than 3 such readings in this machine's model"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "pattern": "slow_band_",
+   "moved": [
+    "slow_band_03",
+    "slow_band_04",
+    "slow_band_05"
+   ],
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null,
+   "unrecognised_on_screen": null,
+   "alarm_periods": 0,
+   "unrecognised_periods": 0,
+   "names_given": {}
+  }
+ ]
+}

@@ -1,0 +1,255 @@
+{
+ "check": "heldout_normal",
+ "status": "ok",
+ "reason": "",
+ "command": "python3 -m training.validation.check_heldout_normal --seeds 1,2,3,4,5",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); effente.simulate_server + effente.site_noise (datacenter)",
+ "label": "simulated",
+ "notes": [],
+ "standin": null,
+ "library_code": "training/library/entries (track 3) calibrated by effente.calibration.calibrate (track 3)",
+ "features_version": "89613129193f",
+ "created": "2026-11-13T17:14:23+00:00",
+ "rows": [
+  {
+   "entry": "conveyor",
+   "metric": "share of periods that alarm, the 30 min after calibration, same session",
+   "value": 0.0,
+   "n": "8995 periods of 1 s, 5 machines",
+   "range": "0 to 0",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory)"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "share of periods that alarm, a later 30 min session, history restarted",
+   "value": 0.0258,
+   "n": "8995 periods of 1 s, 5 machines",
+   "range": "0 to 0.07226",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory)"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "share of periods that alarm, the 30 min after calibration, same session",
+   "value": 0.0,
+   "n": "8995 periods of 1 s, 5 machines",
+   "range": "0 to 0",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter)"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "share of periods that alarm, a later 30 min session, history restarted",
+   "value": 0.0,
+   "n": "8995 periods of 1 s, 5 machines",
+   "range": "0 to 0",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter)"
+  }
+ ],
+ "detail": [
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "machine": "conveyor",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "machine": "conveyor",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 130,
+    "share": 0.07226236798221233,
+    "episodes": 13
+   },
+   "moved_most_in_alarm_periods": {
+    "vib_rms_x": 130
+   }
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "machine": "conveyor",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 101,
+    "share": 0.05614230127848805,
+    "episodes": 36
+   },
+   "moved_most_in_alarm_periods": {
+    "vib_gravity_x": 94,
+    "vib_band_02": 4,
+    "vib_env_order": 2,
+    "vib_band_01": 1
+   }
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "machine": "conveyor",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 1,
+    "share": 0.0005558643690939411,
+    "episodes": 1
+   },
+   "moved_most_in_alarm_periods": {
+    "vib_band_01": 1
+   }
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "machine": "conveyor",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "machine": "server",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "machine": "server",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "machine": "server",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "machine": "server",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "machine": "server",
+   "period_s": 1,
+   "same_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "later_session": {
+    "rows": 1799,
+    "alarm_rows": 0,
+    "share": 0.0,
+    "episodes": 0
+   },
+   "moved_most_in_alarm_periods": {}
+  }
+ ]
+}

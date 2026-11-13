@@ -1,0 +1,76 @@
+{
+ "check": "ims",
+ "status": "ok",
+ "reason": "",
+ "command": "python3 -m training.validation.check_ims --rows training/validation/data/nasa-ims/test2_bearing1.npz --learn-hours 72 --smooth 3",
+ "seeds": [
+  0
+ ],
+ "data_source": "NASA IMS bearing data set, test 2, bearing 1 (phm-datasets.s3.amazonaws.com/NASA/4.+Bearings.zip), converted by training/record/datasets/ims.py --seed 0",
+ "label": "public, MPU6050-like conversion",
+ "notes": [],
+ "standin": null,
+ "library_code": null,
+ "features_version": "89613129193f",
+ "created": "2026-11-13T17:15:24+00:00",
+ "rows": [
+  {
+   "entry": "run to failure",
+   "metric": "alarm stretches after learning that ended before the last one began (false alarms) (MPU6050-like conversion)",
+   "value": 0,
+   "n": "551 snapshots, 91.83 h watched after 72 h of learning"
+  },
+  {
+   "entry": "run to failure",
+   "metric": "hours from the first alarm after learning to the failure (MPU6050-like conversion)",
+   "value": 4.67,
+   "n": "551 snapshots, 91.83 h watched after 72 h of learning"
+  },
+  {
+   "entry": "run to failure",
+   "metric": "hours from the start of the last alarm stretch to the failure (MPU6050-like conversion)",
+   "value": 4.67,
+   "n": "551 snapshots, 91.83 h watched after 72 h of learning"
+  },
+  {
+   "entry": "run to failure",
+   "metric": "hours watched after learning before the first alarm (MPU6050-like conversion)",
+   "value": 87.17,
+   "n": "551 snapshots, 91.83 h watched after 72 h of learning"
+  }
+ ],
+ "detail": [
+  {
+   "snapshots_judged": 551,
+   "alarm_stretches": 1,
+   "false_alarm_stretches": 0,
+   "first_alarm_hours_before_failure": 4.67,
+   "last_stretch_hours_before_failure": 4.67,
+   "last_stretch_reaches_the_end": true,
+   "quiet_hours_before_first_alarm": 87.17,
+   "run_hours": 163.83,
+   "learn_hours": 72.0,
+   "smooth": 3,
+   "period_s": 600.0,
+   "normal_model": "pca",
+   "hours_watched": 91.83,
+   "named_at_first_alarm": "impacts",
+   "training_report": {
+    "period_s": 600,
+    "rows_learned": 367,
+    "rows_calibration": 65,
+    "inputs": 51,
+    "features_kept": 43,
+    "fit_seconds": 0.0,
+    "normal_model": "pca",
+    "patterns_kept": 32,
+    "int8_vs_float_score_correlation": 0.99993,
+    "threshold": 6.4754,
+    "fault_classes": 10,
+    "classifier_exact_match": 0.99,
+    "dropped_limits": [],
+    "warnings": []
+   }
+  }
+ ]
+}
