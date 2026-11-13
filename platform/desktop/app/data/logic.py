@@ -776,6 +776,25 @@ def margins(sensitivity) -> dict:
     }
 
 
+# Contract "Names": problems are sent limits first, in the order of the names table.
+PROBLEM_ORDER = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts",
+                 "vibration_above_normal", "hotter_than_normal", "louder_than_normal")
+
+
+def problem_order(problems) -> list:
+    """Problems in the contract's order: limits first, by the names table; names it
+    does not list after those (limits first), otherwise as they came. A `problem` event appends to the end in
+    apply_event (as the JS does), so a list built from events needs this."""
+    def key(item):
+        i, p = item
+        name = p.get("name")
+        known = name in PROBLEM_ORDER
+        kind_rank = 0 if p.get("kind") == "limit" else 1
+        return (0 if known else 1, PROBLEM_ORDER.index(name) if known else kind_rank, i)
+
+    return [p for _, p in sorted(enumerate(problems or []), key=key)]
+
+
 def is_unanswered(alarm) -> bool:
     return isinstance(alarm, dict) and alarm.get("answer") is None
 

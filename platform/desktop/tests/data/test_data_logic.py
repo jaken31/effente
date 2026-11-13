@@ -571,3 +571,14 @@ def test_device_for_machine():
     assert L.device_for_machine(s, "m") == "a"
     assert L.device_for_machine(s, "n") == "c"
     assert L.device_for_machine(s, "zzz") is None
+
+
+def test_problem_order_is_the_contracts():
+    s = live(L.create_state())
+    L.apply_event(s, "record", rec(problems=[ABOVE], wrong=True), T0)
+    L.apply_event(s, "problem", prob(TOO_HOT), T0)  # appended after, as the JS does
+    assert [p["name"] for p in s["devices"]["effente-01"]["problems"]] == ["vibration_above_normal", "too_hot"]
+    odd = [{"name": "smells", "kind": "outside_normal"}, ABOVE, {"name": "new_limit", "kind": "limit"}, TOO_HOT]
+    assert [p["name"] for p in L.problem_order(odd)] == ["too_hot", "vibration_above_normal", "new_limit", "smells"]
+    assert L.problem_order(None) == []
+
