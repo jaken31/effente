@@ -99,7 +99,10 @@ BODY = dict(
     # sw_lip 1.8 (was 0.6): the ridge that holds the switch, 3x bigger
     sleeve_clear=0.15, sleeve_t=1.5, sw_finger_w=6.0, sw_finger_t=1.2, sw_lip=1.8,
     dock_cy=30.0, dock_depth=6.0,          # head dock pocket (head + 1 mm)
-    disc_d=20.1, disc_depth=2.0, disc_skin=1.0,
+    # dock magnet: the same 12 x 3 mm neodymium disc as the head's, glued in
+    # from inside under a 1 mm skin, right under the head's magnet (was a
+    # 20 mm steel disc, which did not hold the head)
+    dock_mag_d=12.2, dock_mag_depth=3.0, dock_skin=1.0,
     # M3 screw bosses: top corners, and beside the USB gap above the bank
     bosses=((6.5, 139.0), (77.5, 139.0), (6.5, 58.0), (77.5, 58.0)), boss_d=7.0,
     screw_pilot=2.5, screw_clear=3.4, cbore_d=6.0, cbore_depth=3.0,
@@ -468,16 +471,16 @@ def build_body(comp):
            Z, Z - w - 0.5, 'cut', body)
     b.zcyl(X / 2, B['button_cy'], B['cap_d'] + 2 * B['cap_clear'], Z, Z - w - 0.5, 'cut', body)
 
-    # head dock: cup behind the front wall, pocket, steel disc from inside
+    # head dock: cup behind the front wall, pocket, magnet glued in from inside
     dw, dh = HEAD['length'] + 1.0, HEAD['width'] + 1.0
     cy = B['dock_cy']
     b.zbox(X / 2 - dw / 2 - 3.5, cy - dh / 2 - 3.5, X / 2 + dw / 2 + 3.5, cy + dh / 2 + 3.5,
-           Z - B['dock_depth'] - B['disc_skin'] - B['disc_depth'], Z - 1.0, 'join', body)
+           Z - B['dock_depth'] - B['dock_skin'] - B['dock_mag_depth'], Z - 1.0, 'join', body)
     b.zbox(X / 2 - dw / 2, cy - dh / 2, X / 2 + dw / 2, cy + dh / 2, Z, Z - B['dock_depth'],
            'cut', body)
     zf = Z - B['dock_depth']
-    b.zcyl(X / 2, cy, B['disc_d'], zf - B['disc_skin'] - B['disc_depth'], zf - B['disc_skin'],
-           'cut', body)
+    b.zcyl(X / 2, cy, B['dock_mag_d'], zf - B['dock_skin'] - B['dock_mag_depth'],
+           zf - B['dock_skin'], 'cut', body)
     H = HEAD
     nl, nw = H['relief_len'] + 0.5, H['relief_w'] + 0.6
     px = X / 2 + dw / 2

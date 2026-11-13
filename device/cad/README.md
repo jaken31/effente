@@ -36,6 +36,7 @@ Print the drive roller first and check it fits the TT motor shaft.
 
 - **MPU board:** 25 x 15 mm, 10 mm thick with its header. The sensor head is now 29 x 33.5 x 21.5 mm, the smallest that holds the board upright plus its jumper plugs. The top 3.5 mm of the IMU cradle is open front and back, because the 10-pin header runs almost the full length of the board.
 - **Head lid clamp:** two snap clips on the head lid's long sides sit flush in recesses in the head's walls, so the head still fits its dock. Their wedge hooks click into small windows in the walls. To open, push each clip's foot out with a fingernail (there is a gap below it) and lift the lid. PETG is better than PLA for the clips.
+- **Head dock magnet:** the dock in the front lid takes a 12 x 3 mm neodymium disc magnet (the same as the head's), not a steel disc, which did not hold the head. Glue it into the pocket from inside the lid. Before gluing, let it snap onto the head's magnet and mark the face that points at the head, so the two attract instead of push apart.
 - **OLED:** 72 x 43 mm, 13 mm thick with its header pins. The screen tray's pocket fits it; the tray's outside size and the lid hooks are unchanged. The glass-to-PCB thickness (4.5 mm) is estimated from the 13 mm, not measured.
 - **SCAN button:** the snap lips that hold the switch are 1.8 mm (3x the old 0.6 mm). The button moved 2 mm down the lid so the snap fingers can bend out past the screen tray's hook. The bigger lips bend the fingers further, so print the front lid in PETG if you can; PLA fingers may crack.
 
