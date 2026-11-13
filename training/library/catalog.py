@@ -11,7 +11,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from training.library.sources import MPU6050, PublicSet, Recording, SimConveyor, SimPump  # noqa: F401
+from training.library.sources import MPU6050, PublicSet, Recording, SimConveyor, SimPump, SimServerRack  # noqa: F401
+
+# How long each simulated machine is watched: two whole days from Monday 08:00, so every part of a
+# working day (both shifts, the breaks, the run-down, the night stop, the start-up) is in the
+# training rows twice. README.md, "Training length", has the run behind it (simulated data only).
+TRAIN_HOURS = 48.0
+# generic_rotating pools six machines, so each is watched for one whole day (144 machine-hours in
+# all): two days each did not fit in the memory of the machine it was built on.
+GENERIC_HOURS = 24.0
 
 
 @dataclass(frozen=True)
@@ -57,17 +65,23 @@ PUBLIC_EVALUATION = (
               sensor=None),
 )
 
+
+# Another type of machine, never trained on: what an entry should not fit. Evaluation only, because
+# its simulator's accelerometer noise is not the MPU-6500's (sources.py).
+WRONG_MACHINE = SimServerRack("sim_server_rack", note="wrong machine: a server rack, for the fit check")
+
 GENERIC_ROTATING = Entry(
     "generic_rotating", "0.1.0", "unverified",
     sources=(
         # Six simulated drives: speed from 0.55x to 1.55x, load from 0.7x to 1.2x, six mounts.
-        SimConveyor("sim_drive_a", seed=101),
-        SimConveyor("sim_drive_b", seed=102, speed=0.70, load=0.85, turn_deg=(90, 0, 0), gain=0.6, ambient_c=3),
-        SimConveyor("sim_drive_c", seed=103, speed=1.30, load=1.10, turn_deg=(0, 90, 0), gain=1.5, ambient_c=-3),
-        SimConveyor("sim_drive_d", seed=104, speed=0.55, load=1.20, turn_deg=(0, 0, 90), gain=0.8, ambient_c=6),
-        SimConveyor("sim_drive_e", seed=105, speed=1.55, load=0.70, turn_deg=(30, 45, 0), gain=1.2),
-        SimConveyor("sim_drive_f", seed=106, speed=0.85, load=0.95, turn_deg=(180, 0, 20), gain=2.0, ambient_c=-5),
+        SimConveyor("sim_drive_a", seed=101, hours=GENERIC_HOURS),
+        SimConveyor("sim_drive_b", seed=102, hours=GENERIC_HOURS, speed=0.70, load=0.85, turn_deg=(90, 0, 0), gain=0.6, ambient_c=3),
+        SimConveyor("sim_drive_c", seed=103, hours=GENERIC_HOURS, speed=1.30, load=1.10, turn_deg=(0, 90, 0), gain=1.5, ambient_c=-3),
+        SimConveyor("sim_drive_d", seed=104, hours=GENERIC_HOURS, speed=0.55, load=1.20, turn_deg=(0, 0, 90), gain=0.8, ambient_c=6),
+        SimConveyor("sim_drive_e", seed=105, hours=GENERIC_HOURS, speed=1.55, load=0.70, turn_deg=(30, 45, 0), gain=1.2),
+        SimConveyor("sim_drive_f", seed=106, hours=GENERIC_HOURS, speed=0.85, load=0.95, turn_deg=(180, 0, 20), gain=2.0, ambient_c=-5),
         SimPump("sim_pump"),  # models an MPU6050: evaluation only
+        WRONG_MACHINE,
     ) + PUBLIC_EVALUATION,
     fault_checks=SIM_FAULT_CHECKS,
 )
@@ -77,7 +91,8 @@ CONVEYOR = Entry(
     sources=(
         # Recordings of the demo conveyor replace this line, one Recording per session:
         #   Recording("conveyor_session_01", "data/real/conveyor/session-01"),
-        SimConveyor("sim_conveyor", seed=21),
+        SimConveyor("sim_conveyor", seed=21, hours=TRAIN_HOURS),
+        WRONG_MACHINE,
     ),
     fault_checks=SIM_FAULT_CHECKS,
 )

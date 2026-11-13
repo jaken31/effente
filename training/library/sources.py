@@ -6,7 +6,8 @@ The TRD forbids mixing MPU6050 data into MPU-6500 training data, so `sensor` is 
 build (training/library/build.py): only MPU-6500 sources may train an entry.
 
   SimConveyor   effente.simulate_conveyor in realistic mode (MPU-6500 noise) with the site's
-                disturbances (effente.site_noise), as training/record/conveyor_eval does. The
+                disturbances (effente.site_noise), as training/record/conveyor_eval does, seen
+                through the sensors an entry is built on (DEVICE_SENSORS). The
                 simulator has one speed and one mount, so two small additions here make other
                 machines of it: `speed` (the whole drive turns faster or slower) and `mount`
                 (the sensor head turned, and vibration passed on more or less strongly).
@@ -14,11 +15,21 @@ build (training/library/build.py): only MPU-6500 sources may train an entry.
                 for the scorecard.
   SimPump       effente.simulate_day's cooling-water pump. It models an MPU6050 (its noise,
                 range and filter), so it is evaluation only.
+  SimServerRack effente.simulate_server's server rack: another type of machine, and the "wrong
+                machine" for the conveyor entry. Its accelerometer noise is 8.5 mg, the
+                simulators' older figure, not the MPU-6500's 3.5 mg, so it is evaluation only.
   Recording     a learn-mode folder recorded with the device (device/intake/recorder.py).
   PublicSet     a public data set, named with the script that converts and evaluates it.
                 Evaluation only: none of the conversions in training/record/datasets/ is an
                 MPU-6500 one (ims.py is MPU6050-like; ottawa.py uses the MPU-6500's low-pass
                 but the MPU6050's noise; dcase.py is sound only).
+
+Sensors. An entry is built on the accelerometer, the gyro and the IMU's own temperature
+(DEVICE_SENSORS), so the simulated sources drop the microphone, thermal camera and room sensor
+(DeviceSensors). Those readings are then missing in every row and Prep leaves their columns out.
+Why: with them an entry is 220 columns and 143 kB against a target of about 50 kB, and the sound
+and heat of the site's disturbances set the pooled threshold too high for a simulated fault to
+alarm.
 
 Everything simulated here is fake: plausible levels, not measured on a real machine (unverified).
 """
@@ -33,6 +44,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 MPU6500, MPU6050 = "MPU-6500", "MPU6050"
+OLD_SIM_NOISE = "simulated, 8.5 mg noise (not the MPU-6500's 3.5 mg)"  # effente.simulate_server
+DEVICE_SENSORS = ("accel", "gyro", "imu_temp")  # the sensors an entry is built on
+DAY_S = 86400.0
 LEAD_IN_S = 60  # normal running before a simulated fault begins
 FAULT_S = 300  # how long the simulated fault then lasts (a wear fault grows over all of it)
 
@@ -53,6 +67,22 @@ def _stream(source, history):
     from device.intake.extract import feature_stream
     rows = list(feature_stream(source, hop_s=1.0, history=history))
     return np.array([t for t, _ in rows], float), np.array([x for _, x in rows], float)
+
+
+class DeviceSensors:
+    """A packet source with only the sensors an entry is built on."""
+
+    def __init__(self, source, keep=DEVICE_SENSORS):
+        self.src = source
+        self.sensors = tuple(x for x in source.sensors if x in keep)
+
+    def __getattr__(self, name):  # info, label_at, ... of the wrapped source
+        return getattr(self.src, name)
+
+    def packets(self):
+        for p in self.src.packets():
+            if p.sensor in self.sensors:
+                yield p
 
 
 class Mounted:
@@ -110,25 +140,26 @@ class SimConveyor:
     gain: float = 1.0  # mount: how strongly vibration is passed on
     ambient_c: float = 0.0  # warmer or cooler room
     seed: int = 1
-    start_h: float = 8.0  # Monday 08:00, mid-shift: steady running
-    minutes: float = 30.0
+    start_h: float = 8.0  # Monday 08:00, mid-shift
+    hours: float = 0.5  # how long it is watched; the catalog sets the entries' length
     kind = "simulated"
     sensor = MPU6500
     can_fault = True
 
     def _source(self, seed: int, start_s: float, end_s: float, faults):
         from effente.site_noise import SiteNoise
-        sim = _drive(self.speed, days=1, seed=self.seed + 1000 * seed, faults=list(faults), start_s=start_s,
-                     end_s=end_s, realistic=True, ambient_offset_c=self.ambient_c, load_scale=self.load)
+        sim = _drive(self.speed, days=math.ceil(end_s / DAY_S), seed=self.seed + 1000 * seed, faults=list(faults),
+                     start_s=start_s, end_s=end_s, realistic=True, ambient_offset_c=self.ambient_c,
+                     load_scale=self.load)
         site = SiteNoise(sim, profile="factory", seed=self.seed + 1000 * seed)
-        return Mounted(site, self.turn_deg, self.gain)
+        return Mounted(DeviceSensors(site), self.turn_deg, self.gain)
 
     def load_rows(self, seed: int = 0, faults=()) -> Rows:
         from effente import features as F
         from effente.history import History
         from effente.simulate_conveyor import Fault
         start = self.start_h * 3600.0
-        end = start + self.minutes * 60.0
+        end = start + self.hours * 3600.0
         history = History()
         t, X = _stream(self._source(seed, start, end, []), history)
         later = {}
@@ -164,6 +195,36 @@ class SimPump:
             for hour in range(int(t_from // 3600), int(math.ceil(t_to / 3600))):
                 SD.render_hour((hour, t_from, t_to, tmp))
             t, X = _stream(FileSource(tmp, t_from, t_to), History())
+        return Rows(t, X, list(F.FEATURE_NAMES))
+
+
+@dataclass(frozen=True)
+class SimServerRack:
+    """effente.simulate_server's server rack (fans and a hard drive), with the site's disturbances,
+    through the same sensors as SimConveyor."""
+    name: str
+    used_for: str = "evaluation"
+    seed: int = 2
+    start_h: float = 8.0  # Monday 08:00, busy hours
+    hours: float = 0.5
+    note: str = ""  # what it is for, for the manifest
+    kind = "simulated"
+    sensor = OLD_SIM_NOISE  # not MPU-6500 noise: evaluation only
+    can_fault = False
+
+    def load_rows(self, seed: int = 0, faults=()) -> Rows:
+        from effente import features as F
+        from effente.history import History
+        from effente.simulate_server import ServerRackSim
+        from effente.site_noise import SiteNoise
+        if faults:
+            raise ValueError("the server rack source switches no faults on")
+        start = self.start_h * 3600.0
+        end = start + self.hours * 3600.0
+        sim = ServerRackSim(days=math.ceil(end / DAY_S), seed=self.seed + 1000 * seed, faults=[], start_s=start,
+                            end_s=end)
+        site = SiteNoise(sim, profile="datacenter", seed=self.seed + 1000 * seed)
+        t, X = _stream(DeviceSensors(site), History())
         return Rows(t, X, list(F.FEATURE_NAMES))
 
 
