@@ -16,7 +16,7 @@ from .receiver import Receiver
 
 LOGS = Path(__file__).parent / "logs"
 CONTRACT_FIELDS = {
-    "run_id", "device_id", "machine_id", "at", "status", "model", "usage", "ok",
+    "run_id", "agent", "device_id", "machine_id", "at", "status", "model", "usage", "ok",
     "reason", "problems", "tool_calls", "report", "simulated",
 }
 REPORT_FIELDS = {"summary", "priority", "cited_features", "recommended_action", "part_reference"}
@@ -41,6 +41,7 @@ def check_contract_shape(path, body):
     assert isinstance(body["machine_id"], str) and body["machine_id"]
     assert isinstance(body["device_id"], str)
     assert TIME.match(body["at"])
+    assert body["agent"] == "maintenance_report"
     assert body["status"] in ("running", "done")
     assert isinstance(body["model"], str)
     assert isinstance(body["usage"], dict)

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 POST_TIMEOUT_SECONDS = 2.0
 OUTPUT_LIMIT = 2000
+AGENT = "maintenance_report"  # which agent in the fleet wrote the run (contract message 4)
 
 
 def now() -> str:
@@ -35,6 +36,7 @@ class Run:
         self.post_errors: list[str] = []
         self.body: dict = {
             "run_id": make_run_id(machine_id),
+            "agent": AGENT,
             "device_id": device_id,
             "machine_id": machine_id,
             "at": now(),
