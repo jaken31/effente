@@ -46,7 +46,7 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 - Variable motor speed. The demo runs at one fixed speed and we say so.
 - Any agent or language model on the device.
 - The setup chat, the review agent, alarm feedback and learning over time in [model-lifecycle.md](model-lifecycle.md). Those come after the hackathon.
-- A library covering many machine types. The hackathon library holds a conveyor entry and a generic entry.
+- A library covering many machine types. The hackathon library holds a conveyor entry and a generic rotating-machine entry. Both are built from simulated data, use only the 79 motion-sensor readings, and are not validated on a real machine.
 - Any price claim.
 
 ## Requirements

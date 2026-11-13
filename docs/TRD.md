@@ -68,7 +68,7 @@ After a power cut the device resumes what it was doing.
 |------|-------|
 | Vibration sample rate | 1 kHz, 3 axes |
 | Window | 1 second, a new one every 0.25 s (1 a second while recording) |
-| Features | 278 per window: 210 from the window itself, 68 from the stream's history (`effente/features.py`, `effente/history.py`) |
+| Features | 285 per window: 211 from the window itself, 74 from the stream's history (`effente/features.py`, `effente/history.py`) |
 | Preparation | Running rows only, median and interquartile range from training rows, clipped to +-8, missing sensors as 0 plus a missing flag (`effente/model_input.py`, `Prep`) |
 
 The vibration features include 20 bands from 5 to 500 Hz, running speed and the levels at 1x, 2x, 3x, 3-10x and 0.5x of it, knockiness, jolts, bearing-rate envelope analysis and velocity in mm/s. Sound, heat and room features are listed in `device/intake/README.md`.
@@ -184,7 +184,7 @@ The device-to-platform messages are in [platform/CONTRACT.md](../platform/CONTRA
 | History state, so trend features survive a restart | `history.npz` |
 | Events: start, stop, sensor lost, device moved, gaps, cleanup | `events.jsonl` |
 
-Each hour file holds `X` (rows x 278), `t0`, `feature_names`, `feature_sensor`, `feature_text`, `feature_kind`, `label` and `features_version`. `features_version` changes whenever the feature list changes; check it before training.
+Each hour file holds `X` (rows x 285), `t0`, `feature_names`, `feature_sensor`, `feature_text`, `feature_kind`, `label` and `features_version`. `features_version` changes whenever the feature list changes; check it before training.
 
 **Model file** (`effente-model-1`, JSON, about 50 kB): format and `features_version`, library entry name and whether it was calibrated or trained on the machine alone, the preparation statistics, summary period and persistence, the threshold, the normal model's int8 weights with scales (a PCA model is stored as a linear autoencoder), the residual spreads, the fault classifier, the fault types (name, text, sensing), the feature table (name, text, unit), and a training report. The device refuses a model built on a different feature list.
 
@@ -192,6 +192,8 @@ Each hour file holds `X` (rows x 278), `t0`, `feature_names`, `feature_sensor`, 
 
 - `model.json`: a plain `effente-model-1` file, exactly as `effente.trainer.train_model` writes it. No added fields. A new key in the model file is a format change and needs all five people.
 - `manifest.json`: everything else about the entry.
+
+The two entries on master (`conveyor`, `generic_rotating`) use 79 of the 285 readings: the accelerometer and gyroscope ones. Sound and heat readings are left out, so faults that show only there are not caught.
 
 | Manifest field | Holds |
 |----------------|-------|
