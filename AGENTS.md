@@ -23,6 +23,15 @@ Each session works for one track and edits only that track's folders. Ask which 
 
 Create your folder if it does not exist yet. Do not edit another track's folder. If you need a change there, describe it to your person and let that track make it.
 
+## One job, one branch
+
+Calibration was written four times and the model library twice, by sessions that did not know about each other. Before starting any piece of work:
+
+- Look for it first. Run `git fetch`, then check `git branch -r` and `gh pr list --state all` for the same job. If a branch or PR already covers it, work on that one or ask your person. Do not start a second version.
+- Open a draft PR as soon as the branch has its first commit, with the job in the title. The PR list is the record of who is doing what.
+- If your brief refers to a header, spec or interface you were not given, stop and ask for it. Do not invent one.
+- A shared interface (a file layout, a function signature, a list of fields) is written in the TRD before two sessions build on it. Read it there, not from a chat message.
+
 ## Shared code
 
 `effente/` holds the code every track depends on: the signal pipeline, the three file formats (recording, model, log), and the fake-data generator.
