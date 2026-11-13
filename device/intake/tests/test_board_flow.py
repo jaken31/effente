@@ -47,6 +47,7 @@ class FakeBoard:
         self.knock_g = knock_g  # knock_g(second) -> the size of a 30 ms knock 0.3 s into that second (0: none)
         self.at = dict(at or {})  # {second: fn(app)}: something done to the app at that second
         self.problems = []  # (second, names of the problems the checks have on), once a second
+        self.results = []  # (second, the model's own result: diagnosis, symptoms, spike ...), once a second
         self.info = SourceInfo(accel_lsb_per_g=LSB, accel_range_g=32768.0 / LSB)
         self.rng = np.random.default_rng(seed)
         self.app, self.clock = None, None
@@ -56,14 +57,15 @@ class FakeBoard:
 
     def packets(self):
         for s in range(self.seconds):
-            self.clock.t = T0 + s
+            if self.app is not None:  # without an app it is only a source of packets (test_model_spike)
+                self.clock.t = T0 + s
             if s in self.at:
                 self.at[s](self.app)
             if self.presses and s >= self.presses[0]:
                 self.presses.pop(0)
                 self.app.on_button()
                 self.press_modes.append(self.app.mode)
-            while True:  # the trainer runs in its own thread: wait for it, watching the screen meanwhile
+            while self.app is not None:  # the trainer runs in its own thread: wait for it, watching the screen meanwhile
                 self.headers.append(self.app.screen_lines()[0])
                 if self.app.stream is not None:  # what the local network sees, once a second
                     st = self.app.stream.status()
@@ -81,7 +83,9 @@ class FakeBoard:
             if k:
                 ph = np.arange(30) / RATE
                 g[300:330, 2] += k * np.sin(2 * np.pi * 180 * ph) * np.exp(-ph / 0.01)
-            self.problems.append((s, [p["name"] for p in self.app.problems]))
+            if self.app is not None:
+                self.problems.append((s, [p["name"] for p in self.app.problems]))
+                self.results.append((s, dict(self.app.result or {})))
             counts = np.clip(np.round(g * LSB), -32768, 32767).astype(np.int16)
             self.counts.append(counts)
             self.times.append(t)
@@ -239,6 +243,9 @@ def test_something_falling_off_shows_at_once_and_the_sensitivity_decides_how_big
             hits = [e["details"] for e in events if e["event"] == "problem" and e["details"]["name"] == "sudden_impact"]
             assert len(hits) == 2 and 0.14 < hits[0]["peak_g"] < 0.19 and 2.5 < hits[0]["value"] < 3.5, hits
             assert app.settings()["counts_as_wrong"]["sudden_impact_times_highest_while_learning"] == 1.5
+            # the model's own alarm reacted too: that one second's score over its spike line, said at once
+            spikes = [s for s, r in board.results if r.get("spike")]
+            assert spikes and big < spikes[0] <= big + 3 and "knocking_or_jolts" in dict(board.results)[spikes[0]]["symptoms"]
         finally:
             stream.stop()
 

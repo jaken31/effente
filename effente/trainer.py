@@ -291,6 +291,13 @@ LONG_PCA_VARIANCE, LONG_PCA_MAX_K = 0.99, 200
 # line. margins() itself is unchanged. Simulated data only (unverified on a real machine).
 THRESHOLD_FACTOR = 4.0 ** -0.3
 SMOOTH_LONG, SMOOTH_SHORT = 10, 5  # periods the Watcher takes the median of before judging
+# The spike line (effente.model_runtime.Watcher): one period scoring over it alarms at once, without waiting for
+# the median. The threshold above is fitted to median-smoothed scores, and single healthy seconds go over it
+# (measured: see SPIKE_LINE_FACTOR's note in the commit), so the spike line is fitted to the UNSMOOTHED held-out
+# scores: their gamma tail at one a week, x SPIKE_LINE_FACTOR for headroom. Short recordings only (1 s periods and
+# the like): with 1-minute periods the model sees minute medians, which a 1-second spike cannot move, and system
+# C's false-alert numbers were measured without a second alarm path. Simulated data only (unverified).
+SPIKE_LINE_FACTOR = 4.0
 
 
 def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
@@ -409,6 +416,13 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
         d["threshold"] = gamma_threshold(_causal_median(cal_scores, smooth), 7 * 86400 / period) * THRESHOLD_FACTOR
     else:
         d["threshold"] = gamma_threshold(_causal_median(s_int[calib], smooth), 7 * 86400 / period)
+    if not long:  # kept in the baseline (it already carries added keys), so the model file gets no new key
+        single = s_int[calib]
+        baseline["model_spike"] = {
+            "line": round(SPIKE_LINE_FACTOR * gamma_threshold(single, 7 * 86400 / period), 4),
+            "highest_held_out": round(float(single.max()), 4),
+            "note": f"one period's own score over this alarms at once: {SPIKE_LINE_FACTOR:g}x the gamma tail (one a "
+                    f"week) of the {len(single)} unsmoothed held-out scores"}
     say("learning fault types", 0.75)
     rng = np.random.default_rng(seed)
     dev_cols = [c for c in prep.names_out if c in prep.columns]
