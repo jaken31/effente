@@ -188,7 +188,7 @@ class HistoryPage(QWidget):
             self.range.addItem(text, k)
         self.range.currentIndexChanged.connect(lambda _i: self.refresh())
         self.btn_export = Button("Export CSV", "secondary", self.trends, small=True)
-        self.btn_export.clicked.connect(self._export_dialog)
+        self.btn_export.clicked.connect(self.export_dialog)
         self.trends.header_end.addWidget(self.range)
         self.trends.header_end.addWidget(self.btn_export)
         charts = QWidget(self.trends)
@@ -402,7 +402,7 @@ class HistoryPage(QWidget):
 
     # ---- export ----------------------------------------------------------------------
 
-    def _export_dialog(self) -> None:
+    def export_dialog(self) -> None:
         machine = (self.state.current_machine() if self.state else None) or "history"
         path, _ = QFileDialog.getSaveFileName(self, "Export CSV", f"{machine}-records.csv", "CSV (*.csv)")
         if path:

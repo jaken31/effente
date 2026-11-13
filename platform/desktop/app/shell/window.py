@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import ClassVar
 
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
-from PySide6.QtGui import QKeySequence, QPainter, QRadialGradient, QShortcut, QTransform
+from PySide6.QtGui import QPainter, QRadialGradient, QTransform
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from ..theme import schemes
 from ..theme import tokens as t
 from . import format as fmt
+from . import shortcuts
 from .notices import Notices
 from .pages import CHILDREN, KEYS, make_page
 from .sidebar import Sidebar
@@ -165,14 +166,10 @@ class MainWindow(QMainWindow):
         self.topbar.navigate.connect(self.navigate)
         self.sidebar.machine_changed.connect(self._machine_picked)
         self.sidebar.scheme_changed.connect(schemes.save)
-        self.shortcuts = []
-        for i, key in enumerate(KEYS):
-            sc = QShortcut(QKeySequence(str(i + 1)), self)
-            sc.setContext(Qt.ShortcutContext.WindowShortcut)
-            sc.activated.connect(lambda k=key: self.navigate(k))
-            self.shortcuts.append(sc)
+        self.shortcuts = shortcuts.install(self)
 
         self.notices = Notices(root)  # last child of root, so it paints above the pages
+        self.shortcut_help = shortcuts.ShortcutHelp(root)
 
         self.current = ""
         self._closing_after_agent = False
@@ -270,6 +267,45 @@ class MainWindow(QMainWindow):
 
     def current_page(self) -> QWidget:
         return self.pages[self.current]
+
+    # shortcut actions (shortcuts.ACTIONS)
+    def go_back(self) -> None:
+        """Esc: hide the shortcut list if it is up, else leave Spectrum or Thermal for Live."""
+        if self.shortcut_help.isVisible():
+            self.shortcut_help.hide()
+        elif self.current in CHILDREN:
+            self.navigate("live")
+
+    def previous_machine(self) -> None:
+        self._step_machine(-1)
+
+    def next_machine(self) -> None:
+        self._step_machine(1)
+
+    def _step_machine(self, step: int) -> None:
+        if self.state is None:
+            return
+        machines = list(self.state.machines())
+        current = self.state.current_machine()
+        if len(machines) > 1 and current in machines:
+            self._machine_picked(machines[(machines.index(current) + step) % len(machines)])
+
+    def run_report(self) -> None:
+        """As the Agents page's Run Report Agent button, in the mode picked there."""
+        run = getattr(self.pages["agent"], "run_agent", None)
+        if callable(run):
+            run()
+
+    def export_page(self) -> None:
+        export = getattr(self.current_page(), "export_dialog", None)
+        if callable(export):
+            export()
+
+    def toggle_full_screen(self) -> None:
+        self.setWindowState(self.windowState() ^ Qt.WindowState.WindowFullScreen)
+
+    def toggle_shortcut_help(self) -> None:
+        self.shortcut_help.toggle()
 
     # state
     def bind(self, state) -> None:
