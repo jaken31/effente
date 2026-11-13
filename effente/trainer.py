@@ -3,8 +3,8 @@
 Used both on the UNO Q (the button's "train" step) and on a laptop (training/model/train.py),
 so a model is trained the same way wherever it is trained:
 
-  1. Rows: one feature row a second (learn mode keeps these), running rows only, summarised
-     into per-period medians. The period follows the recording's length, so a 20-minute demo
+  1. Rows: one feature row a second (learn mode keeps these), running rows only (every row when fewer
+     than MIN_ROWS_SHORT of them count as running), summarised into per-period medians. The period follows the recording's length, so a 20-minute demo
      recording still has enough rows and a week has per-minute ones (choose_period).
   2. The alarm line from scores the model never saw (PCA, 1-minute periods, 2 x MIN_ROWS of them or more):
      the running periods are split into two halves in time, a model learned on each scores the other,
@@ -46,6 +46,7 @@ from effente.model_input import Prep, load_minutes, load_recording
 PERIODS = (1, 2, 5, 10, 15, 30, 60)
 ROWS_WANTED = 1500
 MIN_ROWS = 300
+MIN_ROWS_SHORT = 100  # with 1 s periods (a short test recording): 100 rows, so a few minutes still train
 
 
 def choose_period(duration_s: float) -> int:
@@ -334,6 +335,11 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
     t = np.asarray(t, float)
     run = running_rows(X, names)
     ran = run.copy()
+    # Hardly any of it counts as running (the device on something still or barely vibrating): learn from every
+    # row rather than refuse. The report and the baseline's warnings say so.
+    all_rows = bool(run.sum() < MIN_ROWS_SHORT <= len(run))
+    if all_rows:
+        run = np.ones(len(run), bool)
     t, X = t[run], X[run]
     if len(t) < 2:
         raise ValueError("no running data recorded")
@@ -341,9 +347,12 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
         period = choose_period(float(t.max() - t.min()))
     t, X = summarise(t, X, period)
     baseline = SF.learn_baseline(X, names, running=ran, period_s=period)  # this machine's normal, judged per period
-    if len(t) < MIN_ROWS:
+    if all_rows:
+        baseline["warnings"].append(f"only {int(ran.sum())} of {len(ran)} rows counted as running: learned from all of them")
+    need = MIN_ROWS_SHORT if period <= 1 else MIN_ROWS
+    if len(t) < need:
         raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
-                         f"{MIN_ROWS * period // 60} minutes of the machine running")
+                         f"{math.ceil(need * period / 60)} minutes of the machine running")
     long = period >= LONG_PERIOD
     smooth = int(smooth or (SMOOTH_LONG if long else SMOOTH_SHORT))
     crossfit = normal_model == "pca" and long and len(t) >= 2 * MIN_ROWS
@@ -426,7 +435,7 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
               "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, resid_int)[0, 1]), 5),
               "threshold": round(d["threshold"], 4), "fault_classes": len(classes),
               "classifier_exact_match": round(acc, 3), "dropped_limits": baseline["dropped"],
-              "warnings": baseline["warnings"]}
+              "warnings": baseline["warnings"], "learned_from_all_rows": all_rows}
     d["training_report"] = report
     say("done", 1.0)
     return d, report
