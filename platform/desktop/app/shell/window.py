@@ -9,9 +9,11 @@ from typing import ClassVar
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPainter, QRadialGradient, QShortcut, QTransform
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QMainWindow,
+    QMessageBox,
     QScrollArea,
     QScrollBar,
     QStackedWidget,
@@ -159,6 +161,7 @@ class MainWindow(QMainWindow):
         self.notices = Notices(root)  # last child of root, so it paints above the pages
 
         self.current = ""
+        self._closing_after_agent = False
         self.navigate("live")
 
         # Freshness ages even when nothing arrives.
@@ -179,6 +182,50 @@ class MainWindow(QMainWindow):
         area.setWidget(holder)
         holder.setAutoFillBackground(False)
         return area
+
+    # closing
+    STOP, WAIT, CANCEL = "stop", "wait", "cancel"
+
+    def closeEvent(self, event) -> None:
+        """Closing during a report run this app started asks first: the receiver the
+        run reads and writes to lives in this app, so quitting would cut it off."""
+        s = self.state
+        if self._closing_after_agent or s is None or not getattr(s, "own_agent_running", lambda: False)():
+            event.accept()
+            return
+        choice = self.ask_about_agent()
+        if choice == self.STOP:
+            s.stop_agent()
+            event.accept()
+            return
+        event.ignore()
+        if choice == self.WAIT:
+            self._closing_after_agent = True
+            log.info("window hidden; quitting when the report finishes")
+            self.hide()
+            s.runs_changed.connect(self._quit_if_agent_done)
+            self._quit_if_agent_done()
+
+    def ask_about_agent(self) -> str:
+        """STOP, WAIT or CANCEL, from a dialog. Tests replace this."""
+        machine = self.state.current_machine() if self.state is not None else None
+        box = QMessageBox(self)
+        box.setContentsMargins(14, 12, 14, 10)  # the style gives a message box almost no edge
+        box.setWindowTitle("Report still running")
+        box.setText(f"A report{f' for {machine}' if machine else ''} is still running.")
+        box.setInformativeText("The report needs this app open to finish: the receiver it reads "
+                               "and writes to runs inside it. Stopping now loses the report.")
+        stop = box.addButton("Stop report and close", QMessageBox.ButtonRole.DestructiveRole)
+        wait = box.addButton("Close when it finishes", QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)
+        box.setEscapeButton(cancel)
+        box.exec()
+        return {stop: self.STOP, wait: self.WAIT}.get(box.clickedButton(), self.CANCEL)
+
+    def _quit_if_agent_done(self) -> None:
+        if self._closing_after_agent and not self.state.own_agent_running():
+            QApplication.quit()
 
     # routing
     def navigate(self, key: str) -> None:

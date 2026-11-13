@@ -149,3 +149,47 @@ def test_fake_state_reads(qtbot):
     assert state.sim().keys == ["2"]
     state.advance(10)
     assert state.freshness()["status"] == "no_readings"
+
+
+@pytest.fixture
+def lingering_report(tmp_path):
+    """A report.py that starts a child, as the real one starts device.agent, and
+    waits for it. The child writes its pid and sleeps."""
+    pid_file = tmp_path / "child.pid"
+    script = tmp_path / "report.py"
+    script.write_text(
+        "import subprocess, sys\n"
+        "child = (\"import os, pathlib, time; \"\n"
+        f"         \"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid())); time.sleep(60)\")\n"
+        "sys.exit(subprocess.call([sys.executable, '-c', child]))\n")
+    return script, pid_file
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    try:  # a zombie is dead for this purpose
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split(") ", 1)[1][0] != "Z"
+    except OSError:
+        return True
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="process groups are Unix only")
+@pytest.mark.parametrize("how", ["stop_agent", "stop"])
+def test_stopping_ends_the_agent_report_py_started(qtbot, make_host, make_state, lingering_report, how):
+    script, pid_file = lingering_report
+    host = make_host()
+    Client(host.port).json("POST", "/api/records", sample_records()[0])
+    state = make_state(host, report_script=script)
+    qtbot.waitUntil(lambda: state.current_machine() is not None, timeout=5000)
+    assert state.start_agent("standin") is True
+    qtbot.waitUntil(pid_file.exists, timeout=10000)
+    qtbot.waitUntil(lambda: pid_file.read_text().strip() != "", timeout=5000)
+    child = int(pid_file.read_text())
+    assert state.own_agent_running() is True
+    getattr(state, how)()
+    qtbot.waitUntil(lambda: not _alive(child), timeout=5000)
+    assert state.own_agent_running() is False

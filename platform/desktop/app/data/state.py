@@ -10,6 +10,7 @@ from __future__ import annotations
 import getpass
 import math
 import os
+import signal
 import sys
 import threading
 import time
@@ -225,6 +226,14 @@ class StateReads(QObject):
     def _agent_process_alive(self) -> bool:
         return False
 
+    def own_agent_running(self) -> bool:
+        """Whether a report run this app started is still going. Closing the app ends it:
+        the receiver it reads and writes to runs in this process."""
+        return self._agent_process_alive()
+
+    def stop_agent(self) -> None:
+        """End the report run this app started, if any, with every process it started."""
+
     def last_agent_message(self) -> str:
         return self._agent_message
 
@@ -285,9 +294,7 @@ class DashboardState(StateReads):
 
     def stop(self) -> None:
         self.reader.stop()
-        if self._agent is not None and self._agent.state() != QProcess.NotRunning:
-            self._agent.kill()
-            self._agent.waitForFinished(3000)
+        self.stop_agent()
 
     # ---- background work --------------------------------------------------
 
@@ -454,12 +461,31 @@ class DashboardState(StateReads):
         proc.readyReadStandardOutput.connect(self._agent_read)
         proc.finished.connect(self._agent_finished)
         proc.errorOccurred.connect(self._agent_error)
+        if _OWN_SESSION is not None:
+            # report.py runs the agent as its own child. A session of its own makes
+            # them one process group, so stop_agent can end both.
+            proc.setUnixProcessParameters(_OWN_SESSION)
         self._agent = proc
         self._agent_output = b""
         self._say("")
         proc.start(sys.executable, args)
         self.runs_changed.emit()
         return True
+
+    def stop_agent(self) -> None:
+        proc = self._agent
+        if proc is None or proc.state() == QProcess.NotRunning:
+            return
+        group = int(proc.processId()) if _OWN_SESSION is not None else 0
+        if group > 0:
+            _signal_group(group, signal.SIGTERM)  # report.py and the agent it started
+            if not proc.waitForFinished(3000):
+                _signal_group(group, signal.SIGKILL)
+        else:
+            proc.kill()
+        proc.waitForFinished(3000)
+        if group > 0:
+            _signal_group(group, signal.SIGKILL)  # anything left in the group once report.py is gone
 
     def _port(self) -> int:
         return urlsplit(self.api.base).port or 80
@@ -504,6 +530,18 @@ class DashboardState(StateReads):
 
     def sim(self):
         return self.host.sim if self.host is not None else None
+
+
+# QProcess's "start in a new session" flag, where the platform has sessions.
+_OWN_SESSION = (QProcess.UnixProcessFlag.CreateNewSession
+                if os.name == "posix" and hasattr(QProcess, "setUnixProcessParameters") else None)
+
+
+def _signal_group(group: int, sig) -> None:
+    try:
+        os.killpg(group, sig)
+    except (ProcessLookupError, PermissionError):
+        pass  # already gone
 
 
 def _agent_failure(output: str) -> str:

@@ -148,6 +148,8 @@ class FakeState(StateReads):
         logic.add_runs(self._s, built["runs"])
         self._sim = FakeSim() if with_sim else None
         self.started_agents = []  # modes start_agent was called with
+        self.own_agent_alive = False  # set True to act as if this app's report run is going
+        self.stopped_agents = 0  # how many times stop_agent was called
         self._note_alarms()  # the fixture's alarms were there at the first look
 
     def now_ms(self) -> float:
@@ -191,6 +193,13 @@ class FakeState(StateReads):
             return False
         return True
 
+    def _agent_process_alive(self) -> bool:
+        return self.own_agent_alive
+
+    def stop_agent(self) -> None:
+        self.stopped_agents += 1
+        self.finish_agent()
+
     def sim(self):
         return self._sim
 
@@ -216,6 +225,11 @@ class FakeState(StateReads):
             self.snapshot_changed.emit()
         else:
             self.snapshot_changed.emit()
+
+    def finish_agent(self) -> None:
+        """End the pretend report run, as the real one ends: runs_changed fires."""
+        self.own_agent_alive = False
+        self.runs_changed.emit()
 
     def set_connected(self, up: bool) -> None:
         self._s["platform_up"] = up
