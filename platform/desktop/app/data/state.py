@@ -468,6 +468,8 @@ class DashboardState(StateReads):
             self._say("The report agent stopped before it finished.")
         elif code != 0:
             self._say(_agent_failure(text))
+        else:
+            self._say("")
         self.runs_changed.emit()
 
     # ---- simulator --------------------------------------------------------
