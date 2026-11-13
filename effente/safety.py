@@ -2,6 +2,15 @@
 
 The answer is only whether something is wrong and what it is. There are no severity levels.
 
+First, the sensor itself (sensor_problem): readings that no working accelerometer gives, so the data
+can't be trusted. While it is on, the vibration checks and the model's diagnosis are set aside: they
+would only be judging bad data. On 12 Nov corrupted samples (from a sensor buffer overflow) showed
+0.1-2.2 g of "gravity" and 2 g of "vibration" on a device at rest, and the device said VIBRATION TOO HIGH:
+
+  sensor_problem       gravity far from 1 g (outside 0.85-1.15 g) for an accelerometer that measures
+                       gravity, like the MPU; under 0.1 mg of noise on every axis (no live sensor is
+                       that quiet: stuck or disconnected); or an IMU temperature outside -40 to 125 C
+
 Universal limits work from the moment the device is plugged in, in every mode, before anything has
 been learned. Each is a reading that means trouble on practically any machine:
 
@@ -42,6 +51,7 @@ from collections import deque
 
 import numpy as np
 
+from effente import fault_types as FT
 from effente import features as F
 
 HOLD_S = 10.0  # a check counts once it has held this long ...
@@ -54,6 +64,12 @@ KNOCK_PEAK_G = 0.5
 HOT_C = 100.0
 HEATING_C_PER_MIN = 8.0
 JOLTS_10M = 5
+
+# The sensor itself. Industrial vibration sensors (piezo, as in the NASA bearing data) remove gravity
+# and read 0 g, so the gravity test is only for accelerometers that measure it (Safety(gravity_check=)).
+GRAVITY_G = (0.85, 1.15)
+FROZEN_G = 1e-4  # 0.1 mg rms: the MPU's own noise is 2-9 mg
+IMU_TEMP_OK_C = (-40.0, 125.0)  # the IMU's rated range
 
 # How far outside this machine's normal counts as wrong. Not decided yet: starting values.
 OUTSIDE_NORMAL = {
@@ -79,14 +95,19 @@ def margins(sensitivity: float = DEFAULT_SENSITIVITY) -> dict[str, float]:
 # Vibration below these never counts as outside normal: the accelerometer's own noise is 4-9 mg.
 VIB_FLOOR = {"vib_velocity_mm_s": 0.3, "vib_total_g": 0.015}
 
+SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
-CHECKS = UNIVERSAL + RELATIVE
+CHECKS = SENSOR + UNIVERSAL + RELATIVE
 # Old names of checks, as older saved models still list them in their baseline's "dropped".
 # "vibration_too_high" is now only a model fault type (effente.fault_types).
 RENAMED = {"vibration_too_high": "vibration_over_limit"}
+# Judged from the accelerometer, so set aside while the sensor's readings make no sense.
+FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal")
 
 WHAT = {  # what each problem is, for people: (sentence, the screen's short form after "! ", with its value)
+    "sensor_problem": ("the sensor's readings make no sense: check its wires and that it is fixed down; "
+                       "the vibration checks and the model are paused meanwhile", "SENSOR PROBLEM", None),
     "vibration_over_limit": ("vibration over 11 mm/s, too high for practically any machine", "VIB OVER LIMIT", None),
     "knocking": ("knocking: repeated impacts in the vibration", "KNOCKING", None),
     "too_hot": ("over 100 C", "TOO HOT", None),
@@ -96,6 +117,13 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "hotter_than_normal": ("hotter than its normal", "HOTTER THAN NORMAL", "{v:+.0f} C OVER NORMAL"),
     "louder_than_normal": ("louder than its normal", "LOUDER THAN NORMAL", "{v:+.0f} dB OVER NORMAL"),
 }
+
+# What each check means for people, in the same words as the model's fault types (effente.fault_types
+# SYMPTOM_TEXT), so the screen never says "vibration too high" twice.
+SYMPTOM = {"sensor_problem": "sensor_problem", "vibration_over_limit": "vibration_too_high",
+           "knocking": "knocking_or_jolts", "too_hot": "too_hot", "heating_fast": "heating_fast",
+           "repeated_jolts": "knocking_or_jolts", "vibration_above_normal": "vibration_too_high",
+           "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal"}
 
 _NAN = float("nan")
 
@@ -119,7 +147,23 @@ def readings(x) -> dict[str, float]:
             "kurtosis": kurt + 3.0, "peak_g": 10 ** peak if math.isfinite(peak) else _NAN,
             "imu_temp_c": _f(x, "imu_temp_c"), "th_max_c": _f(x, "th_max_c"),
             "snd_level_db": _f(x, "snd_level_db"), "jolts_10m": _f(x, "trend_shocks_10m"),
-            "th_rise_per_min": _f(x, "trend_heat_rise_per_min")}
+            "th_rise_per_min": _f(x, "trend_heat_rise_per_min"), "gravity_g": gravity_g(x),
+            "rms_max_g": _max(*(10 ** v for v in (_f(x, f"vib_rms_{a}") for a in "xyz") if math.isfinite(v)))}
+
+
+def gravity_g(x) -> float:
+    """How much gravity the accelerometer sees, in g (about 1 for an MPU, whatever its tilt)."""
+    g = [_f(x, f"vib_gravity_{a}") for a in "xyz"]
+    return math.sqrt(sum(v * v for v in g)) if all(math.isfinite(v) for v in g) else _NAN
+
+
+def _sensor(r: dict, gravity_check: bool = True) -> tuple[bool, float]:
+    """(the readings make no sense, the gravity it sees)."""
+    g, temp = r["gravity_g"], r["imu_temp_c"]
+    bad_gravity = gravity_check and math.isfinite(g) and not GRAVITY_G[0] <= g <= GRAVITY_G[1]
+    frozen = math.isfinite(r["rms_max_g"]) and r["rms_max_g"] < FROZEN_G
+    bad_temp = math.isfinite(temp) and not IMU_TEMP_OK_C[0] <= temp <= IMU_TEMP_OK_C[1]
+    return bool(bad_gravity or frozen or bad_temp), g
 
 
 def _max(*v) -> float:
@@ -165,8 +209,9 @@ class Safety:
     update(t0, x) for each feature row (any rate); problems() is what is wrong now."""
 
     def __init__(self, baseline: dict | None = None, hold_s: float = HOLD_S,
-                 sensitivity: float = DEFAULT_SENSITIVITY):
+                 sensitivity: float = DEFAULT_SENSITIVITY, gravity_check: bool = True):
         self.hold_s = hold_s
+        self.gravity_check = gravity_check  # False for accelerometers that don't measure gravity (piezo)
         self.sensitivity, self.margins = sensitivity, margins(sensitivity)
         self.hist: dict[str, deque] = {n: deque() for n in CHECKS}  # (t, over) for the last hold_s
         self.active: dict[str, dict] = {}
@@ -197,7 +242,8 @@ class Safety:
 
     def measure(self, t0: float, x) -> dict[str, tuple[bool, float]]:
         r = readings(x)
-        m = {k: v for k, v in _universal(r, self._imu_rise(t0, r["imu_temp_c"])).items() if k not in self.dropped}
+        m = {"sensor_problem": _sensor(r, self.gravity_check)}
+        m.update({k: v for k, v in _universal(r, self._imu_rise(t0, r["imu_temp_c"])).items() if k not in self.dropped})
         if self.levels:
             m.update(_relative(r, self.levels, self.margins))
         return m
@@ -208,7 +254,9 @@ class Safety:
         m = self.measure(t0, x)
         for name in self.active:  # a sensor that went missing clears its problem, in time
             m.setdefault(name, (False, math.nan))
-        for name, (over, value) in m.items():
+        for name, (over, value) in m.items():  # sensor_problem first, so it can set the others aside
+            if name in FROM_VIBRATION and "sensor_problem" in self.active:
+                over = False  # nothing judged from bad data: counts as clear until the sensor is fine
             h = self.hist[name]
             h.append((t0, bool(over)))
             while h and t0 - h[0][0] > self.hold_s:
@@ -222,8 +270,14 @@ class Safety:
                 elif math.isfinite(value):
                     self.active[name]["value"] = _round(value)
             elif covered and share >= ON_SHARE:
-                self.active[name] = {"name": name, "what": WHAT[name][0], "value": _round(value), "since": t0}
+                self.active[name] = {"name": name, "symptom": SYMPTOM[name], "what": WHAT[name][0],
+                                     "value": _round(value), "since": t0}
                 started.append(self.active[name])
+                if name == "sensor_problem":  # anything just judged from the bad data goes with it
+                    for n in FROM_VIBRATION:
+                        self.hist[n].clear()
+                        if self.active.pop(n, None) is not None:
+                            cleared.append(n)
         return started, cleared
 
     def problems(self) -> list[dict]:
@@ -236,10 +290,8 @@ def _round(v: float):
 
 
 def screen_text(problem: dict) -> str:
-    """The screen's short form of a problem, at most 19 characters (it follows "! ")."""
-    _, short, with_value = WHAT[problem["name"]]
-    v = problem.get("value")
-    return (with_value.format(v=v) if with_value and v is not None else short)[:19]
+    """The screen's short form of a problem, at most 19 characters: what is going on, in plain words."""
+    return FT.SYMPTOM_TEXT[SYMPTOM[problem["name"]]][0]
 
 
 # ----------------------------------------------------------------- the baseline, when a model is trained
@@ -269,6 +321,13 @@ def learn_baseline(X, names, running=None) -> dict:
         warnings.append("hardly any vibration while learning: was the machine running?")
         short.append("HARDLY VIBRATED")
     # 2. Did it stay under the universal limits? A limit it was over for 5 % of the time is dropped.
+    g = col("gravity_g")
+    measures_gravity = np.isfinite(g).any() and np.nanmedian(g) > 0.5  # an MPU, not a piezo sensor
+    bad = np.mean([_sensor(r, measures_gravity)[0] for r in R]) if R else 0.0
+    if bad >= 0.05:
+        warnings.append(f"the sensor's readings made no sense for {100 * bad:.0f} % of the learning (gravity "
+                        f"off, or no signal): check its wires and that it is fixed down, then learn again")
+        short.append("SENSOR PROBLEM")
     over = {n: np.mean([_universal(r)[n][0] for r in R]) for n in UNIVERSAL if n != "heating_fast"}
     for n, share in over.items():
         if share >= 0.05:
@@ -296,9 +355,30 @@ def learn_baseline(X, names, running=None) -> dict:
 
 
 def verdict(model_state: dict | None, problems: list[dict]) -> dict:
-    """The one answer: is something wrong, and what. The model's named fault type comes first (it says
-    what kind of fault), then the no-setup checks."""
+    """The one answer: is something wrong, and what is going on, in plain words (symptoms, effente.
+    fault_types.SYMPTOM_TEXT), not a guess at the cause. The model's comes first, then the no-setup
+    checks, each said once; "details" keeps the specific names (fault type and checks) for the data.
+    While the sensor's readings make no sense, the model is left out: it would be judging bad data."""
     diag = (model_state or {}).get("diagnosis")
-    what = [diag] if diag not in (None, "normal", "warming_up", "stopped") else []
-    what += [p["name"] for p in problems]
-    return {"wrong": bool(what), "what": what}
+    bad_data = any(p["name"] == "sensor_problem" for p in problems)
+    model_wrong = diag not in (None, "normal", "warming_up", "stopped") and not bad_data
+    details = ([diag] if model_wrong else []) + [p["name"] for p in problems]
+    # the model's description straight from what moved, when it gives one; else from its fault type
+    said = list((model_state or {}).get("symptoms") or []) if model_wrong else []
+    if model_wrong and not said:
+        said = [FT.symptom_of(diag) or "outside_normal"]
+    said += [SYMPTOM[p["name"]] for p in problems]
+    what = []
+    for sym in said:
+        if sym not in what:
+            what.append(sym)
+    covered = {c for s in what for c in FT.COVERS.get(s, ())}
+    what = [s for s in what if s not in covered]
+    if "sensor_problem" in what:
+        what = ["sensor_problem"] + [s for s in what if s != "sensor_problem"]
+    return {"wrong": bool(what), "what": what, "details": details}
+
+
+def say(symptoms: list[str]) -> list[str]:
+    """The screen's lines for a verdict's "what"."""
+    return [FT.SYMPTOM_TEXT[s][0] for s in symptoms]

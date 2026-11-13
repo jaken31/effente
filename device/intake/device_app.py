@@ -9,7 +9,9 @@
               only); the screen shows progress. A recording that is too short is refused and
               learning carries on
   WATCHING    checks every summary period for faults (effente.model_runtime.Watcher) and shows the
-              diagnosis; pressing the button again starts a new recording, to relearn
+              diagnosis; pressing the button again starts a new recording, to relearn. While nothing
+              is wrong it also shows an early warning (effente.early_warning): a small change that
+              has lasted or is creeping up, "! EARLY: ...", never counted as wrong
 
 All the time, sensor data goes to the screen and to whoever connects to the live stream
 (device.intake.stream: results, feature rows, events, status). With an uploader
@@ -30,10 +32,12 @@ from pathlib import Path
 import numpy as np
 
 from effente import features as F
+from effente import early_warning as EW
 from effente import safety as SF
 from effente.history import History
 from effente.model_runtime import Model, Watcher
 from effente.trainer import load_for_training, train_model
+from device.intake import contract as C
 from device.intake.extract import feature_stream
 from device.intake.live import log_record
 from device.intake.recorder import Recorder
@@ -45,8 +49,12 @@ SCREEN_EVERY_S = 0.5  # how often the layout is checked for changes
 HISTORY_SAVE_EVERY_S = 300.0
 MIN_RECORD_S = 300.0  # learning needs at least 5 minutes of the machine running
 NOTES_SHOWN_S = 120.0  # how long the screen shows what was odd about the learning
-SCREEN_DIAG = {"normal": "NOTHING WRONG", "warming_up": "WARMING UP", "stopped": "MACHINE STOPPED",
-               "unrecognised_pattern": "OUTSIDE NORMAL"}  # the rest: the fault type's name
+# Which tile goes with what is wrong (design B): the reading a person would look at.
+VIB_SYMPTOMS = {"vibration_too_high", "unusual_vibration", "knocking_or_jolts", "vibration_unsteady", "sensor_problem",
+                "device_moved"}
+TEMP_SYMPTOMS = {"too_hot", "heating_up", "heating_fast", "hot_spot", "running_cold", "temperature_swings"}
+SCREEN_DIAG = {"normal": "NOTHING WRONG", "warming_up": "WARMING UP", "stopped": "MACHINE STOPPED"}
+# when something is wrong, the screen says what is going on (effente.fault_types.SYMPTOM_TEXT)
 
 
 def _g(x, name):
@@ -83,20 +91,24 @@ def _wrap(text: str, width: int = 21) -> list[str]:
 class DeviceApp:
     def __init__(self, data_dir, source, screen=None, stream=None, device_id: str = "effente-01",
                  machine_id: str = "machine-1", hop_s: float = 0.25, min_record_s: float = MIN_RECORD_S,
-                 max_gb: float | None = None, min_free_gb: float = 0.5, clock=time.time, uploader=None):
+                 max_gb: float | None = None, min_free_gb: float = 0.5, clock=time.time,
+                 simulated: bool | None = None, uploader=None):
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.source, self.screen, self.stream, self.uploader = source, screen, stream, uploader
         self.device_id, self.machine_id, self.hop_s = device_id, machine_id, hop_s
         self.min_record_s, self.max_gb, self.min_free_gb = min_record_s, max_gb, min_free_gb
         self.clock = clock
+        self.simulated = C.is_simulated(source) if simulated is None else simulated  # the contract's flag
         self.lock = threading.RLock()
         self.mode = "display"
         self.recorder: Recorder | None = None
         self.recording: Path | None = None
         self.record_started: float | None = None
         self.watcher: Watcher | None = None
+        self.early: EW.EarlyWarning | None = None  # the early warning, for the model being watched with
         self.model_path: Path | None = None
+        self.model_version = C.NO_MODEL  # the contract's model_version: name and hash of the model file
         self.result: dict | None = None
         self.train_stage, self.train_share, self.message = "", 0.0, ""
         self.latest, self.latest_t = None, None
@@ -104,7 +116,7 @@ class DeviceApp:
         self.history = History.load(self.dir / "history.npz")
         self.settings_path = self.dir / "settings.json"
         self.sensitivity, self._settings_seen = SF.DEFAULT_SENSITIVITY, None
-        self.safety = SF.Safety()
+        self.safety = SF.Safety(gravity_check=bool(getattr(getattr(source, "info", None), "accel_measures_gravity", True)))
         self.problems: list[dict] = []
         self.notes: list[str] = []
         self.notes_until = -math.inf
@@ -138,10 +150,12 @@ class DeviceApp:
         if state.get("model") and Path(state["model"]).exists():
             try:
                 self.model_path = Path(state["model"])
-                self.watcher = Watcher(Model.load(self.model_path), margin=SF.margins(self.sensitivity)["model"])
+                self.watcher = self._watcher(Model.load(self.model_path), _load_early(self.model_path))
+                self.model_version = C.model_version_of(self.model_path)
             except Exception as e:  # noqa: BLE001  a model made with other features: learn again
                 self.message = f"saved model not usable: {e}"
-                self.watcher, self.model_path = None, None
+                self.watcher, self.model_path, self.model_version = None, None, C.NO_MODEL
+                self.early = None
         if mode == "watching" and self.watcher is not None:
             self.mode = "watching"
             self.safety.set_baseline(self.watcher.m.d.get("baseline"))
@@ -174,6 +188,8 @@ class DeviceApp:
         self.record_started = self.clock()
         self.result, self.message = None, ""
         self.safety.set_baseline(None)  # relearning: the old normal no longer counts
+        if self.early is not None:
+            self.early.reset()  # and nothing it had seen counts either
         self._open_recorder()
         self.mode = "recording"
         self._save_state()
@@ -219,10 +235,19 @@ class DeviceApp:
             models.mkdir(exist_ok=True)
             path = models / f"{self.recording.name}.json"
             path.write_text(json.dumps(d))
-            watcher = Watcher(Model(d), margin=SF.margins(self.sensitivity)["model"])
+            model = Model(d)
+            calib = None
+            try:  # this machine's normal for the early warning, from the same rows
+                calib = EW.calibrate(model, t, X, names)
+                _early_path(path).write_text(json.dumps(calib))
+            except Exception as e:  # noqa: BLE001  watching works without it
+                self._event("early_warning_off", {"reason": str(e)[:200]})
+            watcher = self._watcher(model, calib)
             baseline = d.get("baseline") or {}
+            version = C.model_version_of(path)
             with self.lock:
                 self.model_path, self.watcher, self.mode = path, watcher, "watching"
+                self.model_version = version
                 self.safety.set_baseline(baseline)
                 self.message = ""
                 self.notes = list(baseline.get("warnings_screen", []))
@@ -239,6 +264,26 @@ class DeviceApp:
                 self.mode = "recording"
                 self._save_state()
             self._event("training_failed", {"reason": str(e)})
+
+    def _watcher(self, model, calib) -> Watcher:
+        """A Watcher for the model, with its early warning fed every period the Watcher judges."""
+        w = Watcher(model, margin=SF.margins(self.sensitivity)["model"])
+        early = EW.EarlyWarning(model, calib, sensitivity=self.sensitivity)
+        judge = w._judge
+
+        def judged(minute_t, row):
+            judge(minute_t, row)
+            st = w.state
+            if self.watcher is not w and self.watcher is not None:
+                return  # an old watcher (relearned meanwhile)
+            # the real alarm: the model's or the checks'; the early warning steps aside while it is on
+            wrong = SF.verdict(st, self.problems)["wrong"]
+            for name, details in early.observe(minute_t, st.get("diagnosis") != "stopped", row=row, alarm=wrong):
+                self._event(name, details)
+
+        w._judge = judged
+        self.early = early
+        return w
 
     # ------------------------------------------------------------ the pipeline
     def _tap(self, p):
@@ -284,7 +329,8 @@ class DeviceApp:
             self.stream.publish_features(t0, x, missing)
             if result is not None:
                 self.stream.publish_result(log_record(t0, x, result, mode, missing, 0.0, self.device_id,
-                                                      self.machine_id), t0)
+                                                      self.machine_id, model_version=self.model_version,
+                                                      simulated=self.simulated), t0)
         if self.uploader is not None:  # only queues: the sending is on the uploader's own thread
             self.uploader.on_row(t0, x, mode, result, problems, self.sensitivity,
                                  watcher.margin if watcher is not None else None)
@@ -343,6 +389,8 @@ class DeviceApp:
             self.safety.set_sensitivity(v)
             if self.watcher is not None:
                 self.watcher.margin = SF.margins(v)["model"]
+            if self.early is not None:
+                self.early.set_sensitivity(v)
         if changed:
             self._event("settings", {"sensitivity": v})
 
@@ -382,40 +430,45 @@ class DeviceApp:
 
     # ------------------------------------------------------------ what is shown
     def screen_lines(self) -> list[str]:
-        """The screen's layout: the mode and the current time on top. {vib}, {peak} and {temp} and a
-        "{bar}" line are filled in by the microcontroller from every sample, so they move at the
-        screen's own rate; the rest changes only when the mode, the time or the diagnosis does."""
+        """The screen's layout, design B (tiles): four lines the microcontroller draws as a header and four
+        boxed readings (device/app/effente/sketch/sketch.ino, composeTiles()):
+          "@<header left>"   the mode, or what is wrong with a leading "!" (not drawn; nothing is inverted)
+          "<header right>"   the time, hours and minutes
+          "<tile>"           vib, peak, temp or hz: the reading that goes with what is wrong; else empty
+          "<speed>"          running speed in Hz, a whole number, or "--"
+        Vibration, peak and temperature (shown in F) come from the samples on the microcontroller, so they
+        move at the screen's own rate; this changes only when the mode, the minute or what is wrong does."""
         r = readings(self.latest)
-        speed = f"speed {r['speed_hz']:.1f} Hz" if r["speed_hz"] else "speed --"
-        live = ["vib  {vib} mg", "{bar}", "peak {peak} g"]
+        speed = f"{r['speed_hz']:.0f}" if r["speed_hz"] else "--"
         with self.lock:
             mode, msg, problems = self.mode, self.message, list(self.problems)
-            notes = self.notes if self.clock() < self.notes_until else []
-        top = f"{SCREEN_NAMES[mode]:<12s}{time.strftime('%H:%M:%S', time.localtime(self.clock()))}"
-        bang = [f"! {SF.screen_text(p)}" for p in problems]  # what is wrong, in every mode
-        if mode == "display":
-            head, tail = [top] + live + [speed, "temp {temp} C"], []
-        elif mode == "recording":
-            head, tail = [top] + live + [speed, "temp {temp} C"], []
-            bang += _wrap(msg)[:2] if msg else []
+            early_obj = getattr(self, "early", None)
+            early = early_obj.screen() if early_obj is not None and mode == "watching" else None
+        res = (self.result or {}) if mode == "watching" else None
+        what = SF.verdict(res, problems)["what"]  # in plain words, the model's first, then the checks
+        if what:
+            left = "!" + SF.say(what)[0]
+        elif mode == "watching" and early:
+            left = early  # a small lasting change; never shown with a real problem
         elif mode == "training":
-            head, tail = [top, f"{int(100 * self.train_share)}% {self.train_stage}"[:21], ""] + live[:2], ["temp {temp} C"]
+            left = f"TRAINING {int(100 * self.train_share)}%"
+        elif mode == "recording" and msg:
+            left = msg
+        elif mode == "watching" and res.get("diagnosis") in ("warming_up", "stopped"):
+            left = SCREEN_DIAG[res["diagnosis"]]
         else:
-            res = self.result or {}
-            diag = res.get("diagnosis", "warming_up")
-            head = [top]
-            if diag in SCREEN_DIAG and diag != "unrecognised_pattern":
-                head.append(SCREEN_DIAG[diag] if not bang or diag != "normal" else bang.pop(0)[2:])
-            else:  # the model says something is wrong: what it is, and the reading that moved most
-                head += _wrap(SCREEN_DIAG.get(diag, diag.replace("_", " ").upper()))[:2]
-                feats = list((res.get("features") or {}).items())
-                if feats:
-                    head.append(f"{feats[0][0][:14]} {feats[0][1]:+.1f}")
-            bang += [f"note: {n}"[:21] for n in notes]
-            tail = live[:2] + ["temp {temp} C"]
-        room = max(0, 8 - len(head) - len(tail))
-        lines = head + bang[:room] + tail
-        return [x[:21] if "{" not in x else x for x in lines[:8]]
+            left = SCREEN_NAMES[mode]
+        tile = ""
+        if what:
+            first = what[0]
+            if first == "speed_changed":
+                tile = "hz"
+            elif first in TEMP_SYMPTOMS:
+                tile = "temp"
+            elif first in VIB_SYMPTOMS:
+                tile = "vib"
+        clock = time.strftime("%H:%M", time.localtime(self.clock()))
+        return [f"@{left}"[:24], clock, tile, speed]
 
     def _screen_worker(self):
         while not self._stop.is_set():
@@ -438,10 +491,13 @@ class DeviceApp:
                 s["training"] = {"stage": self.train_stage, "share": round(self.train_share, 2)}
             if self.model_path:
                 s["model"] = self.model_path.name
+            s["model_version"], s["simulated"] = self.model_version, self.simulated
             if self.result:
                 s["diagnosis"] = self.result.get("diagnosis")
             s.update(SF.verdict(self.result if self.mode == "watching" else None, self.problems),
                      problems=list(self.problems), sensitivity=self.sensitivity)
+            if self.mode == "watching" and self.early is not None:
+                s["early_warning"] = self.early.state()
             if self.watcher is not None and (self.watcher.m.d.get("baseline") or {}).get("warnings"):
                 s["learning_notes"] = list(self.watcher.m.d["baseline"]["warnings"])
         if hasattr(self.source, "stats"):
@@ -451,3 +507,15 @@ class DeviceApp:
     def _event(self, name, details):
         if self.stream is not None:
             self.stream.publish_event(self.clock(), name, details)
+
+
+def _early_path(model_path: Path) -> Path:
+    return model_path.with_name(model_path.stem + ".early.json")
+
+
+def _load_early(model_path: Path) -> dict | None:
+    """The early warning's calibration saved beside a model (None for models trained before it)."""
+    try:
+        return json.loads(_early_path(model_path).read_text())
+    except (OSError, ValueError):
+        return None
