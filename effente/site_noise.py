@@ -120,7 +120,7 @@ class SiteNoise:
             beeper = rng.random() < c["beeper_share"]
             ev.append(Event("forklift_passing", t, rng.uniform(15, 60),
                             dict(level=rng.uniform(70, 84), fe=rng.uniform(24, 40), beeper=beeper,
-                                 beep_hz=rng.uniform(900, 1250), beep_level=rng.uniform(78, 90))))
+                                 beep_hz=rng.uniform(1000, 2800), beep_level=rng.uniform(78, 90))))
         for t in self._poisson(rng, c["stands"]):
             ev.append(Event("person_in_front_of_camera", t, rng.uniform(60, 300),
                             dict(c0=int(rng.integers(0, 20)), w=int(rng.integers(8, 16)), r0=int(rng.integers(0, 8)),
