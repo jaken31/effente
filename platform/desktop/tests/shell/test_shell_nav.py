@@ -66,3 +66,18 @@ def test_machine_picker_sets_state(window, state):
 def test_minimum_size(window):
     assert window.minimumSize().width() == 1440
     assert window.minimumSize().height() == 900
+
+
+def test_page_scrollbar_takes_no_content_width(window, qtbot):
+    from PySide6.QtWidgets import QWidget
+
+    area = window.stack.currentWidget()
+    tall = QWidget()
+    tall.setMinimumHeight(3000)
+    window.pages["live"].layout().addWidget(tall)
+    qtbot.waitUntil(area.overlay.isVisible)
+    page = window.pages["live"]
+    right = page.mapTo(window, page.rect().topRight()).x()
+    assert right == window.width() - 24 - 1
+    area.overlay.setValue(200)
+    assert area.verticalScrollBar().value() == 200

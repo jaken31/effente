@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QScrollArea,
+    QScrollBar,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -53,6 +54,43 @@ class _Backdrop(QWidget):
             p.setTransform(QTransform().translate(fx * w, fy * h).scale(1, ry / rx))
             p.fillRect(-rx, -rx, 2 * rx, 2 * rx, g_)
             p.restore()
+
+
+class PageScroll(QScrollArea):
+    """A page's scroll area whose vertical scrollbar floats over the right padding
+    instead of taking width from the page, so panels end 24px from the window edge
+    as in the mockup."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWidgetResizable(True)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.viewport().setAutoFillBackground(False)
+        inner = self.verticalScrollBar()  # hidden, but still the one the wheel moves
+        self.overlay = QScrollBar(Qt.Orientation.Vertical, self)
+        self.overlay.setRange(inner.minimum(), inner.maximum())
+        self.overlay.hide()
+        inner.rangeChanged.connect(self._range)
+        inner.valueChanged.connect(self.overlay.setValue)
+        self.overlay.valueChanged.connect(inner.setValue)
+
+    def _range(self, lo: int, hi: int) -> None:
+        self.overlay.setRange(lo, hi)
+        self.overlay.setPageStep(self.verticalScrollBar().pageStep())
+        self.overlay.setSingleStep(self.verticalScrollBar().singleStep())
+        self.overlay.setVisible(hi > lo)
+        self._place()
+
+    def _place(self) -> None:
+        bottom = self.horizontalScrollBar().height() if self.horizontalScrollBar().isVisible() else 0
+        self.overlay.setGeometry(self.width() - t.SCROLLBAR, 0, t.SCROLLBAR, self.height() - bottom)
+        self.overlay.raise_()
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._place()
 
 
 class MainWindow(QMainWindow):
@@ -116,18 +154,14 @@ class MainWindow(QMainWindow):
             self.bind(state)
 
     @staticmethod
-    def _wrap(page: QWidget) -> QScrollArea:
+    def _wrap(page: QWidget) -> PageScroll:
         """Each page scrolls inside the content area's 24px padding."""
-        area = QScrollArea()
-        area.setFrameShape(QFrame.Shape.NoFrame)
-        area.setWidgetResizable(True)
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        area = PageScroll()
         holder = QWidget()
         lay = QVBoxLayout(holder)
         lay.setContentsMargins(t.CONTENT_PAD, t.CONTENT_PAD, t.CONTENT_PAD, t.CONTENT_PAD)
         lay.addWidget(page)
         area.setWidget(holder)
-        area.viewport().setAutoFillBackground(False)
         holder.setAutoFillBackground(False)
         return area
 
