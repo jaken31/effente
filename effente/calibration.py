@@ -6,12 +6,19 @@ device has just been snapped onto, from a few minutes of that machine running (T
 and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
 
   kept from the entry      the normal model's weights (and, for PCA, its score scales), which
-                           readings it uses, the persistence, the fault-type and feature tables
+                           readings it uses, the persistence, the feature table
   fitted to this machine   the preparation statistics (effente.model_input.Prep: the median and
                            spread of every reading the entry uses), the spreads of the residuals,
-                           the alarm threshold, the fault classifier (injected patterns on this
-                           machine's own normal variation, as in full training) and the baseline
-                           for the outside-normal checks (effente.safety)
+                           the alarm threshold, the baseline for the outside-normal checks
+                           (effente.safety) and, if the entry carries a fault classifier, that
+                           too (injected patterns on this machine's own normal variation, as in
+                           full training)
+  with the entry as guard  a few minutes cannot show how far slow readings wander in a day, so the
+                           fitted spreads are widened by the entry's factors (or never taken below
+                           the entry's own spreads), the threshold is never below the entry's, and
+                           readings the entry holds or this machine did not give are not judged
+                           (refit_prep). Without these guards the simulated machines alarmed most
+                           of the time in the 40 minutes after a 5-minute calibration.
 
 It follows effente.trainer.train_model step for step and reuses its parts, so a calibrated model
 and one trained on the machine alone differ only in where the network came from: running rows
@@ -21,9 +28,10 @@ split), a gamma fit set for one false alarm a week.
     model, report = calibrate(entry_model, t, X, names)
     verdict = fit_check(report, manifest)   # does this machine look like the entry's type?
 
-The result is a valid effente-model-1 dict: effente.model_runtime.Model loads it unchanged. No new
-keys are added to the file: "created" is the calibration time, "training_report" is the calibration
-report (with "calibrated": true and the entry's own report under "entry_training_report").
+The result is a valid effente-model-1 dict: effente.model_runtime.Model loads it unchanged. The
+file format is not changed: "created" is the calibration time, "training_report" is the calibration
+report (with "calibrated": true and the entry's own report under "entry_training_report"), and any
+other key the entry carries is kept ("source", if the entry has it, becomes "calibrated").
 
 Starting values throughout. Nothing here has been checked on a real machine (unverified): the
 numbers behind FIT_MAX_RATIO come from the simulators only (training/calibration/README.md).
@@ -51,8 +59,9 @@ CALIB_SHARE = 0.15  # the last part of the calibration, held out for the thresho
 
 # Fit check: the machine "does not look like the entry's type" when its median held-out score is
 # more than this many times the entry's own held-out median. A starting value, UNVERIFIED: set from
-# simulated machines only (see training/calibration/README.md for the runs behind it). The TRD
-# leaves the rule open until there are recordings of real machines.
+# simulated machines only, where it passed every machine, of the right type or not
+# (training/calibration/README.md): it catches only a gross mismatch. The TRD leaves the rule open
+# until there are recordings of real machines.
 FIT_MAX_RATIO = 3.0
 
 QUANTILES = (("p50", 50), ("p90", 90), ("p99", 99))
@@ -70,22 +79,49 @@ def _quantiles(s) -> dict:
     return out
 
 
-SPREAD_FLOOR = True
-MUTE_MISSING = True
-NOT_JUDGED = 1e12
-THRESHOLD_FLOOR = True
+NOT_JUDGED = 1e12  # a spread this large makes a reading always read as usual: it is not judged
 
 
-def refit_prep(entry_prep: Prep, X_fit: np.ndarray) -> tuple[Prep, dict]:
+def _entry_settings(entry_model: dict, columns: list[str]):
+    """What the entry itself says about calibrating it: (widen factors or None, held mask).
+
+    The library's entries (training/library) carry "calibration": {"widen": one factor per reading,
+    "hold": names or prefixes ending in "_"}. widen multiplies the spread fitted here, because a few
+    minutes see less variation than the hours the entry was built from. hold names readings a short
+    calibration cannot fit (the clock, trends, the IMU's temperature): they are not judged.
+    An entry without it (a plain trained model) gets no widening and nothing held; its own spreads
+    are then the floor (refit_prep)."""
+    cal = entry_model.get("calibration")
+    cal = cal if isinstance(cal, dict) else {}
+    widen = cal.get("widen")
+    if widen is not None:
+        widen = np.asarray(widen, float)
+        if widen.shape != (len(columns),) or not (np.isfinite(widen).all() and (widen > 0).all()):
+            raise ValueError(f"the entry's widen factors must be {len(columns)} numbers above 0")
+    hold = [str(h) for h in (cal.get("hold") or ())]
+    prefixes = tuple(h for h in hold if h.endswith("_"))
+    whole = {h for h in hold if not h.endswith("_")}
+    held = np.array([c in whole or (bool(prefixes) and c.startswith(prefixes)) for c in columns], bool)
+    return widen, held
+
+
+def refit_prep(entry_prep: Prep, X_fit: np.ndarray, widen=None, held=None) -> tuple[Prep, dict]:
     """The entry's preparation with this machine's median and spread for every reading it uses.
 
-    The columns stay exactly the entry's (the network's inputs are fixed). A reading the entry uses
-    that this machine doesn't have (NaN in more than half the rows: the same rule Prep.fit uses)
-    keeps the entry's median and spread. One that never changes here takes this machine's value as
-    its median and keeps the entry's spread, so a later change is measured in the entry's spreads.
-    Returns (prep, {"missing": [names], "constant": [names]})."""
+    The columns stay exactly the entry's (the network's inputs are fixed). Per reading:
+      - fitted: this machine's median, and its spread (as Prep.fit works them out). The spread is
+        multiplied by the entry's widen factor if it has them; if not, it is never taken below the
+        entry's own spread. Either way a few minutes of calibration cannot make the model stricter
+        about slow readings than the hours behind the entry justify.
+      - constant here: this machine's value as the median, the entry's spread.
+      - not judged: readings the entry holds, and readings this machine did not give while
+        calibrating (NaN in more than half the rows: Prep.fit's rule). Their level here is unknown,
+        so they get a huge spread and always read as usual, also when they appear later (a 10-minute
+        trend that starts after a 5-minute calibration).
+    Returns (prep, {"missing": [...], "constant": [...], "held": [...]})."""
     idx = {n: i for i, n in enumerate(entry_prep.names_in)}
     cols = entry_prep.columns
+    held = np.zeros(len(cols), bool) if held is None else np.asarray(held, bool)
     T = _transform_raw(np.asarray(X_fit, float)[:, [idx[n] for n in cols]], cols)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
@@ -95,17 +131,17 @@ def refit_prep(entry_prep: Prep, X_fit: np.ndarray) -> tuple[Prep, dict]:
         std = np.nanstd(T, 0)
     spread = (q3 - q1) / 1.349
     scale = np.where(spread > 1e-9, spread, np.where(std > 1e-9, std, np.nan))  # as Prep.fit
-    missing = ~(have >= 1 - MAX_NAN_FRAC) | ~np.isfinite(centre)
-    constant = ~missing & ~np.isfinite(scale)
-    centre = np.where(missing, entry_prep.centre, centre)
+    missing = ~held & (~(have >= 1 - MAX_NAN_FRAC) | ~np.isfinite(centre))
+    constant = ~held & ~missing & ~np.isfinite(scale)
+    off = held | missing
+    scale = scale * widen if widen is not None else np.fmax(scale, entry_prep.scale)
     scale = np.where(constant, entry_prep.scale, scale)
-    if SPREAD_FLOOR:
-        scale = np.maximum(scale, entry_prep.scale)
-    scale = np.where(missing, NOT_JUDGED if MUTE_MISSING else entry_prep.scale, scale)
+    centre = np.where(off, entry_prep.centre, centre)
+    scale = np.where(off, NOT_JUDGED, scale)
     prep = Prep(cols, centre, scale, entry_prep.axis_col, entry_prep.missing_cols, entry_prep.names_in,
                 entry_prep.features_version)
-    return prep, {"missing": [c for c, m in zip(cols, missing) if m],
-                  "constant": [c for c, m in zip(cols, constant) if m]}
+    pick = lambda mask: [c for c, m in zip(cols, mask) if m]
+    return prep, {"missing": pick(missing), "constant": pick(constant), "held": pick(held)}
 
 
 def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNNING_S, seed: int = 0):
@@ -140,32 +176,42 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     fit, held = t < cut, t >= cut
 
     s_before = entry.score(X)[0]  # this machine through the entry as shipped, for the report only
-    prep, fell_back = refit_prep(entry.prep, X[fit])
+    widen, held_cols = _entry_settings(entry_model, entry.prep.columns)
+    prep, fell_back = refit_prep(entry.prep, X[fit], widen, held_cols)
     d = copy.deepcopy(entry_model)
     d.update(created=datetime.now(timezone.utc).isoformat(timespec="seconds"), prep=prep.to_dict(),
              period_s=int(period), baseline=baseline)
+    if "source" in d:  # the library marks its files "entry"; this one no longer is
+        d["source"] = "calibrated"
     model = RT.Model(d)
     s, r, Z = model.score(X)
     scale = np.std(r[fit], 0)
     d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
-    d["threshold"] = TR.gamma_threshold(TR._causal_median(s[held], model.smooth), 7 * 86400 / period)
-    if THRESHOLD_FLOOR:
-        d["threshold"] = max(d["threshold"], float(entry_model["threshold"]))
+    # The threshold: fitted to this machine's held-out scores as the trainer does, but never below the
+    # entry's own. A few dozen held-out seconds can show this machine is noisier than the entry's
+    # machines; they cannot show a week of it would be quieter.
+    fitted = TR.gamma_threshold(TR._causal_median(s[held], model.smooth), 7 * 86400 / period)
+    d["threshold"] = max(fitted, float(entry_model["threshold"]))
     model = RT.Model(d)
 
-    # The fault classifier, exactly as in full training: this machine's own normal deviations with the
-    # fault-type signatures added. No real labelled faults (unverified).
-    rng = np.random.default_rng(seed)
-    dev_cols = [c for c in prep.names_out if c in prep.columns]
-    base = model.deviation_vector(r[fit], Z[fit])
-    Xc, Yc, classes = TR.inject(base, dev_cols, rng)
-    acts = ["relu", "sigmoid"]
-    clf, _ = TR.fit_mlp(Xc, Yc, [Xc.shape[1], 32, Yc.shape[1]], acts, loss="bce", seed=seed, epochs=150)
-    d["fault_classifier"] = {"classes": classes, "inputs": dev_cols,
-                             "layers": [RT.quantize(W, b, a) for (W, b), a in zip(clf, acts)],
-                             "note": "learned from injected signature patterns only; no real labelled faults yet"}
-    p = 1 / (1 + np.exp(-np.clip(np.maximum(Xc @ clf[0][0] + clf[0][1], 0) @ clf[1][0] + clf[1][1], -30, 30)))
-    acc = float(((p > 0.5) == (Yc > 0.5)).all(1).mean())
+    # The fault classifier, as in full training (this machine's own normal deviations with the fault-type
+    # signatures added; no real labelled faults, unverified), for an entry that carries one. An entry
+    # without one (the library's) gets none: faults are then named by the signatures alone. On the
+    # simulated conveyor a classifier fitted to 5 minutes named an unbalance "impacts"; the signatures
+    # alone named it unbalance_like (training/calibration/README.md).
+    classes, acc = [], None
+    if "fault_classifier" in entry_model:
+        rng = np.random.default_rng(seed)
+        dev_cols = [c for c in prep.names_out if c in prep.columns]
+        base = model.deviation_vector(r[fit], Z[fit])
+        Xc, Yc, classes = TR.inject(base, dev_cols, rng)
+        acts = ["relu", "sigmoid"]
+        clf, _ = TR.fit_mlp(Xc, Yc, [Xc.shape[1], 32, Yc.shape[1]], acts, loss="bce", seed=seed, epochs=150)
+        d["fault_classifier"] = {"classes": classes, "inputs": dev_cols,
+                                 "layers": [RT.quantize(W, b, a) for (W, b), a in zip(clf, acts)],
+                                 "note": "learned from injected signature patterns only; no real labelled faults yet"}
+        p = 1 / (1 + np.exp(-np.clip(np.maximum(Xc @ clf[0][0] + clf[0][1], 0) @ clf[1][0] + clf[1][1], -30, 30)))
+        acc = round(float(((p > 0.5) == (Yc > 0.5)).all(1).mean()), 3)
     d["fault_types"] = [{"name": ft.name, "text": ft.text, "sensing": ft.sensing} for ft in FT.TYPES]
 
     notes = list(baseline["warnings"])
@@ -174,18 +220,20 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
         notes.append(f"the entry was trained on {entry_period} s summaries, this calibration used {period} s ones: "
                      f"the fit check compares scores of different summaries")
     if fell_back["missing"]:
-        notes.append(f"{len(fell_back['missing'])} of the entry's {len(prep.columns)} readings are not measured "
-                     f"here; they keep the entry's levels")
+        notes.append(f"{len(fell_back['missing'])} of the entry's {len(prep.columns)} readings were not measured "
+                     f"while calibrating; they are not judged")
     report = {"calibrated": True, "features_version": d["features_version"],
               "normal_model": d.get("normal_model", "autoencoder"),
               "period_s": int(period), "entry_period_s": entry_period, "running_s": int(running_s),
               "rows_fit": int(fit.sum()), "rows_held_out": int(held.sum()),
-              "threshold": round(d["threshold"], 4), "entry_threshold": round(float(entry_model["threshold"]), 4),
+              "threshold": round(d["threshold"], 4), "threshold_fitted_here": round(fitted, 4),
+              "entry_threshold": round(float(entry_model["threshold"]), 4),
               "score_quantiles_held_out": _quantiles(s[held]), "score_quantiles_fit": _quantiles(s[fit]),
               "score_quantiles_before_calibration": _quantiles(s_before),
               "readings": len(prep.columns), "readings_missing": fell_back["missing"],
-              "readings_constant": fell_back["constant"],
-              "fault_classes": len(classes), "classifier_exact_match": round(acc, 3),
+              "readings_constant": fell_back["constant"], "readings_held": fell_back["held"],
+              "spreads": "widened by the entry's factors" if widen is not None else "never below the entry's",
+              "fault_classes": len(classes), "classifier_exact_match": acc,
               "dropped_limits": baseline["dropped"], "warnings": notes,
               "note": "starting values, unverified on real machines"}
     d["training_report"] = dict(report, entry_training_report=entry_model.get("training_report"))
@@ -195,6 +243,10 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
 def _manifest_median(manifest: dict):
     """The entry's held-out median score from its manifest, or None. The manifest's exact key names
     are the library's; the usual spellings are accepted."""
+    fc = manifest.get("fit_check")  # training/library's manifests: {"entry_heldout_score_median": ...}
+    v = fc.get("entry_heldout_score_median") if isinstance(fc, dict) else None
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0:
+        return float(v)
     for key in _MANIFEST_QUANTILE_KEYS:
         q = manifest.get(key)
         if isinstance(q, dict):

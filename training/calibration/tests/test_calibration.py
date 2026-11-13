@@ -233,7 +233,7 @@ def test_a_reading_this_machine_lacks_or_never_changes_keeps_the_entrys_spread()
         assert cal["prep"]["centre"][j] == d["prep"]["centre"][j] and cal["prep"]["scale"][j] == C.NOT_JUDGED
     j = cols.index("trend_heat_swing_1h")
     assert cal["prep"]["centre"][j] == 1.25 and cal["prep"]["scale"][j] == d["prep"]["scale"][j]
-    assert any("not measured here" in w for w in report["warnings"])
+    assert any("not judged" in w for w in report["warnings"])
     assert all(np.isfinite(cal["prep"]["centre"])) and all(v > 0 for v in cal["prep"]["scale"])
     res = watch(cal, *seconds(200, seed=12, start=30_300, vib=0.2))  # the microphone is there later: still loads and judges
     assert res[-1]["diagnosis"] != "warming_up"
@@ -246,6 +246,68 @@ def test_rows_recorded_with_an_older_feature_list_are_mapped_by_name():
     a, ra = C.calibrate(d, t, X, NAMES, seed=1)
     b, rb = C.calibrate(d, t, X[:, keep], [NAMES[i] for i in keep], seed=1)
     assert a["prep"] == b["prep"] and a["threshold"] == b["threshold"]
+
+
+# ----------------------------------------------------------------- the entry as guard
+
+def test_a_short_calibration_is_never_stricter_than_the_entry():
+    d, _ = entry()
+    t, X = seconds(300, seed=17, start=45_000, vib=0.3)
+    j = d["prep"]["columns"].index("env_room_c")
+    X[:, F.INDEX["env_room_c"]] = 22 + np.random.default_rng(0).normal(0, 0.01, len(t))  # a very steady room, for 5 minutes
+    cal, report = C.calibrate(d, t, X, NAMES)
+    assert all(a >= b for a, b in zip(cal["prep"]["scale"], d["prep"]["scale"]))  # no spread below the entry's
+    assert cal["prep"]["scale"][j] == d["prep"]["scale"][j]
+    assert cal["threshold"] == max(report["threshold_fitted_here"], d["threshold"]) >= d["threshold"]
+    assert report["entry_threshold"] == round(d["threshold"], 4) and report["spreads"] == "never below the entry's"
+
+
+def library_style_entry():
+    """The fixture entry in the shape training/library builds: neutral preparation, widen factors and
+    held readings under "calibration", no fault classifier and no baseline, and its own extra keys."""
+    d, manifest = entry()
+    lib = copy.deepcopy(d)
+    n = len(lib["prep"]["columns"])
+    lib["prep"]["centre"], lib["prep"]["scale"] = [0.0] * n, [1.0] * n
+    lib.pop("fault_classifier"), lib.pop("baseline")
+    lib.update(library_entry="fixture_conveyor", entry_version="0.1.0", source="entry",
+               calibration={"widen": [2.0] * n, "hold": ["trend_", "env_room_c"], "min_s": 300})
+    man = {"manifest": "effente-entry-1", "entry": "fixture_conveyor", "version": "0.1.0", "status": "unverified",
+           "features_version": d["features_version"],
+           "fit_check": {"entry_heldout_score_median": manifest["held_out_score_quantiles"]["p50"], "rule": "open"}}
+    return lib, man
+
+
+def test_a_library_entrys_widen_factors_and_held_readings_are_used():
+    lib, man = library_style_entry()
+    t, X = seconds(300, seed=18, start=55_000, vib=0.4, heat=5.0)
+    cal, report = C.calibrate(lib, t, X, NAMES)
+    m = RT.Model(json.loads(json.dumps(cal)))
+    cols = lib["prep"]["columns"]
+    assert report["readings_held"] == ["env_room_c", "trend_heat_swing_10m", "trend_heat_swing_1h"]
+    for name in report["readings_held"]:
+        assert cal["prep"]["scale"][cols.index(name)] == C.NOT_JUDGED
+    fit = t < t[0] + (t[-1] - t[0]) * 0.85
+    v = X[fit, F.INDEX["vib_1x"]]
+    q1, q3 = np.percentile(v, [25, 75])
+    assert math.isclose(cal["prep"]["scale"][cols.index("vib_1x")], 2.0 * (q3 - q1) / 1.349, rel_tol=1e-9)
+    assert report["spreads"] == "widened by the entry's factors"
+    assert set(cal) == set(lib) | {"baseline"}  # the entry's own keys kept; no classifier where the entry has none
+    assert report["fault_classes"] == 0 and report["classifier_exact_match"] is None
+    assert cal["source"] == "calibrated" and cal["library_entry"] == "fixture_conveyor" and cal["entry_version"] == "0.1.0"
+    assert cal["calibration"] == lib["calibration"] and m.classifier is None
+    assert cal["threshold"] >= lib["threshold"]
+    v = C.fit_check(report, man)  # the library's manifest spelling of the held-out median
+    assert v["ok"] is True and v["ratio"] > 0
+    held = np.array(X[:200])  # a held reading far from anything seen does not alarm: it is not judged
+    held[:, F.INDEX["env_room_c"]] += 30.0
+    res = watch(cal, t[:200] + 300, held)
+    assert all(r["diagnosis"] in ("normal", "warming_up") for r in res), {r["diagnosis"] for r in res}
+    bad = copy.deepcopy(lib)
+    bad["calibration"]["widen"] = bad["calibration"]["widen"][:-1]
+    raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
+    bad["calibration"]["widen"] = [0.0] * len(cols)
+    raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
 
 
 # ----------------------------------------------------------------- the fit check
