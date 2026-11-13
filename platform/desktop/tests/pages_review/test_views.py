@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from app.data import logic
 from app.pages.agents import view as agents
 from app.pages.device import view as device
 from app.pages.evidence import view as evidence
@@ -36,10 +37,10 @@ def record(diagnosis="unbalance_like", features=None, fault_types=None):
 
 class TestMovedReadings:
     def test_six_spreads_counts_as_evidence_either_way(self):
-        assert evidence.is_evidence(6.0)
-        assert evidence.is_evidence(-6.0)
-        assert not evidence.is_evidence(5.99)
-        assert not evidence.is_evidence(-5.99)
+        assert logic.is_evidence(6.0)
+        assert logic.is_evidence(-6.0)
+        assert not logic.is_evidence(5.99)
+        assert not logic.is_evidence(-5.99)
 
     def test_rows_flag_only_readings_at_or_past_six(self):
         rows = evidence.moved_rows(record(features={"vib_2x": -5.99, "vib_1x": 6.0}), MODEL)
@@ -61,7 +62,7 @@ class TestMovedReadings:
 class TestFaultTypes:
     def test_every_type_possible_unless_validated(self):
         rows = evidence.fault_type_rows(record(), MODEL)
-        assert [r.status for r in rows] == ["possible · not validated", "possible · not validated", "validated"]
+        assert [r.status for r in rows] == ["possible · not validated", "possible · not validated", ""]
 
     def test_evidence_now_only_while_abnormal(self):
         rows = evidence.fault_type_rows(record(fault_types={"unbalance_like": 9.0}), MODEL)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.pages.agents.kv import KeyValues, pin_title_left
+from app.pages.agents.kv import KeyValues
 from app.pages.agents.levels import Levels
 from app.pages.evidence.table_model import Column, RowTable
 from app.theme import fonts
@@ -33,7 +33,6 @@ class DevicePage(QWidget):
         grid.setSpacing(16)
 
         self.devices_panel = Panel("Devices")
-        pin_title_left(self.devices_panel)
         self.devices = RowTable([
             Column("Device", strong=True),
             Column("Status", pill=True),
@@ -65,7 +64,6 @@ class DevicePage(QWidget):
         self.model_panel.add(box, 1)
 
         self.log_panel = Panel("Event log")
-        pin_title_left(self.log_panel)
         pause = QLabel("Pause")
         pause.setProperty("role", "muted")
         pause.setFont(fonts.body())

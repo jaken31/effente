@@ -11,23 +11,14 @@ from dataclasses import dataclass
 
 from app.data import logic
 
-# The agent's own rule (device/agent/report.py EVIDENCE_SPREADS): a reading this
-# many spreads from this machine's normal, either way, counts as evidence.
-EVIDENCE_SPREADS = 6.0
 # The centred bar fills at this many spreads either way.
 MOVED_BAR_FULL = 10.0
 # A fault type's evidence bar fills at this score.
 FAULT_BAR_FULL = 12.0
-NOT_VALIDATED = "possible · not validated"
-VALIDATED = "validated"
 
 
 def _number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
-
-
-def is_evidence(spreads: float) -> bool:
-    return _number(spreads) and abs(spreads) >= EVIDENCE_SPREADS
 
 
 @dataclass(frozen=True)
@@ -53,7 +44,7 @@ def moved_rows(record: dict | None, model: dict | None) -> list[MovedRow]:
     if not isinstance(feats, dict):
         return []
     texts = feature_texts(model)
-    rows = [MovedRow(n, texts.get(n, ""), float(v), is_evidence(v)) for n, v in feats.items() if _number(v)]
+    rows = [MovedRow(n, texts.get(n, ""), float(v), logic.is_evidence(v)) for n, v in feats.items() if _number(v)]
     rows.sort(key=lambda r: -abs(r.value))
     return rows
 
@@ -68,11 +59,6 @@ def feature_texts(model: dict | None) -> dict[str, str]:
 
 def fault_types(model: dict | None) -> list[dict]:
     return [t for t in (model or {}).get("fault_types") or [] if isinstance(t, dict) and t.get("name")]
-
-
-def status_label(fault_type: dict | None) -> str:
-    """Every type is "possible" unless the model says it is validated."""
-    return VALIDATED if fault_type and fault_type.get("validated") is True else NOT_VALIDATED
 
 
 def is_abnormal(record: dict | None) -> bool:
@@ -114,7 +100,7 @@ def fault_evidence(record: dict | None, model: dict | None) -> list[FaultEvidenc
             text=_cap(t.get("text", "")),
             score=float(score),
             named=name == record.get("diagnosis"),
-            status=status_label(t or None),
+            status=logic.fault_type_tag(t or None),
         ))
     rows.sort(key=lambda r: -r.score)
     return rows
@@ -157,7 +143,7 @@ def fault_type_rows(record: dict | None, model: dict | None) -> list[FaultTypeRo
             name=t["name"],
             label=logic.display_name(t["name"]),
             text=t.get("text", ""),
-            status=status_label(t),
+            status=logic.fault_type_tag(t),
             evidence=float(v) if _number(v) else None,
         ))
     return rows

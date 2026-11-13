@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import view
-from .kv import KeyValues, code_html, pin_title_left
+from .kv import KeyValues, code_html
 from .levels import Levels
 
 IO_MAX_H = 180
@@ -137,7 +137,6 @@ class AgentsPage(QWidget):
 
         # report
         self.report_panel = Panel("Report", padded=True)
-        pin_title_left(self.report_panel)
         self.sim_chip = SimChip("Simulated")
         self.sim_chip.hide()
         self.report_panel.header_end.addWidget(self.sim_chip)
