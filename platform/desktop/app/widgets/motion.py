@@ -1,6 +1,6 @@
 """Motion: the durations, the off switch and the few moves every part of the app shares.
 
-Only the app's own chrome moves: hover, selection, a page change, a card coming or
+Only the app's own chrome moves: hover, selection, a card coming or
 going. A reading is never eased from one value to the next, because the steps in
 between would be numbers the device did not measure.
 
@@ -17,20 +17,16 @@ from collections.abc import Callable
 from PySide6.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
-    QPoint,
-    QRect,
     QRectF,
-    Qt,
     QVariantAnimation,
 )
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
 
 # Milliseconds. HOVER and TOGGLE are the mockup's .12s and .15s transitions.
 HOVER = 120
 TOGGLE = 150
 SLIDE = 180  # a selection moving to another option
-PAGE = 320  # one page fading into the next
 ENTER = 180  # a card appearing
 EXIT = 140  # a card leaving
 PULSE = 420  # the freshness dot's beat for a record
@@ -142,50 +138,3 @@ def fade_out(widget: QWidget, done: Callable[[], None], ms: int = EXIT) -> None:
         _fade(widget, 1.0, 0.0, ms, done)
     else:
         done()
-
-
-class _Snapshot(QWidget):
-    """A picture of what an area showed, fading out over what it shows now."""
-
-    def __init__(self, area: QWidget):
-        super().__init__(area)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._picture = QPixmap()
-        self._fade = Glide(self, PAGE, 0.0)
-        # Even pace through the middle: an ease-out fade is nearly gone in a third
-        # of its time and reads as no fade at all.
-        self._fade.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self._fade.finished.connect(self.hide)
-        self._waiting = False
-        self.hide()
-
-    def play(self, picture: QPixmap) -> None:
-        self._picture = picture
-        self.setGeometry(self.parentWidget().rect())
-        self.show()
-        self.raise_()
-        self._fade.jump(1.0)
-        self._waiting = True
-
-    def paintEvent(self, _event) -> None:
-        if self._waiting:
-            # The clock starts at the first frame, not before it: a page slow to
-            # draw would otherwise use up the fade before anything was shown.
-            self._waiting = False
-            self._fade.to(0.0)
-        p = QPainter(self)
-        p.setOpacity(self._fade.at)
-        p.drawPixmap(0, 0, self._picture)
-
-
-def crossfade(area: QWidget) -> None:
-    """Call just before changing what `area` shows: its old picture stays on top
-    and fades out over the new content."""
-    if not enabled() or not area.isVisible():
-        return
-    window = area.window()
-    picture = window.grab(QRect(area.mapTo(window, QPoint(0, 0)), area.size()))
-    snapshot = getattr(area, "_motion_snapshot", None)
-    if snapshot is None:
-        snapshot = area._motion_snapshot = _Snapshot(area)
-    snapshot.play(picture)

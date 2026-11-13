@@ -74,19 +74,6 @@ def test_segmented_ring_is_on_the_chosen_option_with_motion_off(qtbot):
     assert s._ring() is None
 
 
-def test_page_change_fades_the_old_page_out(qtbot, window, moving):
-    window.navigate("history")
-    snapshot = window.stack._motion_snapshot
-    assert snapshot.isVisible() and snapshot.geometry() == window.stack.rect()
-    assert window.stack.currentIndex() == 3  # the new page is already the one shown
-    qtbot.waitUntil(lambda: not snapshot.isVisible(), timeout=2000)
-
-
-def test_page_change_is_instant_with_motion_off(window):
-    window.navigate("history")
-    assert not hasattr(window.stack, "_motion_snapshot")
-
-
 def test_notice_fades_in_and_out(qtbot, moving):
     host = shown_widget(qtbot, QWidget())
     host.resize(800, 600)

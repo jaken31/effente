@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 
 from ..theme import schemes
 from ..theme import tokens as t
-from ..widgets import motion
 from . import format as fmt
 from . import shortcuts
 from .notices import Notices
@@ -262,8 +261,6 @@ class MainWindow(QMainWindow):
             log.warning("navigate: no page %r", key)
             return
         page = self.pages[key]
-        if key != self.current:
-            motion.crossfade(self.stack)  # the page being left fades out over the new one
         self.current = key
         self._remember(PAGE, key)
         self.stack.setCurrentIndex(KEYS.index(key))
