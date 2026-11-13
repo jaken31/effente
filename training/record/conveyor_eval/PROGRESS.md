@@ -10,7 +10,7 @@ the sessions are paused.
 | Session | Doing | Resume file |
 |---|---|---|
 | model-search | finishing `MODEL_SEARCH.md`: the combined section, the group autoencoder, the final-model line rule | `data/fake/resume/model-search.md` |
-| sound-fix | the system search: experiment 1 done; 2–6 next (per-second path, heat vs background, unbalance misses, combinations, final system), then SSCC | `data/fake/resume/system-search.md` |
+| sound-fix | the system search: experiment 1 done; 2–6 next (per-second path, heat vs background, unbalance misses, combinations, final system), then SSCC | `.claude/worktrees/sound-check-fix-8eb204/data/fake/resume/system-search.md` (its own worktree) |
 | sscc-data | downloading SSCC (about 200 GB), then unpacking, `sscc.py` and `features.npz` | `data/real/sscc/RESUME.md` |
 | eval-checker | reviewing all of the above, then `SEARCH_CHECK.md` | `data/fake/resume/eval-checker.md` |
 | early-warning | done, apart from small follow-ups | `data/fake/resume/early-warning.md` |
@@ -69,7 +69,7 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   - It changes `effente/safety.py` and `trainer.py`, so it **needs team agreement**. Track 5's `platform/CONTRACT.md` still says "about 10 seconds".
   - Verified independently by the checker.
 - **The alarm line was the weak part.** Today's line comes from the last 15 % of training (about 2 days) and moves up to 2.5× between trainings, so a sensitivity that gives 0 false alerts on one training gives 9–50 a week on another. Setting it from out-of-sample scores across both weeks brings the worst fold to about 0.3 a week at equal misses.
-- **Device PCA's extra pattern-distance term (T2) costs catches at every level.** At 0 false alerts, residual-only catches 13 against 11 with T2; at 2 false alerts, 24 against 14.
+- **Device PCA's extra pattern-distance term (T2):** on one split it cost catches (13 vs 11 at 0 false alerts, 24 vs 14 at 2). In the rotation it doesn't hurt at 0 false alerts (21.0 vs 22.0 missed), only at about 2 a week, and at 99 % variance it helps (15.0 vs 19.0). What helps is more patterns (no 40 cap) and group-balanced scoring.
 - **Group-balanced scoring, from sound-fix, at the user's request:**
   - The thermal camera is 133 of the 285 inputs, and its noise swamps vibration and sound.
   - Scoring each sensor group against its own training level, then averaging equally, takes PCA from 12/13/8/12 to 19/20/19/16 caught at 0 false alerts over four trainings.
@@ -80,13 +80,22 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   checker): group-balanced residual PCA plus its own "line" early warning gives **0 false alerts in every rotation,
   with 9.7 missed of 30 on average**, against 13.7 for the model alone. Faults still missed: the per-second ones (jam,
   splice damage) and some slow subtle ones. The system search works on those.
-- **System search, experiment 1: long persistence** (sound-fix, `system_search.py`, not yet checked). The score's block median over
+- **The checker has independently passed the whole model search** (13 Nov about 15:05), including the two systems below.
+- **The cheapest device-ready system measured** (model-search, rotation): today's device PCA scoring with 99 % variance
+  and no 40-pattern cap (two trainer constants), OR the existing `early_warning.Line` (30-min blocks > 0.3× the line,
+  held 6). It gives **0 false alerts in every rotation, 11.3 missed** (9/11/14), against 15.0 for the model alone and
+  21.0 for the device as it is.
+- **Long persistence on the other models** (model-search, `persistence.json`; sound-fix has the two group-mean models):
+  - It helps weak minute alarms most: kNN 26.7 → 11.3, bench PCA 22 → 10–12, the Gaussian on the max input 19.7 → 9.3.
+  - Every best setting is at the grid's lowest fraction (0.3) and on a false-alert edge; the steady neighbours give
+    about 12.
+- **System search, experiment 1: long persistence** (sound-fix, `system_search.py`; checked: the checker reproduced the best setting exactly). The score's block median over
   30–360 min against a fraction of the line, held 1–6 blocks, ORed with the model alarm. Mean missed at 0 false alerts in
   the worst rotation (heldout / w2 / w1):
 
   | | Model alone | Model + persistence, steady setting | Model + persistence, best setting |
   |---|---|---|---|
-  | Group PCA | 13.7 | **12.0** (9/13/14): block 120 min > 0.25× line, held 3 | 8.7 (6/9/11), a sharp peak, likely overfit |
+  | Group PCA | 13.7 | **12.0** (9/13/14): block 120 min > 0.25× line, held 3 | 8.7 (6/9/11), a sharp peak, likely overfit: its worst neighbour gives 3.9 false alerts a week |
   | Group Gaussian | 14.7 | 15.0 | 13.7 |
 
   - **Persistence helps PCA by about 4–5 faults, and the Gaussian hardly at all.** So with persistence, PCA leads.
@@ -96,8 +105,105 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
     inputs within the group, dilutes it to a score of about 9–10.
   - When heldout is in training, the line is about 23, because the weeks differ (heldout is 10 % busier and warmer)
     more than this fault does, as a mean-square sees it.
-  - **Next:** an aggregation that doesn't dilute (top-k or max within groups). The fixed safety check
-    vibration_above_normal should catch this fault directly; experiment 2 will confirm.
+  - **Top-k or max within groups doesn't help** (`topk.json`). Top-3/5 miss 16–16.7, and max misses 18–21.7, against 13.7,
+    because they also pick up the busier, warmer week's inputs, which raises the line 1.2–2×. Only top-10 with max across
+    groups ties (13.7) while catching obvious unbalance. **So the fix for the dilution is the device's per-second check
+    vibration_above_normal at 0.5**, which catches obvious unbalance in every rotation at 0 false alerts (experiment 2), not a model change.
+- **Recommended system (synthetic, 13 Nov about 15:50; `SYSTEM_SEARCH.md`, `final2.json`): 5.7 missed of 30 (3/7/7)
+  at 0 false alerts in every rotation.** System A at sensitivity 0.6:
+  1. Model-search's verified group-mean residual PCA, plus its "line" early warning.
+  2. The per-second set: the device safety checks at 0.5 with the forklift fix, plus the `snd_kurt_hf` and `vib_kurtosis` spike rates.
+  3. Two **jam signs**, neither seen even once in any training week, both 0 false alerts in every rotation:
+     - **Short stop:** a stop with a restart within 30 min, alerting at the restart. Catches jam-obvious.
+     - **Stall:** speed below 0.9× its 5-min median for ≥ 3 s, with the belt still running 10 min later. Catches jam-subtle.
+  - **Caveat:** the simulated healthy weeks have no short stops at all. A real belt stops for operators, breaks and starved
+    feed, so on a real site the short-stop sign needs the shift plan or a "that was me" button.
+  - **Its line early-warning fraction and hold must not be loosened:** at a fraction of 0.2 it gives 7.8 false alerts a week.
+  - **Checker's verdict (15:45):** both final systems reproduce end to end on rot_heldout with independent code (system A:
+    0 false alerts, the same 3 missed). But the 5.7 needs strong caveats:
+    1. The jam signs were written after seeing the simulated jams missed.
+    2. "Short stop" has 0 false alerts only because the simulator has no unscheduled stops under an hour. On a real belt
+       it would alert on every operator stop.
+    3. "Stall" relies on the speed tracker, which is unreliable under misalignment (S3): 93 "stalls" in misalignment-subtle
+       and 23 in looseness-obvious, against 5 real ones in jam-subtle.
+    4. System A's neighbours reach 7.8 false alerts a week, against 2.2 for system B.
+  - **So the honest headline is without the jam rules: 7.7 missed (system A) or 8.3 (system B), at 0 false alerts.** The jam
+    signs are a promising idea needing real-site design (the shift plan or a "that was me" input, and a reliable speed
+    measure), not a measured result.
+
+  | System | Alone | + per-second | + jam signs | Needs on the device |
+  |---|---|---|---|---|
+  | A. Group PCA + line early warning | 9.7 | 7.7 | **5.7** | the forklift fix, group field in the model file, new detectors |
+  | B. Relative-heat PCA \| Gaussian + persistence | 10.3 | 8.3 | 6.3 | as A, plus a Gaussian port; relies on relative heat (N6) |
+  | C. Device-ready: PCA 99 %, no cap, + `early_warning.Line` | 11.3 | 9.3 | 7.3 | the forklift fix and new detectors; no model-format change |
+
+  The device today misses 21.0 with the model alone. The Gaussian and the autoencoder aren't needed.
+- **System search, experiments 8 and 9: no robust gain, so the recommendation stays system A at sensitivity 0.6.**
+  - **Experiment 8, a slow CUSUM per physics subgroup** (on group PCA residuals, cross-week calibrated):
+    - Any subgroup gives 4–24 false alerts, because low-frequency sound and IMU heat track the held-out week's load and warmth.
+    - High-frequency vibration + high-frequency sound reaches 4.3 missed, catching slow wear at 32–52 % instead of about
+      50–75 %. But it's not a plateau (1.5× the limit gives 2–3 false alerts), and it was chosen after the others failed.
+    - **Not adopted.** Worth one test on a fresh confirmation set.
+  - **Experiment 9, a load-stratified line** (belt speed as the load proxy): the per-stratum lines come out almost equal,
+    so there's no gain. The held-out week's line inflation isn't a belt-speed load effect.
+  - **Still missed in every rotation:** subtle idler bearing, lubrication loss and motor bearing. They're nearly invisible
+    at the drive end, so they likely need another sensor (a kHz accelerometer near the idlers, or motor current), not another model.
+- **Best system so far (synthetic; the checker verified its end-to-end run on w1+w2: 0 false alerts, 7 missed, the same runs): 8.3 missed of 30 (6/9/10) at 0 false alerts in every rotation,
+  steady pick** (strict 6.7, on an edge). `SYSTEM_SEARCH.md` in sound-fix's worktree; `final_relheat.json`.
+  1. Group-mean PCA (residual, 95 %) OR group-mean Gaussian, both on relative heat (camera max/mean, IMU temperature and
+     heat history minus `th_background_c`). Shared sensitivity 0.625, smoothing 10.
+  2. Persistence: the max of the normalised scores, 60-min block median over 0.3× the line, held 4 blocks.
+  3. The device safety checks at 0.5, with the forklift fix.
+  4. The `snd_kurt_hf` and `vib_kurtosis` spike rates (p99.9, 30 min, 2× the training maximum). Parts 3 and 4 were fixed beforehand.
+  - **Neighbours:** all 0 false alerts except sensitivity 0.675 (1.1 a week); 8.7–11.7 missed.
+  - **How early:** sudden faults 8–19 min (median); slow faults at 56–74 % of full wear.
+  - **Frontier:** 6.7 missed at 0–1 false alerts a week, 5.0 at 2.
+  - **Always missed:** both jams, and subtle idler bearing, lubrication loss, motor bearing and overload.
+  - **Needs on the device:** the forklift fix, a group field in the model file, and a Gaussian port. The relative-heat gain
+    is probably inflated by N6.
+  - **Being added:** the same per-second set on model-search's verified PCA + line system, and on the cheapest device-ready
+    system, so the team can choose by cost.
+- **System search, experiments 5 and 6: combinations and the final system** (`combine.json`, `final.json`; not yet checked).
+  Mean missed at 0 false alerts in the worst rotation.
+  - **Combining models barely helps.** PCA | autoencoder is identical to PCA. PCA | Gaussian with persistence:
+    9.3 strict / 11.3 steady, against PCA's 8.7 / 12.0. A max of normalised scores is about the same.
+  - **The final system,** models + persistence, ORed with a per-second set fixed beforehand (device safety checks at 0.5,
+    plus the `snd_kurt_hf` and `vib_kurtosis` spike rates at p99.9 / 30 min / 2× the training maximum). 0 false alerts in every rotation:
+
+    | System | Strict | Steady |
+    |---|---|---|
+    | PCA | 7.0 (4/8/9), lateness 0.41 | 9.7 (7/11/11), lateness 0.44 |
+    | PCA \| Gaussian | 8.0 | 9.3 |
+
+  - **The per-second set adds about 2 catches at no false alerts:** splice damage ×2, and obvious unbalance where heldout is in training.
+  - **Open:** the per-second set on top of model-search's verified PCA + line system (9.7), which should give about 7.7.
+- **System search, experiment 3: heat relative to the camera background** (`relheat.json`). Mean missed at 0 false alerts
+  in the worst rotation, strict / steady:
+
+  | | As today | Camera minus background | Camera + IMU minus background |
+  |---|---|---|---|
+  | Group PCA | 13.7 / 16.7 | 14.3 / 16.7 | **12.3 / 14.3** |
+  | Group Gaussian | 14.7 / 15.0 | 17.3 / 17.7 | 12.0 / 13.7 |
+
+  - **The camera alone gains nothing:** its cells, spots and hotspot are already measured above background.
+  - **Making the IMU temperature and its heat trends relative to the camera background helps a little.** For PCA it brings
+    back subtle idler bearing, overload, belt slip and electrical, and loses none. The Gaussian gains 9 in one rotation and loses 4 elsewhere.
+  - **Caveat (N6):** this partly cancels a simulator artefact, since weather warms only the camera here. On a real device
+    it's a sensible stand-in for a room sensor, but the size of the gain here is unreliable.
+- **System search, experiment 2: the per-second path** (with the fixed safety checks, from each rotation's training only;
+  not yet checked).
+  - **The universal limits** (knocking, jolts, over limit, too hot, heating fast) give 0 false alerts but catch nothing.
+  - **The outside-normal checks at 0.5** give 0 false alerts, and catch belt rub, idler seizure, misalignment and
+    **unbalance** (obvious) in every rotation. So the device's own check covers the unbalance dilution.
+    At 0.75, hotter_than_normal gives 13 false alerts in the warm heldout week.
+  - **A new spike-rate detector:** seconds of `snd_kurt_hf` above the training p99.9, counted over 10–60 min, alarming
+    above 1.5–2× the training maximum. It gives 0 false alerts, and catches **both splice damages** and obvious looseness
+    in every rotation, at every window and multiplier tried. A `vib_kurtosis` rate adds looseness ×2 and obvious motor bearing.
+  - **Jams stay missed:** jam-obvious by everything at ≤ 1 false alert a week, jam-subtle in only some rotations.
+  - **Combined with the model** (mean missed at 0 false alerts): PCA 13.7 → 8.7; PCA + persistence (steady) 12.0 → 8.0;
+    strict 8.7 → 6.3. These pick per-second checks for having 0 false alerts on the judged data, so they're optimistic.
+    Experiment 6 fixes the per-second set beforehand: device checks at 0.5, plus the `snd_kurt_hf` and `vib_kurtosis`
+    rates at p99.9 / 30 min / 2× the training maximum.
 - **Model-only result in the rotation** ([MODEL_SEARCH.md](MODEL_SEARCH.md), rewritten under the final rules):
   - **Four are tied at 0 false alerts in all three rotations** (paired bootstrap intervals include 0):
     1. group-balanced residual PCA (var 0.95, smoothing 10, sensitivity 0.625): 13.7 missed
@@ -118,7 +224,9 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   - PCA (device-style), median + max: 15.0
   - Gaussian, impulsive max: 15.0
   
-  Misses vary a lot by rotation; the winner's line and settings were picked per rotation from training only. The group-scoring variants are still to report.
+  Misses vary a lot by rotation. Only the LINE comes from each rotation's training weeks. One (smoothing, sensitivity)
+  is shared by all three rotations and picked on the 30 fault runs plus all three watched weeks, so the zero false
+  alerts are selected on the judged data and are optimistic (the checker's correction).
 - **The first combined (model + early warning) join, 14:08, is invalid.** It ran while early-warning was regenerating
   its files, so it loaded only the no-model CUSUM. It will be re-run on the regenerated, checked files.
 - **Early warning: being re-checked (bug found 13 Nov afternoon).** A run's last early-warning block held its verdict
@@ -149,9 +257,11 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
 - **The no-model max |z| baseline was broken** (its line sat above the clipped score) and is now fixed.
 
 ## Files
-- [MODEL_SEARCH.md](MODEL_SEARCH.md) and [model_search.py](model_search.py): the model search (approaches × inputs × smoothing × sensitivity × settings; rotation; group scoring; fault naming; final model; combined ranking). Still being rewritten under the final rules.
+- [MODEL_SEARCH.md](MODEL_SEARCH.md) and [model_search.py](model_search.py): the model search (approaches × inputs × smoothing × sensitivity × settings; rotation; group scoring; fault naming; final model; combined ranking; long persistence). Final under the agreed rules.
 - [EARLY_WARNING_SEARCH.md](EARLY_WARNING_SEARCH.md) and [early_warning_search.py](early_warning_search.py): every early-warning method and setting on every model, plus no-model CUSUM, and the sound-check variants.
-- `SEARCH_CHECK.md` (to come): the independent checker's verdict on both searches.
+- [SEARCH_CHECK.md](SEARCH_CHECK.md): the checker's verdict. Both searches are correct after 12 fixes each; two of those
+  changed the answer (the early-warning leak, and model-search's first ranking). Every headline number recomputed exactly.
+  There's no leakage into any line, and selection is on the evaluation data, as stated, so the numbers are optimistic.
 - Results data: `data/fake/model-search/`, `data/fake/early-warning-search/` (not committed).
 
 ## Open
@@ -159,8 +269,21 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   fewest false positives, the fewest misses, and still early. Use the synthetic data AND the real SSCC conveyor dataset.
   - **SSCC:** to be downloaded (about 200 GB, 21 split 7-Zip parts; `training/record/datasets/sscc_download.sh`) into `data/real/sscc/`, with a loader in
     `training/record/datasets/sscc.py` that converts it to what our device sees.
+  - **Blocked, 13 Nov about 15:10:** Google Drive answers "Quota exceeded" for every part, meaning too many downloads
+    recently ("may take up to 24 hours"). The downloader runs detached, retries every up to 30 min, and resumes parts
+    (log: `data/real/sscc/download.log`). There's no other mirror. The ways round: the user copies the folder into
+    their own Drive (needs about 210 GB of Drive space), or asks the authors.
+  - **About 15:20, the user is downloading the parts themselves,** so the automatic downloader is stopped.
+  - `training/record/datasets/sscc.py` and `SSCC.md` are written and tested on fake clips, ready for when the parts arrive.
   - It's used as an independent real-data check of the final system: learn on its normal clips, test on its faults and on
     held-out normal clips. It isn't used to tune.
+- **Audio embeddings (BEATs), 13 Nov about 16:00, the user's request:** the `beats-test` session compares BEATs
+  (plus one small model, for the board) with our device sound features on the real DCASE 2024 fan clips. It uses the same
+  kNN and PCA detectors and reports AUROC, pAUC, catches at zero false alarms, and cost on the UNO Q. It reuses the same
+  code on SSCC later. Extended at the user's request: vibration through the embeddings (on SSCC), timing on the UNO Q
+  itself if connected, shorter clips (2 and 5 s), and **all the DCASE 2024 dev machine types** (bearing, fan, gearbox,
+  slider, valve; ToyCar and ToyTrain reported separately), to test a range of equipment. Files: `training/record/datasets/audio_embed.py` and `AUDIO_EMBED.md`; resume note in
+  `data/real/dcase2024-fan/embed/RESUME.md`.
 - **Building the best whole system** (the user, 13 Nov afternoon): the fewest false positives, the fewest misses, still early.
   The sound-fix session runs `system_search.py` on top of the model search, judged in the rotation, and the checker reviews it.
   - **Long persistence** on the score, which the early-warning result suggests.
@@ -170,7 +293,7 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   - **Combinations** of group-scored PCA, Gaussian and autoencoder.
   - **A final system:** model(s) + persistence + the fixed safety checks.
   - Then, if it holds up, a fresh-seed confirmation set to measure how much of the gain is fitted to these 30 runs.
-- Finish the model search: the rotation, the group-scoring variants, Gaussian fault naming, the final three-week model, the combined join on the same fits, and the write-up. Then the checker's verdict.
+- The model search is finished (MODEL_SEARCH.md). Waiting on the checker's verdict.
 - Team decisions on `effente/` changes:
   - the sound-check fix
   - residual-only PCA scoring
