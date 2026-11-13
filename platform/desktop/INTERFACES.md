@@ -86,6 +86,9 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
 6. **Simulator controls.** The Live page's case and pause buttons need the sim. `DashboardState.sim()` returns `None` when no sim runs, else an object with `key(k: str)` taking the sim's own keys (`1` to `6`, `h`, `v`, `m`, `t`, `p`) and `status() -> str`. The keys mean what `platform/sim/README.md` says.
 7. **The sim takes the sensitivity** (PR #26). Setting a sensitivity changes what the simulated device reports within about one second, so the Live page's impact text and diagnosis can be checked end to end.
 8. **Records sent by the sim include `heat`** with two camera frames a record by default (`--heat camera`). Thermal is still optional: a real device may send none.
+9. **History reads its whole range** (PR #30 adds `since` and `after_seq` to the records route). `range_records(span_s=None)` returns the current machine's records from `span_s` seconds before its newest one, or all; `range_loaded()` fires once the range is read. `FakeState` answers from its fixed records.
+10. **New alarms and failed actions show as notices.** `alarm_opened(dict)` fires for an open alarm on any machine that was not there at the first look. The window stacks notices for it and for `action_failed`.
+11. **Closing during a report run asks.** `own_agent_running()` and `stop_agent()`: the run starts in its own session so stopping ends `report.py` and the agent it started. The window offers stop and close, close when it finishes, or cancel.
 
 ## Rules
 

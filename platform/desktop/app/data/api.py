@@ -21,6 +21,7 @@ from PySide6.QtCore import QObject, Signal
 TIMEOUT_S = 5.0
 STREAM_READ_TIMEOUT_S = 15.0  # the receiver sends a comment every 5 s; three missed means it is gone
 RECONNECT_S = (0.5, 1.0, 2.0)  # waits between attempts, then 2 s for ever
+RANGE_PAGE = 2000  # records per request when reading a range: the receiver's most
 
 
 class ApiError(Exception):
@@ -71,10 +72,30 @@ class ApiClient:
         """GET /api/state."""
         return self._call("GET", "/api/state")
 
-    def machine_records(self, machine_id: str, limit: int = 300, spectrum: bool = False, frames: bool = False) -> list:
-        """GET /api/machines/<id>/records: oldest first."""
+    def machine_records(self, machine_id: str, limit: int = 300, spectrum: bool = False, frames: bool = False,
+                        since: str | None = None, after_seq: int | None = None) -> list:
+        """GET /api/machines/<id>/records: oldest first. The newest `limit`, or with
+        `since` (ISO time) or `after_seq` the oldest `limit` from there."""
         query = f"?limit={int(limit)}" + ("&spectrum=1" if spectrum else "") + ("&frames=1" if frames else "")
+        if since is not None:
+            query += f"&since={_q(since)}"
+        if after_seq is not None:
+            query += f"&after_seq={int(after_seq)}"
         return self._call("GET", f"/api/machines/{_q(machine_id)}/records{query}")["records"]
+
+    def machine_range(self, machine_id: str, since: str | None = None) -> list:
+        """Every record from `since` (ISO time) on, or from the first, oldest first,
+        without spectrum and frames: as many pages as it takes."""
+        out: list = []
+        after = None if since is not None else 0
+        while True:
+            page = self.machine_records(machine_id, RANGE_PAGE, since=since, after_seq=after)
+            if after is not None and page and not (isinstance(page[0].get("seq"), int) and page[0]["seq"] > after):
+                return out  # a receiver that ignores after_seq: stop rather than read the same page again
+            out.extend(page)
+            if len(page) < RANGE_PAGE or not isinstance(page[-1].get("seq"), int):
+                return out
+            after = page[-1]["seq"]
 
     def machine_runs(self, machine_id: str, limit: int = 20) -> list:
         """GET /api/machines/<id>/agent-runs: newest first."""

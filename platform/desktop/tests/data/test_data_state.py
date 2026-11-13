@@ -233,3 +233,68 @@ def test_stored_count_reads_the_embedded_receiver_beyond_the_history_cap(qtbot, 
 
     elsewhere = DashboardState(host.url)  # a receiver in another process: no count to read
     assert elsewhere.stored_count() is None
+
+
+def _at(i: int) -> str:
+    import datetime as dt
+
+    t = dt.datetime(2026, 11, 14, 14, 0, tzinfo=dt.UTC) + dt.timedelta(seconds=i)
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@pytest.fixture
+def long_session(client, monkeypatch):
+    """450 records a second apart, read in pages of 100: past the live cache and one page."""
+    from app.data import api
+
+    monkeypatch.setattr(api, "RANGE_PAGE", 100)
+    client.json("POST", "/api/records", [normal(at=_at(i)) for i in range(450)])
+    return 450
+
+
+def test_api_reads_a_range_page_by_page(host, long_session):
+    from app.data.api import ApiClient
+
+    c = ApiClient(host.url)
+    every = c.machine_range(MACHINE)
+    assert [r["seq"] for r in every] == list(range(1, long_session + 1))
+    assert all("spectrum" not in r for r in every)
+    assert [r["at"] for r in c.machine_range(MACHINE, since=_at(400))] == [_at(i) for i in range(400, 450)]
+    assert c.machine_range("nobody") == []
+
+
+def test_range_records_load_past_the_live_cache(qtbot, host, client, make_state, long_session):
+    state = make_state(host)
+    qtbot.waitUntil(lambda: len(state.records()) == logic.HISTORY_CAP, timeout=5000)
+    assert len(state.range_records(None)) <= logic.HISTORY_CAP  # the live cache until the range is in
+    qtbot.waitUntil(lambda: len(state.range_records(None)) == long_session, timeout=5000)
+    every = state.range_records(None)
+    assert [r["seq"] for r in every] == list(range(1, long_session + 1))
+    assert all("spectrum" not in r for r in every)
+
+    # A shorter span: up to its length before the newest record, both ends counted.
+    qtbot.waitUntil(lambda: len(state.range_records(120)) == 121, timeout=5000)
+    assert state.range_records(120)[0]["at"] == _at(long_session - 1 - 120)
+
+    # New records join the loaded range; the oldest leave a span.
+    with qtbot.waitSignal(state.record_added, timeout=5000):
+        client.json("POST", "/api/records", normal(at=_at(long_session)))
+    span = state.range_records(120)
+    assert len(span) == 121 and span[-1]["at"] == _at(long_session)
+    qtbot.waitUntil(lambda: len(state.range_records(None)) == long_session + 1, timeout=5000)
+
+
+def test_range_records_fall_back_to_the_cache_when_loading_fails(qtbot, host, client, make_state, monkeypatch):
+    client.json("POST", "/api/records", [normal(at=_at(i)) for i in range(3)])
+    state = make_state(host)
+    qtbot.waitUntil(lambda: len(state.records()) == 3, timeout=5000)
+    from app.data.api import ApiError
+
+    def broken(*_a, **_k):
+        raise ApiError("receiver said no")
+
+    monkeypatch.setattr(state.api, "machine_range", broken)
+    with qtbot.waitSignal(state.action_failed, timeout=5000) as sig:
+        assert len(state.range_records(None)) == 3
+    assert sig.args[0].startswith("History not loaded")
+    assert len(state.range_records(None)) == 3  # no new attempt until the span or machine changes

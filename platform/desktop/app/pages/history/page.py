@@ -29,7 +29,6 @@ from ..live.common import (
     diagnosis_pill,
     fault_group,
     label,
-    ms_of,
     short,
     signed,
     top_feature,
@@ -255,7 +254,7 @@ class HistoryPage(QWidget):
 
     def bind(self, state) -> None:
         self.state = state
-        for sig in (state.snapshot_changed, state.alarms_changed, state.settings_changed):
+        for sig in (state.snapshot_changed, state.alarms_changed, state.settings_changed, state.range_loaded):
             sig.connect(self.refresh)
         state.record_added.connect(lambda _r: self.refresh())
         self.refresh()
@@ -268,15 +267,9 @@ class HistoryPage(QWidget):
         self._show_records()
 
     def trend_records(self) -> list:
-        records = self.state.records(logic.HISTORY_CAP)
+        """Every record in the chosen range, read from the receiver, not only the live cache."""
         k = self.range.currentData()
-        if k == "all" or not records:
-            return records
-        end = ms_of(records[-1].get("at"))
-        if end is None:
-            return records
-        span = float(k) * 1000
-        return [r for r in records if (ms_of(r.get("at")) or end) >= end - span]
+        return self.state.range_records(None if k == "all" else float(k))
 
     # ---- trends --------------------------------------------------------------------
 

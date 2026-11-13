@@ -7,6 +7,7 @@ to either. Every label and judgement comes from logic.py.
 
 from __future__ import annotations
 
+import datetime as dt
 import getpass
 import math
 import os
@@ -20,6 +21,27 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, Signal
 
 from . import logic, paths
 from .api import ApiClient, ApiError, StreamReader
+
+
+def _ms(record) -> float | None:
+    v = logic.parse_time(record.get("at"))
+    return None if v is None or (isinstance(v, float) and math.isnan(v)) else v
+
+
+def _within(records: list, span_s: float | None) -> list:
+    """Records from `span_s` seconds before the newest one's `at` on; all when None.
+    A record whose time does not parse is kept."""
+    if span_s is None or not records:
+        return list(records)
+    end = _ms(records[-1])
+    if end is None:
+        return list(records)
+    start = end - span_s * 1000.0
+    return [r for r in records if (_ms(r) or end) >= start]
+
+
+def _iso(ms: float) -> str:
+    return dt.datetime.fromtimestamp(ms / 1000.0, dt.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _slim(record: dict, spectrum: bool, frames: bool) -> dict:
@@ -52,6 +74,8 @@ class StateReads(QObject):
     # An alarm on any machine that opened while the app was watching (contract
     # section 6). Alarms there at the first look are not new.
     alarm_opened = Signal(dict)
+    # range_records() has the range it was asked for, read from the receiver.
+    range_loaded = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -146,6 +170,12 @@ class StateReads(QObject):
         history = self._s["history"].get(self.current_machine()) or []
         chosen = history[-limit:] if limit and limit > 0 else []
         return [_slim(r, spectrum, frames) for r in chosen]
+
+    def range_records(self, span_s: float | None = None) -> list:
+        """The current machine's records from `span_s` seconds before its newest one
+        (every one when None), oldest first, without `spectrum` and `heat.frames`.
+        Here from the live history only; the live state reads the whole range."""
+        return _within(self.records(logic.HISTORY_CAP), span_s)
 
     def problems(self) -> list:
         """The shown device's problems now, limits first as sent. [] while not connected."""
@@ -285,6 +315,9 @@ class DashboardState(StateReads):
         self._loaded_machine = None
         self._loading = None  # machine whose history is being fetched
         self._agent = None  # QProcess of the agent run this app started
+        # The range History asked for: {"key": (machine, span_s), "records": list, or
+        # None while loading or after a failure, "pending": streamed while loading}.
+        self._range = None
         self._agent_output = b""
 
     # ---- lifecycle --------------------------------------------------------
@@ -324,6 +357,7 @@ class DashboardState(StateReads):
     def _on_snapshot(self, snap) -> None:
         logic.apply_snapshot(self._s, snap, self.now_ms())
         logic.apply_laptop_snapshot(self._s, snap)
+        self._range = None  # records may have been stored while the stream was down: read it again
         self._load_machine(force=True)
         self.snapshot_changed.emit()
         self.alarms_changed.emit()
@@ -339,6 +373,7 @@ class DashboardState(StateReads):
         if self.current_machine() != self._loaded_machine:
             self._load_machine()
         if name == "record":
+            self._range_add(data)
             if data.get("machine_id") == self.current_machine():
                 self.record_added.emit(data)
             if data.get("device_id") != shown:
@@ -390,6 +425,65 @@ class DashboardState(StateReads):
                 self.runs_changed.emit()
 
         self._background(work, done)
+
+    # ---- ranges -----------------------------------------------------------
+
+    def range_records(self, span_s: float | None = None) -> list:
+        """As StateReads, but over every stored record: the first call for a machine
+        and span reads the range from the receiver in the background and returns the
+        live history meanwhile; range_loaded fires when it is in."""
+        key = (self.current_machine(), span_s)
+        r = self._range
+        if r is None or r["key"] != key:
+            r = self._load_range(key)
+        if r["records"] is None:
+            return super().range_records(span_s)
+        return _within(r["records"], span_s)
+
+    def _load_range(self, key) -> dict:
+        machine, span_s = key
+        r = self._range = {"key": key, "records": None, "pending": []}
+        if machine is None:
+            r["records"] = []
+            return r
+        live = self.records(logic.HISTORY_CAP)
+        newest = _ms(live[-1]) if live else None
+        since = _iso(newest - span_s * 1000.0) if span_s is not None and newest is not None else None
+
+        def done(records, error):
+            if self._range is not r:
+                return  # another range was asked for meanwhile
+            if error:
+                del r["pending"]  # no retry until the span, the machine or the stream changes
+                self.action_failed.emit(f"History not loaded: {error}")
+                return
+            last = records[-1].get("seq") if records else None
+            r["records"] = records + [p for p in r.pop("pending") if last is None or p.get("seq", 0) > last]
+            self.range_loaded.emit()
+
+        self._background(lambda: self.api.machine_range(machine, since), done)
+        return r
+
+    def _range_add(self, record: dict) -> None:
+        """A streamed record joins the loaded range of its machine; a span drops what fell out."""
+        r = self._range
+        if r is None or record.get("machine_id") != r["key"][0]:
+            return
+        slim = _slim(record, False, False)
+        if r["records"] is None:
+            if "pending" in r:
+                r["pending"].append(slim)
+            return
+        records = r["records"]
+        if records and isinstance(records[-1].get("seq"), int) and slim.get("seq", 0) <= records[-1]["seq"]:
+            return  # already read
+        records.append(slim)
+        span_s = r["key"][1]
+        if span_s is not None and (end := _ms(slim)) is not None:
+            cut = 0
+            while cut < len(records) - 1 and (_ms(records[cut]) or end) < end - span_s * 1000.0:
+                cut += 1
+            del records[:cut]
 
     # ---- actions ----------------------------------------------------------
 
