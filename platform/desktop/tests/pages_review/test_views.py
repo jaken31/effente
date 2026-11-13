@@ -104,10 +104,10 @@ class TestAgents:
         assert fields["Checks"] == "all passed"
 
     def test_no_report_shows_reason(self):
-        run = dict(self.RUN, ok=False, report=None, reason="agent unavailable: ANTHROPIC_API_KEY is not set")
+        run = dict(self.RUN, ok=False, report=None, reason="agent unavailable: no model server is running at http://127.0.0.1:8081")
         fields = dict(agents.report_fields(run, {}))
         assert fields["Status"] == "no report"
-        assert fields["Reason"] == "agent unavailable: ANTHROPIC_API_KEY is not set"
+        assert fields["Reason"] == "agent unavailable: no model server is running at http://127.0.0.1:8081"
 
     def test_io_pane(self):
         assert agents.call_io(self.RUN, None) == agents.IO_EMPTY
