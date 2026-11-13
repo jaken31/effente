@@ -50,7 +50,20 @@ It changes the outside-normal checks and the model, never the universal limits.
 
 **Spike sensitivity** (`spike_sensitivity`, added 13 Nov): a second dial, with the same range, default and scale, for single spikes only: one sudden impact (the vibration column) and one second of the model over its spike line (the model column). It moves nothing else, and the main sensitivity doesn't move it. Turning the main one up to catch smaller spikes would also make the model alarm on ordinary running after a short recording (on the fake board: 24–58 % of the time at 0.75), which is why spikes have their own. It is set, saved and shown like the main one (`/settings`, `settings.json`, `/latest` status, `/view`). 
 
-Change either while the device runs:
+**Dials of their own** (optional, added 13 Nov): each sets one group on its own, with the same range and scale; unset (`null`) it follows `sensitivity`, so with none set nothing changes.
+
+| Setting | What it sets |
+|---|---|
+| `model_sensitivity` | the model's slow (median) alarm |
+| `vibration_sensitivity` | vibrating beyond its normal (the vibration column) |
+| `heat_sensitivity` | hotter than its normal (the temperature column) |
+| `sound_sensitivity` | louder than its normal (the sound column) |
+| `early_warning_sensitivity` | the early warning |
+| `early_warning` | `false` switches the early warning off |
+
+They are set, saved and shown like the main one; `settings.json` keeps only those that are set. A warm or noisy site can turn heat or sound down without dulling vibration.
+
+Change any of them while the device runs:
 
 ```bash
 curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings

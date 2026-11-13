@@ -121,6 +121,8 @@ class DeviceApp:
         self.settings_path = self.dir / "settings.json"
         self.sensitivity, self._settings_seen = SF.DEFAULT_SENSITIVITY, None
         self.spike_sensitivity = SF.DEFAULT_SENSITIVITY  # the second dial: single spikes only (added 13 Nov)
+        self.overrides: dict[str, float | None] = {k: None for k in OVERRIDES}  # None: follow the main sensitivity
+        self.early_on = True  # the early warning switched on (the "early_warning" setting)
         self.safety = SF.Safety(gravity_check=bool(getattr(getattr(source, "info", None), "accel_measures_gravity", True)))
         self.problems: list[dict] = []
         self.notes: list[str] = []
@@ -280,9 +282,9 @@ class DeviceApp:
 
     def _watcher(self, model, calib) -> Watcher:
         """A Watcher for the model, with its early warning fed every period the Watcher judges."""
-        w = Watcher(model, margin=SF.margins(self.sensitivity)["model"],
+        w = Watcher(model, margin=SF.margins(self._dial("model_sensitivity"))["model"],
                     spike_margin=SF.margins(self.spike_sensitivity)["model"])
-        early = EW.EarlyWarning(model, calib, sensitivity=self.sensitivity)
+        early = EW.EarlyWarning(model, calib, sensitivity=self._dial("early_warning_sensitivity"))
         judge = w._judge
 
         def judged(minute_t, row):
@@ -292,6 +294,8 @@ class DeviceApp:
                 return  # an old watcher (relearned meanwhile)
             # the real alarm: the model's or the checks'; the early warning steps aside while it is on
             wrong = SF.verdict(st, self.problems)["wrong"]
+            if not self.early_on:
+                return  # switched off: nothing watched, nothing shown
             for name, details in early.observe(minute_t, st.get("diagnosis") != "stopped", row=row, alarm=wrong):
                 self._event(name, details)
 
@@ -359,26 +363,44 @@ class DeviceApp:
                 self._screen_event.set()
 
     # ------------------------------------------------------------ settings
+    def _dial(self, name: str) -> float:
+        """An override's value, or the main sensitivity when it isn't set."""
+        v = self.overrides.get(name)
+        return self.sensitivity if v is None else v
+
+    def _dials(self) -> dict:
+        """Every setting as it is now, for /settings and status (overrides None: following the main one)."""
+        return {"sensitivity": self.sensitivity, "spike_sensitivity": self.spike_sensitivity, **self.overrides,
+                "early_warning": self.early_on}
+
+    def _margins(self) -> dict:
+        """The margins in force: the main sensitivity's, with each overridden group's from its own dial."""
+        m = SF.margins(self.sensitivity)
+        for group, name in (("model", "model_sensitivity"), ("vibration", "vibration_sensitivity"),
+                            ("temperature", "heat_sensitivity"), ("sound", "sound_sensitivity")):
+            m[group] = SF.margins(self._dial(name))[group]
+        return m
+
     def settings(self, changes: dict | None = None) -> dict:
-        """The device's settings; with changes, apply and save them first (raises ValueError if bad).
-        Used by POST /settings on the stream; editing data/settings.json by hand works too."""
+        """The device's settings; with changes, apply and save them first (raises ValueError if bad, and then
+        changes nothing). Used by POST /settings on the stream; editing data/settings.json by hand works too."""
         if changes:
-            unknown = sorted(set(changes) - set(DIALS))
+            unknown = sorted(set(changes) - set(SETTINGS))
             if unknown:
-                raise ValueError(f"unknown settings {unknown}; there are only {' and '.join(DIALS)}")
-            for name in DIALS:  # check both before applying either
-                if name in changes:
-                    _check_dial(name, changes[name])
-            for name in DIALS:
-                if name in changes:
-                    self._set_dial(name, float(changes[name]))
+                raise ValueError(f"unknown settings {unknown}; there are {', '.join(SETTINGS)}")
+            for name, v in changes.items():  # check them all before applying any
+                _check_setting(name, v)
+            self._assign(changes)
+            keep = {"sensitivity": self.sensitivity, "spike_sensitivity": self.spike_sensitivity,
+                    **{k: v for k, v in self.overrides.items() if v is not None}}
+            if not self.early_on:
+                keep["early_warning"] = False
             tmp = self.settings_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"sensitivity": self.sensitivity, "spike_sensitivity": self.spike_sensitivity}))
+            tmp.write_text(json.dumps(keep))
             tmp.replace(self.settings_path)
             self._settings_seen = self.settings_path.stat().st_mtime_ns
-        m, sp = SF.margins(self.sensitivity), SF.margins(self.spike_sensitivity)
-        return {"sensitivity": self.sensitivity, "sensitivity_range": list(SF.SENSITIVITY_RANGE),
-                "spike_sensitivity": self.spike_sensitivity,
+        m, sp = self._margins(), SF.margins(self.spike_sensitivity)
+        return {**self._dials(), "sensitivity_range": list(SF.SENSITIVITY_RANGE),
                 "counts_as_wrong": {"vibration_times_normal": round(m["vibration"], 2),
                                     "degrees_over_normal": round(m["temperature"], 1),
                                     "db_over_normal": round(m["sound"], 1),
@@ -389,7 +411,9 @@ class DeviceApp:
                 "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
                         "counts as wrong; the universal limits never change. spike_sensitivity (same range and "
                         "default) sizes only single spikes: one sudden impact, and one second of the model "
-                        "over its spike line; sensitivity sizes everything else"}
+                        "over its spike line. model_, vibration_, heat_, sound_ and early_warning_sensitivity "
+                        "each set one group on its own (null: follow sensitivity); early_warning false switches "
+                        "the early warning off"}
 
     def platform_settings(self, settings: dict) -> None:
         """Settings in a reply from the platform (CONTRACT.md section 7): a sensitivity that differs
@@ -402,33 +426,36 @@ class DeviceApp:
         except ValueError as e:
             self.message = f"platform setting not used: {e}"[:80]
 
-    def _set_dial(self, name: str, v: float):
-        (self._set_sensitivity if name == "sensitivity" else self._set_spike_sensitivity)(v)
-
-    def _set_spike_sensitivity(self, v: float):
+    def _assign(self, values: dict) -> None:
+        """Set checked settings and apply the result everywhere it is used; a "settings" event says what changed."""
         with self.lock:
-            changed = v != self.spike_sensitivity
-            self.spike_sensitivity = v
-            self.safety.set_spike_sensitivity(v)
+            before = self._dials()
+            for name, v in values.items():
+                if name in OVERRIDES:
+                    self.overrides[name] = None if v is None else float(v)
+                elif name == "early_warning":
+                    self.early_on = bool(v)
+                else:
+                    setattr(self, name, float(v))
+            self.safety.set_sensitivity(self.sensitivity)
+            self.safety.set_group_sensitivity({"vibration": self.overrides["vibration_sensitivity"],
+                                               "temperature": self.overrides["heat_sensitivity"],
+                                               "sound": self.overrides["sound_sensitivity"]})
+            self.safety.set_spike_sensitivity(self.spike_sensitivity)
             if self.watcher is not None:
-                self.watcher.spike_margin = SF.margins(v)["model"]
-        if changed:
-            self._event("settings", {"spike_sensitivity": v})
-
-    def _set_sensitivity(self, v: float):
-        with self.lock:
-            changed = v != self.sensitivity
-            self.sensitivity = v
-            self.safety.set_sensitivity(v)
-            if self.watcher is not None:
-                self.watcher.margin = SF.margins(v)["model"]
+                self.watcher.margin = SF.margins(self._dial("model_sensitivity"))["model"]
+                self.watcher.spike_margin = SF.margins(self.spike_sensitivity)["model"]
             if self.early is not None:
-                self.early.set_sensitivity(v)
+                self.early.set_sensitivity(self._dial("early_warning_sensitivity"))
+                if not self.early_on:
+                    self.early.reset()  # nothing shown, and it starts afresh if switched on again
+            changed = {k: v for k, v in self._dials().items() if v != before[k]}
         if changed:
-            self._event("settings", {"sensitivity": v})
+            self._event("settings", changed)
 
     def _load_settings(self):
-        """Read data/settings.json if it is new or changed (it is checked every couple of seconds)."""
+        """Read data/settings.json if it is new or changed (it is checked every couple of seconds). A setting
+        missing from the file goes back to its default."""
         try:
             seen = self.settings_path.stat().st_mtime_ns
         except OSError:
@@ -438,11 +465,10 @@ class DeviceApp:
         self._settings_seen = seen
         try:
             d = json.loads(self.settings_path.read_text())
-            values = {name: d.get(name, SF.DEFAULT_SENSITIVITY) for name in DIALS}
+            values = {name: d.get(name, default) for name, default in SETTINGS.items()}
             for name, v in values.items():
-                _check_dial(name, v)
-            for name, v in values.items():
-                self._set_dial(name, float(v))
+                _check_setting(name, v)
+            self._assign(values)
         except (ValueError, AttributeError) as e:
             self.message = f"settings.json not used: {e}"[:80]
 
@@ -531,10 +557,9 @@ class DeviceApp:
             if self.result:
                 s["diagnosis"] = self.result.get("diagnosis")
             s.update(SF.verdict(self.result if self.mode == "watching" else None, self.problems),
-                     problems=list(self.problems), sensitivity=self.sensitivity,
-                     spike_sensitivity=self.spike_sensitivity)
+                     problems=list(self.problems), **self._dials())
             if self.mode == "watching" and self.early is not None:
-                s["early_warning"] = self.early.state()
+                s["early_warning"] = self.early.state() if self.early_on else {"on": False, "switched_off": True}
             if self.watcher is not None and (self.watcher.m.d.get("baseline") or {}).get("warnings"):
                 s["learning_notes"] = list(self.watcher.m.d["baseline"]["warnings"])
         if hasattr(self.source, "stats"):
@@ -546,13 +571,27 @@ class DeviceApp:
             self.stream.publish_event(self.clock(), name, details)
 
 
-DIALS = ("sensitivity", "spike_sensitivity")  # the settings; the second sizes single spikes only
+# The settings and their defaults. sensitivity is the main dial (the platform's); spike_sensitivity sizes single
+# spikes only and doesn't follow it. The overrides each set one group on its own, None (null) following the main
+# one: the model's slow (median) alarm, the outside-normal checks per sensor, and the early warning. With none set
+# the device does exactly what the main dial alone did. early_warning False switches the early warning off.
+OVERRIDES = ("model_sensitivity", "vibration_sensitivity", "heat_sensitivity", "sound_sensitivity",
+             "early_warning_sensitivity")
+SETTINGS = {"sensitivity": SF.DEFAULT_SENSITIVITY, "spike_sensitivity": SF.DEFAULT_SENSITIVITY,
+            **{k: None for k in OVERRIDES}, "early_warning": True}
 
 
-def _check_dial(name: str, v) -> None:
+def _check_setting(name: str, v) -> None:
+    if name == "early_warning":
+        if not isinstance(v, bool):
+            raise ValueError("early_warning must be true or false")
+        return
+    if v is None and name in OVERRIDES:
+        return
     lo, hi = SF.SENSITIVITY_RANGE
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
-        raise ValueError(f"{name} must be a number from {lo:g} to {hi:g} ({SF.DEFAULT_SENSITIVITY:g} is the default)")
+        raise ValueError(f"{name} must be a number from {lo:g} to {hi:g} ({SF.DEFAULT_SENSITIVITY:g} is the default)"
+                         + (" or null" if name in OVERRIDES else ""))
 
 
 def _early_path(model_path: Path) -> Path:

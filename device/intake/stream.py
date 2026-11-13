@@ -351,7 +351,9 @@ if(s.learning_s!=null)st+=" "+Math.floor(s.learning_s/60)+":"+String(Math.floor(
 $("state").textContent=st;$("what").textContent=s.wrong?"WRONG: "+(s.what||[]).join(", "):(s.diagnosis&&s.mode=="watching"?s.diagnosis:"");
 $("vib").textContent=n(r.vib_mg,0);$("peak").textContent=r.peak_g==null?"--":n(1000*r.peak_g,0);
 $("temp").textContent=n(r.imu_temp_c,1);$("hz").textContent=n(r.speed_hz,0);
-$("more").textContent=JSON.stringify({mode:s.mode,sensitivity:s.sensitivity,spike_sensitivity:s.spike_sensitivity,
+const dials={};for(const k of ["sensitivity","spike_sensitivity","model_sensitivity","vibration_sensitivity",
+"heat_sensitivity","sound_sensitivity","early_warning_sensitivity","early_warning"])if(k in s)dials[k]=s[k];
+$("more").textContent=JSON.stringify({mode:s.mode,dials:dials,
 message:s.message,model:s.model,sensors:s.sensors,problems:s.problems,
 early_warning:s.early_warning,learning_notes:s.learning_notes,missing:(j.features||{}).missing},null,1);
 }catch(e){$("at").textContent="not reachable: "+e}}

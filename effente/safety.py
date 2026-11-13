@@ -267,7 +267,8 @@ class Safety:
                  spike_sensitivity: float = DEFAULT_SENSITIVITY):
         self.hold_s = hold_s
         self.gravity_check = gravity_check  # False for accelerometers that don't measure gravity (piezo)
-        self.sensitivity, self.margins = sensitivity, margins(sensitivity)
+        self.group_sensitivity: dict[str, float | None] = {}  # per group, a sensitivity of its own (None: follow)
+        self.set_sensitivity(sensitivity)
         self.set_spike_sensitivity(spike_sensitivity)
         self.hist: dict[str, deque] = {n: deque() for n in CHECKS}  # (t, over) for the last hold_s
         self.active: dict[str, dict] = {}
@@ -275,7 +276,21 @@ class Safety:
         self.set_baseline(baseline)
 
     def set_sensitivity(self, sensitivity: float) -> None:
-        self.sensitivity, self.margins = sensitivity, margins(sensitivity)
+        self.sensitivity = sensitivity
+        self._resolve()
+
+    def set_group_sensitivity(self, groups: dict[str, float | None]) -> None:
+        """Optional dials of their own for the outside-normal checks, per margins() group ("vibration",
+        "temperature", "sound"): a group given a number takes its margin from that sensitivity instead of the
+        main one; None follows the main one. Nothing given: exactly as before."""
+        self.group_sensitivity = {g: v for g, v in groups.items() if v is not None}
+        self._resolve()
+
+    def _resolve(self) -> None:
+        m = margins(self.sensitivity)
+        for group, v in self.group_sensitivity.items():
+            m[group] = margins(v)[group]
+        self.margins = m
 
     def set_spike_sensitivity(self, spike_sensitivity: float) -> None:
         """The second dial: how big one sudden impact must be (sudden_impact only; the main sensitivity doesn't
