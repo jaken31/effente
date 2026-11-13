@@ -99,7 +99,7 @@ Needs pytest. The dashboard's logic tests also need `node` and are skipped witho
 
 ## Known gaps
 
-- The receiver builds contract sections 6 (alarms and answers) and 7 (settings), but neither dashboard shows them yet, and the simulated device ignores the `settings` in its replies, so it always judges at sensitivity 0.5.
+- The receiver builds contract sections 6 (alarms and answers) and 7 (settings), and the simulated device takes the sensitivity, but the web dashboard shows neither. The desktop app will.
 - The maintenance agent (`device/agent`) still reads contract version 1 records. `report.py` crashes if the log holds a record with `unknown_score: null` (any `stopped` or `warming_up` record, steps 5 and 6 above), and its stand-in report reads fault names like "unbalance like" and cites nothing. Problems are not read by it at all.
 
 ## Checked and not checked

@@ -35,6 +35,7 @@ A problem shows about 10 seconds after its condition is switched on (`--hold`), 
 | `--mode` | `watching` | `watching` sends records; `display`, `calibrating`, `recording`, `training` send check-ins |
 | `--problem NAME` | none | a problem condition on from the start; repeatable. Any name in the contract's problems table |
 | `--heat` | `camera` | `camera`, `imu` or `none`: what the record's `heat` field carries (see Heat below) |
+| `--sensitivity S` | `0.5` | sensitivity to start at, 0 to 1. The platform's settings replace it (see Sensitivity below) |
 | `--hold S` | `10` | seconds a problem must hold before it shows; `0` shows it at once |
 | `--interval` | `1` | seconds between records or check-ins, at most 2 (the contract's rule) |
 | `--seed` | random | repeatable output |
@@ -51,7 +52,7 @@ python3 platform/sim/main.py --case stopped --problem too_hot  # a problem next 
 python3 platform/sim/main.py --mode recording --problem too_hot  # a problem while not watching: check-ins
 ```
 
-Model version `sim-3`, library entry `generic_rotating`, source `calibrated`, sensitivity 0.5 (it does not take settings from the platform). Fault types: `vibration_too_high`, `unbalance_like`, `looseness_or_rattle`, all `validated: false`. Ten readings in the feature table, with the texts of `effente/features.py`.
+Model version `sim-3`, library entry `generic_rotating`, source `calibrated`, sensitivity 0.5 until the platform sets another. Fault types: `vibration_too_high`, `unbalance_like`, `looseness_or_rattle`, all `validated: false`. Ten readings in the feature table, with the texts of `effente/features.py`.
 
 ## What a device does, in order
 
@@ -59,6 +60,7 @@ Model version `sim-3`, library entry `generic_rotating`, source `calibrated`, se
 2. **While watching, once a second:** write the record to the local log, then `POST /api/records` (message 2). Every record carries `problems` (`[]` when nothing is wrong) and `wrong`.
 3. **Read the reply:**
    - `need_model: true`: send message 1 again.
+   - `settings`: the sensitivity the dashboard wants. If it differs from the device's own, apply it at once; the next record or check-in reports it.
    - HTTP 400: the platform refused the record. Show the error; do not resend it.
    - No reply (refused, timeout): mark the platform unreachable, keep the record in a small queue (the simulator keeps the newest 30), and send the queue as one JSON array next time.
 4. **In any other mode, once a second:** `POST /api/devices/<device_id>` (message 3) with `machine_id`, `mode`, `at`, `wrong` and `problems`. Only limits can be on outside watching. A check-in that does not get through is not queued: the next one replaces it.
@@ -83,6 +85,18 @@ The case sets only the model's side of the record. Problems are separate, as on 
 | warming_up | `warming_up` | `null` | empty, with a note |
 
 The simulator changes the diagnosis at once when the case changes. The real device judges once per summary period (up to a minute), so on the real device a problem often shows before the diagnosis changes.
+
+## Sensitivity
+
+Contract section 7. The simulator takes `settings.sensitivity` from every reply to a record or check-in, applies it at once and prints `sensitivity set to ...`. Every record, check-in and announcement then carries the new `sensitivity`, and records the matching `alarm_line` (`4 ** (1 - 2 * sensitivity)`).
+
+The sensitivity moves only the line, never the readings or the score:
+
+- Each case has a typical score (normal 0.4, unbalance 2.4, looseness 2, unrecognised 1.65). The case is abnormal when that is above the line, so a case does not flip second to second near the line. Unbalance turns normal below about 0.18, looseness below 0.25, unrecognised below about 0.32. Normal turns `unrecognised_pattern` above about 0.83.
+- An abnormal case judged normal keeps its readings and score, with no fault types, no reason and `abnormal_minutes` 0.
+- Outside-normal problems show only while their value is beyond the margin for the sensitivity, as in `effente/safety.py` (`margins`): at 0.5, 2 times normal vibration, 15 degC, 6 dB. A new sensitivity makes them hold again before they show. Limits never change.
+
+Differences from the real device: it applies the new line from the next record, not the next summary period; a problem that drops below its margin goes at once rather than after about 8 seconds; and it does not keep the value across its own restart (the platform sends it again in the first reply).
 
 ## Simulated spectra
 
@@ -130,4 +144,4 @@ The fake receiver is a test tool, not the platform. The real one is in `platform
 python3 -m pytest platform/sim
 ```
 
-Covers every case with and without a problem, the problem hold and clear timing, limits only outside watching, check-ins, seeded repeatability, replay, and end-to-end runs of `main.py` against the fake receiver: announcement first, problems while normal, check-ins while recording, `need_model`, platform absent, platform coming back mid-run, keys on a pseudo-terminal, and terminal settings restored after `q`, Ctrl-C and an exception.
+Covers every case with and without a problem, the problem hold and clear timing, limits only outside watching, check-ins, seeded repeatability, replay, and end-to-end runs of `main.py` against the fake receiver: announcement first, problems while normal, check-ins while recording, `need_model`, the sensitivity taken from replies, platform absent, platform coming back mid-run, keys on a pseudo-terminal, and terminal settings restored after `q`, Ctrl-C and an exception.
