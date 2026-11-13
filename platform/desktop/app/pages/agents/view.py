@@ -8,13 +8,20 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+from app.data import model_server
+from app.data.model_settings import SIZE_NAMES
 
 FLEET = [
     ("maintenance_report", True),
     ("setup (later)", False),
     ("review (later)", False),
 ]
-MODES = [("standin", "Stand-in"), ("live", "Live Claude")]
+MODES = [("standin", "Stand-in"), ("local", "Local model")]
+SIZES = SIZE_NAMES
+START_SERVER = "Start model server"
+STOP_SERVER = "Stop model server"
 IO_EMPTY = "Select a tool call to see its full input and output."
 NO_CALLS = "This run made no tool calls."
 NO_RUNS = "No runs yet for this machine."
@@ -123,3 +130,36 @@ def report_fields(run: dict | None, texts: dict[str, str]) -> list[tuple[str, ob
         ("Reason", run.get("reason") or "–"),
         ("Problems", "; ".join(problems) or "none"),
     ]
+
+
+# ---- the local model --------------------------------------------------------
+
+
+def short_folder(folder: str) -> str:
+    """The folder with the home folder written as ~."""
+    home = str(Path.home())
+    text = str(folder)
+    if text == home or text.startswith(home + "/"):
+        return "~" + text[len(home):]
+    return text
+
+
+def model_rows(folder: str, size: str, status) -> list[tuple[str, str]]:
+    """(label, value) rows for the local model: its folder, its size and the server's state."""
+    file = model_server.model_file(folder, size).name
+    server = status.message
+    if status.ours and status.model and status.model != file:
+        server += f" Stop and start it to load {file}."
+    return [
+        ("Folder", short_folder(folder)),
+        ("Size", f"{dict(SIZES).get(size, size)}, {file}"),
+        ("Server", server),
+    ]
+
+
+def server_button(status) -> tuple[str, bool]:
+    """(text, enabled) for the model server's button. A server this app did not
+    start is not this app's to stop, and a second one is never started."""
+    if status.ours:
+        return STOP_SERVER, True
+    return START_SERVER, status.state not in (model_server.READY, model_server.LOADING)
