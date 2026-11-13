@@ -63,6 +63,10 @@ class _Title(QWidget):
             self.updateGeometry()
             self.update()
 
+    def set_arrow(self, shown: bool) -> None:
+        self.arrow = shown
+        self._arrow.to(1.0 if shown else 0.0)
+
     def _prefix(self) -> str:
         return f"{self._number}  " if self._number else ""
 

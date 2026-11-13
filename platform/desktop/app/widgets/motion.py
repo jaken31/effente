@@ -30,7 +30,7 @@ from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
 HOVER = 120
 TOGGLE = 150
 SLIDE = 180  # a selection moving to another option
-PAGE = 160  # one page fading into the next
+PAGE = 320  # one page fading into the next
 ENTER = 180  # a card appearing
 EXIT = 140  # a card leaving
 PULSE = 420  # the freshness dot's beat for a record
@@ -152,7 +152,11 @@ class _Snapshot(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._picture = QPixmap()
         self._fade = Glide(self, PAGE, 0.0)
+        # Even pace through the middle: an ease-out fade is nearly gone in a third
+        # of its time and reads as no fade at all.
+        self._fade.setEasingCurve(QEasingCurve.Type.InOutSine)
         self._fade.finished.connect(self.hide)
+        self._waiting = False
         self.hide()
 
     def play(self, picture: QPixmap) -> None:
@@ -161,9 +165,14 @@ class _Snapshot(QWidget):
         self.show()
         self.raise_()
         self._fade.jump(1.0)
-        self._fade.to(0.0)
+        self._waiting = True
 
     def paintEvent(self, _event) -> None:
+        if self._waiting:
+            # The clock starts at the first frame, not before it: a page slow to
+            # draw would otherwise use up the fade before anything was shown.
+            self._waiting = False
+            self._fade.to(0.0)
         p = QPainter(self)
         p.setOpacity(self._fade.at)
         p.drawPixmap(0, 0, self._picture)

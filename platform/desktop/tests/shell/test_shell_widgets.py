@@ -154,3 +154,14 @@ def test_page_scroll_keeps_a_page_at_its_natural_height(qtbot):
     area.show()
     qtbot.waitExposed(area)
     assert page.height() >= lay.sizeHint().height()  # scrolls instead of squeezing
+
+
+def test_link_panel_arrow_follows_hover(qtbot):
+    panel = Panel("Signals", link=True)
+    qtbot.addWidget(panel)
+    panel.show()
+    title = panel.title_label
+    title.set_arrow(True)
+    assert title.arrow and title._arrow.at == 1.0
+    title.set_arrow(False)
+    assert not title.arrow and title._arrow.at == 0.0
