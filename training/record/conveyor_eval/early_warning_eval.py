@@ -9,9 +9,9 @@ The early warning's normal (effente.early_warning.calibrate) comes from the same
 Per run, minute by minute:
   - the model's alarm: the device's Watcher level (the median of the last 5 scores over the line) against
     margins(s)["model"] for a model sensitivity s, as evaluate.py's sweep does
-  - the safety checks (effente.safety: universal limits and outside-normal against the learned baseline,
-    held 10 s), on the one-a-second rows, at the same sensitivity (a vectorised copy of Safety.update,
-    checked against it with --check-safety)
+  - the safety checks (effente.safety: universal limits, and outside-normal against the learned baseline on
+    each reading's median over the model's period, all held 10 s), on the one-a-second rows, at the same
+    sensitivity (a vectorised copy of Safety.update, checked against it with --check-safety)
   - each early warning (effente.early_warning.METHODS) at its own sensitivity
 The combined device alerts while any of them is on.
 
@@ -99,8 +99,26 @@ def _hold(t, over, hold_s=SF.HOLD_S):
     return on
 
 
+def rolling_median(t, v, period_s):
+    """Safety._medians for one reading: each row's median of the finite values in (t - period_s, t], NaN
+    until those span COVER_SHARE of the period. t in time order."""
+    import pandas as pd
+    t, v = np.asarray(t, float), np.asarray(v, float)
+    ok = np.isfinite(v)
+    tf = t[ok]
+    if not len(tf):
+        return np.full(len(t), np.nan)
+    med = pd.Series(np.where(ok, v, np.nan), index=pd.to_datetime(t, unit="s")).rolling(
+        f"{int(round(period_s * 1000))}ms", min_periods=1).median().to_numpy()
+    j = np.searchsorted(tf, t - period_s, "right")  # the first finite value inside the window
+    have = np.searchsorted(tf, t, "right") > j
+    span = t - tf[np.minimum(j, len(tf) - 1)]
+    return np.where(have & (span >= SF.COVER_SHARE * period_s), med, np.nan)
+
+
 def safety_active(t, C, baseline, sensitivities, gravity_check=True):
-    """Per sensitivity: {check name: on per row}, the same checks Safety.update runs (in CHECKS order)."""
+    """Per sensitivity: {check name: on per row}, the same checks Safety.update runs (in CHECKS order).
+    baseline: a model's, through SF.baseline_of, so the outside-normal checks use its period's medians."""
     t = np.asarray(t, float)
     rms = np.vstack([C[f"vib_rms_{a}"] for a in "xyz"])
     lin = 10.0 ** rms
@@ -134,6 +152,10 @@ def safety_active(t, C, baseline, sensitivities, gravity_check=True):
                 over = over & ~sensor
             uni_on[n] = _hold(t, over)
         levels = dict((baseline or {}).get("levels", {}))
+        period = float((baseline or {}).get("period_s") or 1.0)
+        if levels and period > 1.0:  # judged on their median over the period the normal was learned from
+            vel, total, imu, thm, snd = (rolling_median(t, v, period) if n in levels else v for n, v in
+                                         zip(SF.LEVELS, (vel, total, imu, thm, snd)))
         out = {}
         for s in sensitivities:
             m = SF.margins(s)
@@ -202,7 +224,7 @@ class Run:
         self.keep = self.run & (t >= t[0] + WARMUP_S)
         self.alarm0 = self.alarm_at(0.5)
         ts, C = load_seconds(folder)
-        act = safety_active(ts, C, model.d.get("baseline"), sensitivities)
+        act = safety_active(ts, C, SF.baseline_of(model.d), sensitivities)
         self.safety = {s: per_minute(ts, t, a) for s, a in act.items()}
         self.span_s = float(t[-1] - t[0]) + 60.0
         sc = (lab or {}).get("scenario", {})
@@ -483,14 +505,14 @@ def check_safety(folder, model, hours=6.0, start_h=0.0, sensitivity=0.5):
     X = to_current(X, names)
     sel = (t0 >= t0.min() + start_h * 3600) & (t0 < t0.min() + (start_h + hours) * 3600)
     X, t0 = X[sel], np.asarray(t0[sel], float)
-    safety = SF.Safety(model.d.get("baseline"), sensitivity=sensitivity)
+    safety = SF.Safety(SF.baseline_of(model.d), sensitivity=sensitivity)
     ref = {n: np.zeros(len(t0), bool) for n in SF.CHECKS}
     for i, (tk, x) in enumerate(zip(t0, X)):
         safety.update(float(tk), x)
         for p in safety.active:
             ref[p][i] = True
     C = {c: X[:, F.INDEX[c]].astype(float) for c in SAFETY_COLS}
-    mine = safety_active(t0, C, model.d.get("baseline"), [sensitivity])[sensitivity]
+    mine = safety_active(t0, C, SF.baseline_of(model.d), [sensitivity])[sensitivity]
     diff = {n: int((ref[n] != mine.get(n, np.zeros(len(t0), bool))).sum()) for n in SF.CHECKS}
     print(f"safety check on {folder.name}, {hours} h from {start_h} h at sensitivity {sensitivity}: rows differing per check {diff}; "
           f"on in Safety: { {n: int(v.sum()) for n, v in ref.items() if v.any()} }", flush=True)

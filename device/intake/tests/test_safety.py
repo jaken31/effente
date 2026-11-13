@@ -104,6 +104,43 @@ def test_a_sensor_that_goes_missing_clears_its_problem():
     assert not s.problems()
 
 
+def test_outside_normal_is_judged_on_the_median_over_the_learned_period():
+    # trained from 1-minute medians: a forklift's reversing beeper (15 s, 20 dB over) doesn't count ...
+    base = {"levels": {"snd_level_db": 77.0}, "period_s": 60}
+    s = SF.Safety(base)
+    started, _ = feed(s, 120, snd=75.0)
+    started += feed(s, 15, start=120, snd=94.0)[0]
+    started += feed(s, 60, start=135, snd=75.0)[0]
+    assert not started and not s.problems(), s.problems()
+    # ... a lasting rise does, once it fills half the minute and holds (about 40 s)
+    started, _ = feed(s, 60, start=195, snd=85.0)
+    assert started == ["louder_than_normal"], started
+    assert s.problems()[0]["since"] - 195 < 45 and s.problems()[0]["value"] == 8.0
+    _, cleared = feed(s, 60, start=255, snd=75.0)
+    assert cleared == ["louder_than_normal"]
+    # nothing is judged until half the period is covered: a beeper right after the normal is set
+    s = SF.Safety(base)
+    assert not feed(s, 20, snd=94.0)[0]
+    # the same burst judged a row at a time (no period): shows, as before
+    s = SF.Safety({"levels": {"snd_level_db": 77.0}})
+    assert feed(s, 15, snd=94.0)[0] == ["louder_than_normal"]
+    # the universal limits stay per row: 15 s over 11 mm/s still shows with a period
+    s = SF.Safety({"levels": {"vib_velocity_mm_s": 1.0}, "period_s": 60})
+    feed(s, 120, vel=1.0)
+    assert feed(s, 15, start=120, vel=14.0)[0] == ["vibration_over_limit"]
+
+
+def test_baseline_of_gives_older_models_their_period():
+    old = {"period_s": 60, "baseline": {"levels": {"snd_level_db": 77.0}, "dropped": []}}
+    assert SF.baseline_of(old)["period_s"] == 60 and "period_s" not in old["baseline"]  # not changed in place
+    new = {"period_s": 60, "baseline": {"levels": {}, "period_s": 5}}
+    assert SF.baseline_of(new)["period_s"] == 5  # the baseline's own wins
+    assert SF.baseline_of({"period_s": 60}) is None and SF.baseline_of(None) is None
+    assert "period_s" not in SF.baseline_of({"baseline": {"levels": {}}})  # nothing to fill it from
+    b = SF.learn_baseline(np.array([row(snd=70.0)] * 50), F.FEATURE_NAMES, period_s=60)
+    assert b["period_s"] == 60 and SF.learn_baseline(np.array([row()] * 50), F.FEATURE_NAMES)["period_s"] == 1
+
+
 def test_baseline_levels_dropped_limits_and_warnings():
     rng = np.random.default_rng(0)
     steady = np.array([row(vel=1.0 + 0.05 * rng.standard_normal(), imu=45.0) for _ in range(400)])

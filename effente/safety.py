@@ -28,6 +28,16 @@ what kind of machine it is:
 
   vibration_above_normal, hotter_than_normal, louder_than_normal
 
+Like is compared with like. Training learns the normal from the medians of its summary period (a
+minute for a long recording), so each reading is judged on its median over the same period (the
+baseline's "period_s"), the last period up to now. A forklift's reversing beeper, 83-94 dB for
+9-18 s, passes the one-a-second level but not a minute's median (judged per second, the simulated
+conveyor's held-out week gave 21 false LOUDER THAN NORMAL, every one a forklift; judged this way, none). A lasting change still shows: once it has
+filled half the period and held (about 40 s for a minute). Nothing is judged until the period is
+half covered. Baselines without "period_s" (models older than this, and recordings short enough to
+learn from one-a-second rows) are judged a row at a time. The universal limits stay per row:
+sudden trouble (knocking, jolts, over the limit) is theirs.
+
 How far outside counts as wrong is OUTSIDE_NORMAL, in one place. These are starting values; how far
 outside should count hasn't been decided. The learned model's line is there too ("model").
 Sensitivity scales all of them at once and can be changed while the device runs (margins()). It
@@ -94,6 +104,9 @@ def margins(sensitivity: float = DEFAULT_SENSITIVITY) -> dict[str, float]:
 
 # Vibration below these never counts as outside normal: the accelerometer's own noise is 4-9 mg.
 VIB_FLOOR = {"vib_velocity_mm_s": 0.3, "vib_total_g": 0.015}
+# The readings with a learned normal (baseline "levels"), judged on their median over the baseline's period.
+LEVELS = ("vib_velocity_mm_s", "vib_total_g", "imu_temp_c", "th_max_c", "snd_level_db")
+COVER_SHARE = 0.5  # judged once the values in the window span this share of the period
 
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
@@ -222,12 +235,38 @@ class Safety:
         self.sensitivity, self.margins = sensitivity, margins(sensitivity)
 
     def set_baseline(self, baseline: dict | None) -> None:
-        """This machine's normal, from training (None while nothing has been learned)."""
+        """This machine's normal, from training (None while nothing has been learned). Pass a model's
+        baseline through baseline_of(), so older models get their period."""
         self.levels = dict((baseline or {}).get("levels", {}))
         self.dropped = {RENAMED.get(n, n) for n in (baseline or {}).get("dropped", [])}
+        p = (baseline or {}).get("period_s")
+        self.period_s = float(p) if p and float(p) > 1.0 else None  # None: judged a row at a time
+        self.recent: dict[str, deque] = {n: deque() for n in LEVELS}  # (t, value) over the last period
         for n in RELATIVE + tuple(self.dropped):
             self.hist[n].clear()
             self.active.pop(n, None)
+
+    def _medians(self, t0: float, r: dict) -> dict:
+        """r with each learned reading replaced by its median over the last period, (t0 - period, t0]
+        (NaN until the values there span COVER_SHARE of it). Missing values are left out."""
+        if self.period_s is None:
+            return r
+        out = dict(r)
+        for name in LEVELS:
+            if name not in self.levels:
+                continue
+            d, v = self.recent[name], r[name]
+            if math.isfinite(v):
+                d.append((t0, v))
+            while d and t0 - d[0][0] >= self.period_s:
+                d.popleft()
+            if d and t0 - d[0][0] >= COVER_SHARE * self.period_s:
+                s = sorted(x for _, x in d)
+                n = len(s)
+                out[name] = s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
+            else:
+                out[name] = _NAN
+        return out
 
     def _imu_rise(self, t0: float, temp: float) -> float:
         """IMU temperature rise over the last minute, in degC a minute (NaN for the first minute)."""
@@ -245,7 +284,7 @@ class Safety:
         m = {"sensor_problem": _sensor(r, self.gravity_check)}
         m.update({k: v for k, v in _universal(r, self._imu_rise(t0, r["imu_temp_c"])).items() if k not in self.dropped})
         if self.levels:
-            m.update(_relative(r, self.levels, self.margins))
+            m.update(_relative(self._medians(t0, r), self.levels, self.margins))
         return m
 
     def update(self, t0: float, x) -> tuple[list[dict], list[str]]:
@@ -296,18 +335,20 @@ def screen_text(problem: dict) -> str:
 
 # ----------------------------------------------------------------- the baseline, when a model is trained
 
-def learn_baseline(X, names, running=None) -> dict:
+def learn_baseline(X, names, running=None, period_s=None) -> dict:
     """This machine's normal from its training rows, and what was odd about the learning.
 
     X: the rows the model learns from, in time order (running rows, current feature list).
     running: optional, for every recorded row whether the machine ran (to say how much it stood).
-    Returns {"levels", "dropped", "warnings", "warnings_screen"}: levels are the highest (99th percentile) of each
-    reading; dropped are universal limits the machine already went past while learning."""
+    period_s: the period X's rows summarise (their medians), so Safety judges each reading on its
+    median over the same period; None or 1 for one-a-second rows.
+    Returns {"levels", "dropped", "warnings", "warnings_screen", "period_s"}: levels are the highest (99th
+    percentile) of each reading; dropped are universal limits the machine already went past while learning."""
     X = np.asarray(X, float)
     R = [readings(x) for x in X]
     col = lambda k: np.array([r[k] for r in R], float)
     levels, warnings, dropped, short = {}, [], [], []
-    for k in ("vib_velocity_mm_s", "vib_total_g", "imu_temp_c", "th_max_c", "snd_level_db"):
+    for k in LEVELS:
         v = col(k)
         v = v[np.isfinite(v)]
         if len(v) >= max(10, len(X) // 2):  # the sensor was there for most of the learning
@@ -350,8 +391,22 @@ def learn_baseline(X, names, running=None) -> dict:
                 warnings.append(f"vibration still changing at the end ({ratio:.2f}x): learning longer gives a better normal")
                 short.append("VIB STILL CHANGING")
     return {"levels": levels, "dropped": dropped, "warnings": warnings, "warnings_screen": short,
-            "note": "levels are the 99th percentile while learning; how far outside counts as wrong is "
+            "period_s": int(period_s) if period_s else 1,
+            "note": "levels are the 99th percentile while learning, of medians over period_s; readings are "
+                    "judged on their median over the same period; how far outside counts as wrong is "
                     "effente.safety.OUTSIDE_NORMAL (starting values)"}
+
+
+def baseline_of(model: dict | None) -> dict | None:
+    """A model file's baseline, for Safety.set_baseline. Models saved before the baseline kept its
+    period get the model's own summary period ("period_s"), which their levels were learned over."""
+    base = (model or {}).get("baseline")
+    if not base:
+        return None
+    base = dict(base)
+    if "period_s" not in base and (model or {}).get("period_s"):
+        base["period_s"] = int(model["period_s"])
+    return base
 
 
 def verdict(model_state: dict | None, problems: list[dict]) -> dict:

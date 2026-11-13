@@ -158,7 +158,7 @@ class DeviceApp:
                 self.early = None
         if mode == "watching" and self.watcher is not None:
             self.mode = "watching"
-            self.safety.set_baseline(self.watcher.m.d.get("baseline"))
+            self.safety.set_baseline(SF.baseline_of(self.watcher.m.d))
         elif mode in ("recording", "training") and state.get("recording"):
             self.recording = Path(state["recording"])
             self.record_started = state.get("record_started") or self.clock()
@@ -243,7 +243,7 @@ class DeviceApp:
             except Exception as e:  # noqa: BLE001  watching works without it
                 self._event("early_warning_off", {"reason": str(e)[:200]})
             watcher = self._watcher(model, calib)
-            baseline = d.get("baseline") or {}
+            baseline = SF.baseline_of(d) or {}
             version = C.model_version_of(path)
             with self.lock:
                 self.model_path, self.watcher, self.mode = path, watcher, "watching"

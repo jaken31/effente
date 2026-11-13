@@ -17,7 +17,8 @@ so a model is trained the same way wherever it is trained:
   6. Fault-type classifier from fault patterns injected into this machine's own normal
      deviations (effente.fault_types signatures); no real labelled faults yet.
   7. Baseline (effente.safety.learn_baseline): this machine's normal levels for the outside-normal
-     checks, and warnings if it didn't run, went past a universal limit, or was still changing.
+     checks (learned from the period's medians, and judged on medians over the same period), and
+     warnings if it didn't run, went past a universal limit, or was still changing.
 Starting values throughout (unverified on real machines).
 """
 
@@ -305,7 +306,7 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     if period is None:
         period = choose_period(float(t.max() - t.min()))
     t, X = summarise(t, X, period)
-    baseline = SF.learn_baseline(X, names, running=ran)  # this machine's normal, and anything odd about it
+    baseline = SF.learn_baseline(X, names, running=ran, period_s=period)  # this machine's normal, judged per period
     if len(t) < MIN_ROWS:
         raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
                          f"{MIN_ROWS * period // 60} minutes of the machine running")
