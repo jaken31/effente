@@ -42,9 +42,10 @@ class FakeBoard:
 
     sensors = ("accel", "gyro", "imu_temp")
 
-    def __init__(self, seconds, level_mg, presses=(), seed=0, knock_g=None):
+    def __init__(self, seconds, level_mg, presses=(), seed=0, knock_g=None, at=None):
         self.seconds, self.level_mg, self.presses = seconds, level_mg, list(presses)
         self.knock_g = knock_g  # knock_g(second) -> the size of a 30 ms knock 0.3 s into that second (0: none)
+        self.at = dict(at or {})  # {second: fn(app)}: something done to the app at that second
         self.problems = []  # (second, names of the problems the checks have on), once a second
         self.info = SourceInfo(accel_lsb_per_g=LSB, accel_range_g=32768.0 / LSB)
         self.rng = np.random.default_rng(seed)
@@ -56,6 +57,8 @@ class FakeBoard:
     def packets(self):
         for s in range(self.seconds):
             self.clock.t = T0 + s
+            if s in self.at:
+                self.at[s](self.app)
             if self.presses and s >= self.presses[0]:
                 self.presses.pop(0)
                 self.app.on_button()
@@ -90,9 +93,9 @@ class FakeBoard:
                 yield Packet("imu_temp", t[a + BATCH - 1:a + BATCH], np.array([[28.0]], np.float32))
 
 
-def flow(tmp, seconds, level_mg, presses, stream=None, knock_g=None):
+def flow(tmp, seconds, level_mg, presses, stream=None, knock_g=None, at=None):
     clock, shown = Clock(), []
-    board = FakeBoard(seconds, level_mg, presses, knock_g=knock_g)
+    board = FakeBoard(seconds, level_mg, presses, knock_g=knock_g, at=at)
     app = DeviceApp(tmp, board, screen=shown.append, clock=clock, stream=stream)
     board.app, board.clock = app, clock
     first = app.screen_lines()[0]
@@ -209,6 +212,35 @@ def test_a_coin_after_a_five_minute_recording_shows_as_knocking_and_clears():
         assert first is not None and first - coin0 <= 15, first  # knocks at 0, 4 and 8 s: on by the third
         assert all(on[s] for s in range(first, coin1)), "went off while the coin was in"
         assert not on[end - 1] and any(h == "@!KNOCKING OR JOLTS" for h in headers), sorted(set(headers))
+
+
+def test_something_falling_off_shows_at_once_and_the_sensitivity_decides_how_big():
+    """After a 5-minute recording at 30 mg (peaks of about 0.05 g): a 0.2 g knock (3x the highest while learning)
+    shows within 2 s as KNOCKING OR JOLTS and clears about 30 s later; a 0.11 g one (about 1.6x) doesn't at the
+    default sensitivity, and does once the sensitivity is set to 0.75 through the settings (POST /settings)."""
+    from device.intake.stream import Stream
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = Stream(port=0).start()
+        try:
+            rec1 = 320
+            big, small, change, small2, end = rec1 + 60, rec1 + 130, rec1 + 180, rec1 + 200, rec1 + 260
+            knock = lambda s: {big: 0.2, small: 0.11, small2: 0.11}.get(s, 0.0)
+            app, board, headers = flow(tmp, end, lambda s: 30.0, presses=(20, rec1), knock_g=knock, stream=stream,
+                                       at={change: lambda app: app.settings({"sensitivity": 0.75})})
+            assert "peak_max" in json.loads(app.model_path.read_text())["baseline"]["spikes"]
+            on = {s: "sudden_impact" in names for s, names in board.problems}
+            first = next(s for s in range(rec1, end) if on[s])
+            assert big < first <= big + 3, first - big  # the row of the knock's second is ready a second later
+            assert not any(on[s] for s in range(rec1, big)) and not any(on[s] for s in range(big + 35, small2))
+            assert all(on[s] for s in range(first, big + 30)) and not on[big + 33]  # held about 30 s, then clear
+            assert any(on[s] for s in range(small2 + 1, small2 + 4)), "not shown at 0.75"
+            assert any(h == "@!KNOCKING OR JOLTS" for h in headers), sorted(set(headers))
+            events = [e.payload for e in stream._rings["events"]]
+            hits = [e["details"] for e in events if e["event"] == "problem" and e["details"]["name"] == "sudden_impact"]
+            assert len(hits) == 2 and 0.14 < hits[0]["peak_g"] < 0.19 and 2.5 < hits[0]["value"] < 3.5, hits
+            assert app.settings()["counts_as_wrong"]["sudden_impact_times_highest_while_learning"] == 1.5
+        finally:
+            stream.stop()
 
 
 def test_the_stream_has_the_state_and_live_readings_in_every_mode():

@@ -378,7 +378,8 @@ class DeviceApp:
                 "counts_as_wrong": {"vibration_times_normal": round(m["vibration"], 2),
                                     "degrees_over_normal": round(m["temperature"], 1),
                                     "db_over_normal": round(m["sound"], 1),
-                                    "model_score_over": round(m["model"], 2)},
+                                    "model_score_over": round(m["model"], 2),
+                                    "sudden_impact_times_highest_while_learning": round(m["vibration"], 2)},
                 "default": SF.DEFAULT_SENSITIVITY,
                 "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
                         "counts as wrong; the universal limits never change"}

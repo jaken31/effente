@@ -198,7 +198,8 @@ def test_more_impacts_from_a_short_recording_counts_knocks_in_the_last_minute():
             x[F.INDEX["trend_running"]] = 1
             sec, frac = int(tt), tt - int(tt)
             if knock_at(sec) and frac == 0 or knock_at(sec + 1) and frac > 0.2:
-                x[F.INDEX["vib_kurtosis"]], x[F.INDEX["vib_peak_g"]] = 40.0, math.log10(0.4)
+                # 1.6x the highest peak while learning: over the count's level, under one sudden impact's (2x)
+                x[F.INDEX["vib_kurtosis"]], x[F.INDEX["vib_peak_g"]] = 40.0, float(peak.max()) + math.log10(1.6)
             return x
         return f
 
@@ -226,6 +227,70 @@ def test_more_impacts_from_a_short_recording_counts_knocks_in_the_last_minute():
         x[F.INDEX["trend_running"]] = 0
         return x
     assert feed(still, 60, make=stopped) == ([], [])
+
+
+def test_one_sudden_impact_shows_at_once_holds_30_s_and_follows_the_sensitivity():
+    """Something falls off: one second whose peak is well over anything while learning. At the default sensitivity
+    2x the highest counts, at 0.75 1.5x; it shows with that second's row, stays 30 s and clears."""
+    rng = np.random.default_rng(2)
+    n = 300
+    peak = rng.normal(-1.30, 0.02, n)  # about 0.05 g, as the fake board at 30 mg
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_kurtosis": rng.normal(0, 0.3, n), "vib_peak_g": peak},
+                               np.ones(n, bool))
+    top = 10 ** float(peak.max())
+    assert abs(lv["peak_max"] - float(peak.max())) < 1e-3
+
+    def make(spikes, running=1):  # spikes {second: times the highest while learning}; the peak is in that second's rows
+        def f(tt):
+            x = row(kurt=float(rng.normal(0.0, 0.3)), peak_g=10 ** float(rng.normal(-1.30, 0.02)))
+            x[F.INDEX["trend_running"]] = running
+            if int(tt) in spikes:
+                x[F.INDEX["vib_peak_g"]] = math.log10(spikes[int(tt)] * top)
+            return x
+        return f
+
+    def run(s, seconds, start, spikes, running=1):  # -> [(when it started), ...], [(when it cleared), ...]
+        on, off = [], []
+        for k in range(int(seconds * 4)):
+            tt = start + k * 0.25
+            a, c = s.update(tt, make(spikes, running)(tt))
+            on += [(tt, p) for p in a]
+            off += [tt for name in c if name == "sudden_impact"]
+        return on, off
+
+    for sens in (0.5, 0.75):  # 10 clean minutes: nothing
+        assert run(SF.Safety({"levels": {}, "spikes": lv}, sensitivity=sens), 600, 0, {}) == ([], []), sens
+    s = SF.Safety({"levels": {}, "spikes": lv})
+    on, off = run(s, 60, 1000, {1010: 2.5})
+    assert [t for t, _ in on] == [1010.0] and off == [1040.0], (on, off)  # with the second's own row; 30 s later
+    p = on[0][1]
+    assert p["name"] == "sudden_impact" and SF.screen_text(p) == "KNOCKING OR JOLTS" and p["symptom"] == "knocking_or_jolts"
+    assert abs(p["value"] - 2.5) < 0.05 and abs(p["peak_g"] - 2.5 * top) < 0.01, p  # how big, for the event
+    assert run(s, 60, 2000, {2010: 1.6}) == ([], [])  # 1.6x: not at the default sensitivity
+    s.set_sensitivity(0.75)  # what POST /settings does
+    on, off = run(s, 60, 3000, {3010: 1.6})
+    assert [t for t, _ in on] == [3010.0] and off == [3040.0], (on, off)  # but at 0.75 (1.5x) it is
+    s.set_sensitivity(0.5)
+    on, off = run(s, 80, 4000, {4010: 3.0, 4025: 4.0})  # a second one inside the hold: still one alert, held from it
+    assert [t for t, _ in on] == [4010.0] and off == [4055.0] and s.problems() == [], (on, off)
+    assert run(s, 60, 5000, {5010: 5.0}, running=0) == ([], [])  # a stopped machine's seconds don't count
+    # a quiet machine: 2x its highest is a footstep, so nothing under 0.05 g counts
+    quiet = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_peak_g": rng.normal(-1.9, 0.02, n)}, np.ones(n, bool))
+    q = SF.Safety({"levels": {}, "spikes": quiet})
+    qtop = 10 ** quiet["peak_max"]
+    def at(g):
+        def f(tt):
+            x = row(peak_g=g if int(tt) == 10 else 0.0126)
+            x[F.INDEX["trend_running"]] = 1
+            return x
+        return f
+    assert 3 * qtop < 0.05 and feed(q, 60, make=at(3 * qtop)) == ([], [])
+    assert feed(q, 60, start=100, make=lambda tt: at(0.06)(tt - 100)) == (["sudden_impact"], ["sudden_impact"])
+    # a long recording: the same rule, with the highest peak of the whole recording
+    long = SF.learn_spike_levels(np.arange(4000.0), {"vib_kurtosis": rng.normal(0, 0.3, 4000),
+                                                     "vib_peak_g": rng.normal(-1.30, 0.02, 4000)}, np.ones(4000, bool))
+    assert "short" not in long and "peak_max" in long
+    assert SF.Safety({"levels": {}}).measure(0.0, row()).get("sudden_impact") is None  # no levels: no check
 
 
 def test_baseline_levels_dropped_limits_and_warnings():

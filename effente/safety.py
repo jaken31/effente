@@ -57,6 +57,10 @@ A recording under an hour gets a simpler form (SPIKE_SHORT_*): seconds over a le
 learning, more than 2 of them in the last minute. Being a count over a window, it shows as soon as the count is
 over (no 10 s hold) and clears like the others.
 
+One sudden impact (sudden_impact, with the same baseline "spikes"): a single whole second whose peak is over the
+vibration margin (2x at the default sensitivity; 1.5x at 0.75, 3x at 0.25) times the highest peak while learning,
+and at least 0.05 g. It shows at once as KNOCKING OR JOLTS and stays IMPACT_HOLD_S (30 s). Sensitivity changes it.
+
 A check counts once it has held for most of HOLD_S (80 % of the rows) and clears once it has mostly
 stopped (20 %), so a bump, a door slam or one odd reading never shows.
 
@@ -131,17 +135,25 @@ SPIKE_Q, SPIKE_WINDOW_S, SPIKE_FACTOR = 99.9, 1800.0, 2.0
 SPIKE_FEATURES_SHORT = SPIKE_FEATURES + ("vib_peak_g",)
 SPIKE_SHORT_MIN_S, SPIKE_SHORT_WINDOW_S, SPIKE_SHORT_FACTOR, SPIKE_SHORT_HEADROOM = 100, 60.0, 2.0, 1.0
 SPIKE_SHORT_FLOOR = {"snd_kurt_hf": 1.0, "vib_kurtosis": 1.0, "vib_peak_g": 0.15}  # the peak is log10 g: x1.4
+# One sudden impact (something falls off, a hard knock): a single whole second whose peak is over the vibration
+# margin (2x at the default sensitivity, margins()["vibration"]) times the highest peak seen while learning, and at
+# least IMPACT_MIN_G (the same least size as a jolt in effente.history, so a quiet machine isn't set off by a
+# footstep). It shows at once and stays for IMPACT_HOLD_S, so it can be seen. The peak, not the kurtosis: "times
+# the highest" means something for a size in g, and the kurtosis says how spiky a second is, not how big.
+# Simulated and test data only: unverified on a real machine.
+IMPACT_FEATURE, IMPACT_MIN_G, IMPACT_HOLD_S = "vib_peak_g", 0.05, 30.0
 
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
 RATES = ("more_impacts",)
-CHECKS = SENSOR + UNIVERSAL + RELATIVE + RATES
+MOMENTS = ("sudden_impact",)  # on with the moment itself, off when its own hold ends
+CHECKS = SENSOR + UNIVERSAL + RELATIVE + RATES + MOMENTS
 # Old names of checks, as older saved models still list them in their baseline's "dropped".
 # "vibration_too_high" is now only a model fault type (effente.fault_types).
 RENAMED = {"vibration_too_high": "vibration_over_limit"}
 # Judged from the accelerometer, so set aside while the sensor's readings make no sense.
-FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal")
+FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal", "sudden_impact")
 
 WHAT = {  # what each problem is, for people: (sentence, the screen's short form after "! ", with its value)
     "sensor_problem": ("the sensor's readings make no sense: check its wires and that it is fixed down; "
@@ -155,6 +167,7 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "hotter_than_normal": ("hotter than its normal", "HOTTER THAN NORMAL", "{v:+.0f} C OVER NORMAL"),
     "louder_than_normal": ("louder than its normal", "LOUDER THAN NORMAL", "{v:+.0f} dB OVER NORMAL"),
     "more_impacts": ("more knocks or clicks than its normal", "MORE IMPACTS", None),
+    "sudden_impact": ("a sudden impact, well beyond any while learning", "SUDDEN IMPACT", "IMPACT {v:.1f}x NORMAL"),
 }
 
 # What each check means for people, in the same words as the model's fault types (effente.fault_types
@@ -163,7 +176,7 @@ SYMPTOM = {"sensor_problem": "sensor_problem", "vibration_over_limit": "vibratio
            "knocking": "knocking_or_jolts", "too_hot": "too_hot", "heating_fast": "heating_fast",
            "repeated_jolts": "knocking_or_jolts", "vibration_above_normal": "vibration_too_high",
            "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal",
-           "more_impacts": "knocking_or_jolts"}
+           "more_impacts": "knocking_or_jolts", "sudden_impact": "knocking_or_jolts"}
 
 _NAN = float("nan")
 
@@ -271,7 +284,8 @@ class Safety:
         self.recent: dict[str, deque] = {n: deque() for n in LEVELS}  # (t, value) over the last period
         self.spikes = (baseline or {}).get("spikes") or None
         self.spike_secs: dict[str, deque] = {n: deque() for n in SPIKE_FEATURES}  # whole seconds over the level
-        for n in RELATIVE + RATES + tuple(self.dropped):
+        self.impact_until, self.impact = -math.inf, (_NAN, _NAN)  # the hold's end; the biggest (ratio, peak in g) in it
+        for n in RELATIVE + RATES + MOMENTS + tuple(self.dropped):
             self.hist[n].clear()
             self.active.pop(n, None)
 
@@ -316,6 +330,20 @@ class Safety:
             ratio = max(ratio, len(d) / limit)
         return over, ratio
 
+    def _sudden_impact(self, t0: float, x) -> tuple[bool, float]:
+        """(a sudden impact within the last IMPACT_HOLD_S, its peak as times the highest while learning). Whole-second
+        running rows only, like the count."""
+        top = self.spikes.get("peak_max")
+        if top is not None and abs(t0 - round(t0)) < 1e-6 and not (x[F.INDEX["trend_running"]] < 0.5):
+            v = _f(x, IMPACT_FEATURE)
+            if math.isfinite(v):
+                ratio, peak = 10 ** (v - float(top)), 10 ** v
+                if ratio > self.margins["vibration"] and peak >= IMPACT_MIN_G:
+                    if t0 >= self.impact_until or not ratio <= self.impact[0]:
+                        self.impact = (ratio, peak)  # the biggest of this hold
+                    self.impact_until = t0 + IMPACT_HOLD_S
+        return t0 < self.impact_until, self.impact[0]
+
     def _imu_rise(self, t0: float, temp: float) -> float:
         """IMU temperature rise over the last minute, in degC a minute (NaN for the first minute)."""
         if not math.isfinite(temp):
@@ -335,6 +363,7 @@ class Safety:
             m.update(_relative(self._medians(t0, r), self.levels, self.margins))
         if self.spikes:
             m["more_impacts"] = self._impacts(t0, x)
+            m["sudden_impact"] = self._sudden_impact(t0, x)
         return m
 
     def update(self, t0: float, x) -> tuple[list[dict], list[str]]:
@@ -346,6 +375,17 @@ class Safety:
         for name, (over, value) in m.items():  # sensor_problem first, so it can set the others aside
             if name in FROM_VIBRATION and "sensor_problem" in self.active:
                 over = False  # nothing judged from bad data: counts as clear until the sensor is fine
+            if name in MOMENTS:  # no share of rows to wait for: on with the moment, off when its hold ends
+                if over and name not in self.active:
+                    self.active[name] = {"name": name, "symptom": SYMPTOM[name], "what": WHAT[name][0],
+                                         "value": _round(value), "peak_g": _round(self.impact[1]), "since": t0}
+                    started.append(self.active[name])
+                elif over:
+                    self.active[name].update(value=_round(value), peak_g=_round(self.impact[1]))
+                elif name in self.active:
+                    del self.active[name]
+                    cleared.append(name)
+                continue
             h = self.hist[name]
             h.append((t0, bool(over)))
             while h and t0 - h[0][0] > self.hold_s:
@@ -466,8 +506,15 @@ def learn_spike_levels(t, values: dict, running) -> dict | None:
             top, mid = float(v[ok].max()), float(np.median(v[ok]))
             level = top + max(SPIKE_SHORT_HEADROOM * (top - mid), SPIKE_SHORT_FLOOR[name])
             feats[name] = {"level": round(level, 4), "count": 0}
+    peak_max = {}
+    if IMPACT_FEATURE in values:  # for the single sudden impact: the highest peak of any running second (log10 g)
+        v = np.asarray(values[IMPACT_FEATURE], float)[order]
+        ok = run & np.isfinite(v)
+        if ok.sum() >= SPIKE_SHORT_MIN_S:
+            peak_max = {"peak_max": round(float(v[ok].max()), 4)}
     if feats:
         return {"features": feats, "window_s": SPIKE_SHORT_WINDOW_S, "factor": SPIKE_SHORT_FACTOR, "short": True,
+                **peak_max,
                 "note": f"short recording: seconds over a level above anything seen while learning, in the last "
                         f"{SPIKE_SHORT_WINDOW_S:.0f} s; alert above {SPIKE_SHORT_FACTOR:g} of them"}
     for name in SPIKE_FEATURES:
@@ -484,7 +531,7 @@ def learn_spike_levels(t, values: dict, running) -> dict | None:
         feats[name] = {"level": round(level, 4), "count": count}
     if not feats:
         return None
-    return {"features": feats, "window_s": SPIKE_WINDOW_S, "factor": SPIKE_FACTOR,
+    return {"features": feats, "window_s": SPIKE_WINDOW_S, "factor": SPIKE_FACTOR, **peak_max,
             "note": f"seconds over the learned p{SPIKE_Q} in the last {SPIKE_WINDOW_S / 60:.0f} min, alert above "
                     f"{SPIKE_FACTOR:g}x the most while learning"}
 
