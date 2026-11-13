@@ -148,6 +148,14 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
     so there's no gain. The held-out week's line inflation isn't a belt-speed load effect.
   - **Still missed in every rotation:** subtle idler bearing, lubrication loss and motor bearing. They're nearly invisible
     at the drive end, so they likely need another sensor (a kHz accelerometer near the idlers, or motor current), not another model.
+- **System search, experiment 10: per-group kNN, the SSCC paper's method on our sensor groups. Worse than group PCA, so not adopted.**
+  - **Setup:** kNN per group (k 5/10/20, memory 5,000), each group's score mapped to its quantile against cross-week
+    out-of-sample training scores, then averaged or maxed.
+  - **Alone:** 18.3–25.7 missed, against 13.7 for group PCA. With the per-second set and jam rules: 13–17.
+  - **With the line early warning:** 6–46 false alerts a week, since an unseen week's quantile score sits high for hours.
+  - **ORed with system A:** 5.3 at best, on an edge (the next sensitivity step gives a false alert), so no robust gain.
+  - **Lesson:** on minute medians of one fixed machine, PCA's residual beats distances. The same per-group kNN will be
+    reused on SSCC, for a like-for-like comparison with the paper.
 - **Best system so far (synthetic; the checker verified its end-to-end run on w1+w2: 0 false alerts, 7 missed, the same runs): 8.3 missed of 30 (6/9/10) at 0 false alerts in every rotation,
   steady pick** (strict 6.7, on an edge). `SYSTEM_SEARCH.md` in sound-fix's worktree; `final_relheat.json`.
   1. Group-mean PCA (residual, 95 %) OR group-mean Gaussian, both on relative heat (camera max/mean, IMU temperature and
@@ -284,6 +292,11 @@ The goal, in the user's words: catch faults "as early as possible" while "as acc
   itself if connected, shorter clips (2 and 5 s), and **all the DCASE 2024 dev machine types** (bearing, fan, gearbox,
   slider, valve; ToyCar and ToyTrain reported separately), to test a range of equipment. Files: `training/record/datasets/audio_embed.py` and `AUDIO_EMBED.md`; resume note in
   `data/real/dcase2024-fan/embed/RESUME.md`.
+  - **Status, about 16:25:** PyTorch is installed, and the BEATs (361.5 MB, hash verified) and EfficientAT mn10 (19.7 MB) weights
+    are downloaded from their official sources. Running the downloaded model code is blocked until the user approves it in
+    that session. The device-feature baseline runs meanwhile.
+  - **Baseline on real DCASE fans (device sound features, not yet checked):** AUROC 0.595, and 0 of 100 real fan faults
+    caught at zero false alarms. Our hand-built sound features barely separate real fan faults from normal.
 - **Building the best whole system** (the user, 13 Nov afternoon): the fewest false positives, the fewest misses, still early.
   The sound-fix session runs `system_search.py` on top of the model search, judged in the rotation, and the checker reviews it.
   - **Long persistence** on the score, which the early-warning result suggests.
