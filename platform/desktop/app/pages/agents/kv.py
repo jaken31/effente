@@ -71,10 +71,3 @@ class KeyValues(QWidget):
         w = self.values.get(key)
         return w.text() if w else ""
 
-
-def pin_title_left(panel) -> None:
-    """Keep a hint-less panel's title at the left and its header controls at the right.
-
-    Panel gives the stretch to its hint; with no hint the title floats to the middle.
-    """
-    panel.head.layout().insertStretch(2, 1)
