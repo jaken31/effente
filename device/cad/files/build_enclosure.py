@@ -3,7 +3,7 @@
 Builds two components in a new Fusion design, following docs/mockup.svg and
 docs/research/physical-design.md:
 
-  Sensor Head    30 x 35 x 21.5 mm block. Magnet pocket flush in the base. The
+  Sensor Head    29 x 33.5 x 21.5 mm block. Magnet pocket flush in the base. The
                  MPU-9250/6500 breakout stands upright in a printed IMU cradle,
                  with its 10-pin header at the top and the jumper plugs lying
                  flat toward the cable slot in the +X end wall.
@@ -52,15 +52,16 @@ def plug_depth():
 
 # ---------------------------------------------------------------- parameters
 HEAD = dict(
-    length=31.0, width=35.0, height=21.5,  # outer size (cavity 26 x 30)
+    # smallest head that holds the board below plus its jumper plugs
+    length=29.0, width=33.5, height=21.5,  # outer size (cavity 24 x 28.5)
     wall=2.5,
     floor=4.5,                             # solid floor (magnet pocket below it)
     corner_r=2.0,
     magnet_d=12.2, magnet_depth=3.0,       # pocket for a 12 x 3 mm disc magnet
-    # MPU-9250/6500 breakout from your photo: 10-pin header along a long edge,
-    # header plastic and long pins on the back. Size UNVERIFIED (listing
-    # 26.16 x 15.57; your photo matches that shape): measure it.
-    board=(26.2, 15.6), board_t=1.6,       # long edge (along Y), short edge (up)
+    # MPU-9250/6500 breakout: 10-pin header along a long edge, header plastic
+    # and pins on the back. Measured by you: 25 x 15 mm, 10 mm thick with the
+    # header (board 1.6 + header plastic 2.5 + pins).
+    board=(25.0, 15.0), board_t=1.6,       # long edge (along Y), short edge (up)
     # the board stands upright in the cradle, chip side toward -X, header at
     # the TOP edge so the plugs point toward the cable slot in the +X wall
     chip_gap=3.0,                          # chip-side parts and header solder tails
@@ -73,6 +74,13 @@ HEAD = dict(
     lid_t=1.5, lip_h=1.5, lip_w=1.2, lid_clear=0.15,
     relief_len=7.0, relief_w=14.0, relief_z0=1.0,
     tie_slot=(3.0, 2.0), tie_cz=11.5, tie_x=4.0,
+    # lid clamp: a snap clip on each long side of the lid, sitting flush in a
+    # recess in the head's outside wall, whose wedge hook clicks into a window
+    # through the wall. Pry the clip's foot out with a fingernail to open.
+    clip_x=3.0, clip_w=6.0, clip_t=1.2, clip_gap=0.15,
+    clip_recess=1.5,                       # wall left behind the clip: 1.0 mm
+    clip_hook=0.8, clip_win=(11.0, 13.0),  # hook depth; window bottom, top (Z)
+    clip_nail=1.5,                         # recess below the clip foot for a fingernail
 )
 
 BODY = dict(
@@ -84,11 +92,17 @@ BODY = dict(
     # SCAN button: 12 x 12 mm tactile switch (from you) with a round cap.
     # UNVERIFIED: cap 12 mm across; sw_total = bottom of the switch body to the
     # top of the cap. Wires are soldered to its 4 legs.
-    button_cy=64.0, sw_body=12.0, sw_body_h=3.5, sw_total=12.5, cap_d=12.0,
+    # button_cy 62 (was 64): the bigger snap lips need room for the fingers to
+    # bend out without touching the screen tray's hook
+    button_cy=62.0, sw_body=12.0, sw_body_h=3.5, sw_total=12.5, cap_d=12.0,
     cap_clear=0.4, cap_proud=1.5,
-    sleeve_clear=0.15, sleeve_t=1.5, sw_finger_w=6.0, sw_finger_t=1.2, sw_lip=0.6,
+    # sw_lip 1.8 (was 0.6): the ridge that holds the switch, 3x bigger
+    sleeve_clear=0.15, sleeve_t=1.5, sw_finger_w=6.0, sw_finger_t=1.2, sw_lip=1.8,
     dock_cy=30.0, dock_depth=6.0,          # head dock pocket (head + 1 mm)
-    disc_d=20.1, disc_depth=2.0, disc_skin=1.0,
+    # dock magnet: the same 12 x 3 mm neodymium disc as the head's, glued in
+    # from inside under a 1 mm skin, right under the head's magnet (was a
+    # 20 mm steel disc, which did not hold the head)
+    dock_mag_d=12.2, dock_mag_depth=3.0, dock_skin=1.0,
     # M3 screw bosses: top corners, and beside the USB gap above the bank
     bosses=((6.5, 139.0), (77.5, 139.0), (6.5, 58.0), (77.5, 58.0)), boss_d=7.0,
     screw_pilot=2.5, screw_clear=3.4, cbore_d=6.0, cbore_depth=3.0,
@@ -136,8 +150,10 @@ BODY = dict(
 SCREEN = dict(
     tray=(76.0, 50.0), tray_h=8.0,         # fixed outside, centred on the window
     plate_t=1.2, lip=1.5, min_wall=1.0,
-    # UNVERIFIED: 70 x 42 mm estimated from your photo's proportions; measure it.
-    pcb=(70.0, 42.0), module_t=4.0,        # PCB; glass face to PCB back
+    # Measured by you: 72 x 43 mm, 13 mm thick with the header pins.
+    # UNVERIFIED: module_t (glass face to PCB back, without the header) 4.5 mm
+    # is an estimate from that 13 mm; the rest is header plastic and pins.
+    pcb=(72.0, 43.0), module_t=4.5,        # PCB; glass face to PCB back
     active=(55.01, 27.49),
     # active-area centre minus PCB centre, header end at +X. UNVERIFIED: from
     # your photo the glass sits about 2.35 mm off centre, away from the wide strip.
@@ -150,8 +166,8 @@ SCREEN = dict(
 )
 
 # External power bank holder: a tray stuck to the outside of the right wall
-# with command strips, for an Anker Prime 12,000 mAh (A1335). Size from Anker's
-# spec page: 134.4 x 55 x 34.53 mm (not measured). The bank lies flat with its
+# with command strips, for an Anker Prime 12,000 mAh (A1335). Size measured by
+# you: 135 x 56 x 33 mm (Anker's spec page says 134.4 x 55 x 34.53). The bank lies flat with its
 # display (on the 134 x 55 face, near the USB-C end) facing up, USB-C end at
 # the top of the device so the battery screen sits beside the device's OLED.
 # Covers flush with the device's front face hide the rest of the face (and the
@@ -160,7 +176,7 @@ SCREEN = dict(
 # USB-C cable runs from the bank's port, down under the tray floor, through a
 # window in the back plate and the existing side slot to the UNO Q.
 BANK = dict(
-    size=(134.4, 55.0, 34.53),             # length (Y), width (X), thickness (Z)
+    size=(135.0, 56.0, 33.0),              # length (Y), width (X), thickness (Z), measured
     clear=0.4, wall=2.0, floor_t=2.0,
     strip_gap=2.0,                         # command strip thickness (UNVERIFIED)
     y0=6.0,                                # bank's far end (away from USB-C)
@@ -373,8 +389,42 @@ def add_head_extras(comp):
     b.zbox(g['xb0'], -yb, g['xb1'], yb, g['zb0'], top, 'cut', cr)
     b.zbox(g['x0'] - 1.0, -yr, g['xb0'] + 0.1, yr, g['zb0'], top, 'cut', cr)
     b.zbox(g['xb1'] - 0.1, -yr, g['xc1'] + 1.0, yr, g['zb0'], top, 'cut', cr)
-    b.zbox(g['xb1'] - 0.1, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
+    # header band left open front and back: the 10-pin header runs almost the
+    # full length of the board, so its solder tails and plugs reach the ends
+    b.zbox(g['x0'] - 1.0, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
            g['zb1'] - H['header_band'], top, 'cut', cr)
+    add_head_clips(comp)
+
+
+def add_head_clips(comp):
+    """Snap clips that clamp the head lid on: one per long (Y) side."""
+    b, H, g = Builder(comp), HEAD, head_geo()
+    T, W2 = g['T'], g['W'] / 2
+    head = [bd for bd in comp.bRepBodies if bd.name == 'Sensor head'][0]
+    lid = [bd for bd in comp.bRepBodies if bd.name == 'Head lid'][0]
+    cx, hw, t, gap = H['clip_x'], H['clip_w'] / 2, H['clip_t'], H['clip_gap']
+    w0, w1 = H['clip_win']
+    yr = W2 - H['clip_recess']                     # recess floor (wall's new outer face)
+    h0, h1 = w0 + 0.15, w1 - 0.15                  # hook, inside the window
+    for sgn in (-1, 1):
+        # recess in the outside wall, open at the top, with fingernail room
+        ya, yb = sorted((sgn * yr, sgn * (W2 + 1.0)))
+        b.zbox(cx - hw - 0.4, ya, cx + hw + 0.4, yb, w0 - H['clip_nail'], T + 0.5, 'cut', head)
+        # window through the wall that is left
+        ya, yb = sorted((sgn * (g['ih'] / 2 - 0.5), sgn * (yr + 0.5)))
+        b.zbox(cx - hw - 0.3, ya, cx + hw + 0.3, yb, w0, w1, 'cut', head)
+        # clip: hangs from the lid, flush with the head's outside
+        yt = sgn * (yr + gap)                      # clip's inner face
+        ya, yb = sorted((yt, yt + sgn * t))
+        b.zbox(cx - hw, ya, cx + hw, yb, T + 0.5, h0, 'join', lid)
+        # wedge hook: flat top catches the window's top edge, slope lets it in
+        sk = b.sketch('x', cx)
+        lines = sk.sketchCurves.sketchLines
+        pts = [b._sp(sk, cx, yt + sgn * 0.05, h1), b._sp(sk, cx, yt - sgn * H['clip_hook'], h1),
+               b._sp(sk, cx, yt + sgn * 0.05, h0)]
+        for i in range(3):
+            lines.addByTwoPoints(pts[i], pts[(i + 1) % 3])
+        b.extrude(sk.profiles.item(0), H['clip_w'], 'join', lid, symmetric=True)
 
 
 # ---------------------------------------------------------------- handheld body
@@ -421,16 +471,16 @@ def build_body(comp):
            Z, Z - w - 0.5, 'cut', body)
     b.zcyl(X / 2, B['button_cy'], B['cap_d'] + 2 * B['cap_clear'], Z, Z - w - 0.5, 'cut', body)
 
-    # head dock: cup behind the front wall, pocket, steel disc from inside
+    # head dock: cup behind the front wall, pocket, magnet glued in from inside
     dw, dh = HEAD['length'] + 1.0, HEAD['width'] + 1.0
     cy = B['dock_cy']
     b.zbox(X / 2 - dw / 2 - 3.5, cy - dh / 2 - 3.5, X / 2 + dw / 2 + 3.5, cy + dh / 2 + 3.5,
-           Z - B['dock_depth'] - B['disc_skin'] - B['disc_depth'], Z - 1.0, 'join', body)
+           Z - B['dock_depth'] - B['dock_skin'] - B['dock_mag_depth'], Z - 1.0, 'join', body)
     b.zbox(X / 2 - dw / 2, cy - dh / 2, X / 2 + dw / 2, cy + dh / 2, Z, Z - B['dock_depth'],
            'cut', body)
     zf = Z - B['dock_depth']
-    b.zcyl(X / 2, cy, B['disc_d'], zf - B['disc_skin'] - B['disc_depth'], zf - B['disc_skin'],
-           'cut', body)
+    b.zcyl(X / 2, cy, B['dock_mag_d'], zf - B['dock_skin'] - B['dock_mag_depth'],
+           zf - B['dock_skin'], 'cut', body)
     H = HEAD
     nl, nw = H['relief_len'] + 0.5, H['relief_w'] + 0.6
     px = X / 2 + dw / 2
@@ -725,7 +775,7 @@ def dummies():
         oled=tbox(sg['pcx'] - S['pcb'][0] / 2, sg['pcy'] - S['pcb'][1] / 2, sg['zback'],
                   sg['pcx'] + S['pcb'][0] / 2, sg['pcy'] + S['pcb'][1] / 2, sg['zp']),
         oled_plugs=tbox(sg['hdr_x'] - 1.3, sg['pcy'] - S['header_len'] / 2,
-                        sg['zback'] - hp - hs, sg['hdr_x'] + 1.3,
+                        sg['zback'] - plug_depth(), sg['hdr_x'] + 1.3,
                         sg['pcy'] + S['header_len'] / 2, sg['zback']),
         cam=tbox(B['cam_cx'] - cw / 2, cam_back, B['cam_cz'] - chh / 2,
                  B['cam_cx'] + cw / 2, cam_back + ct, B['cam_cz'] + chh / 2),
@@ -747,6 +797,15 @@ def dummies():
         imu=tbox(hg['xf'], -hg['bl'] / 2, hg['zb0'], hg['xbk'], hg['bl'] / 2, hg['zb1']),
         imu_tails=tbox(hg['xf'] - 2.5, -11.8, hg['zb1'] - 2.54, hg['xf'], 11.8, hg['zb1']),
         imu_plugs=tbox(hg['xbk'], -12.7, hg['zb1'] - 2.54, hg['plug_x1'], 12.7, hg['zb1']),
+        # room each snap finger needs to bend out while the switch goes in
+        finger_flex_lo=tbox(kg['cx'] - B['sw_finger_w'] / 2,
+                            kg['cy'] - kg['half'] - B['sw_finger_t'] - B['sw_lip'],
+                            kg['z_base'] - 1.0, kg['cx'] + B['sw_finger_w'] / 2,
+                            kg['cy'] - kg['half'] - B['sw_finger_t'] - 0.05, kg['zi']),
+        finger_flex_hi=tbox(kg['cx'] - B['sw_finger_w'] / 2,
+                            kg['cy'] + kg['half'] + B['sw_finger_t'] + 0.05,
+                            kg['z_base'] - 1.0, kg['cx'] + B['sw_finger_w'] / 2,
+                            kg['cy'] + kg['half'] + B['sw_finger_t'] + B['sw_lip'], kg['zi']),
     )
 
 
@@ -762,7 +821,7 @@ def run_checks(head_comp, body_comp):
     for name in ('oled', 'oled_plugs', 'cam_plugs', 'mic_plugs_l', 'mic_plugs_r', 'switch',
                  'switch_legs_l', 'switch_legs_r', 'cap', 'uno_hdr_left', 'uno_hdr_right',
                  'jspi', 'jctl',
-                 'qwiic', 'usb_plug', 'cam'):
+                 'qwiic', 'usb_plug', 'cam', 'finger_flex_lo', 'finger_flex_hi'):
         for pn, pb in printed:
             pairs.append((name, d[name], pn, pb))
     pairs += [('bank', d['bank'], 'front lid', lid), ('bank', d['bank'], 'screen tray', tray)]
@@ -775,7 +834,8 @@ def run_checks(head_comp, body_comp):
         for pn, pb in (('sensor head', head), ('IMU cradle', cradle), ('head lid', hlid)):
             if not (name == 'imu' and pn == 'head lid'):
                 pairs.append((name, d[name], pn, pb))
-    pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid)]
+    pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid),
+              ('head lid', hlid, 'sensor head', head)]
     if 'Bank holder' in bb:
         hold, g = bb['Bank holder'], bank_geo()
         ext_bank = tbox(g['xb0'], g['yb0'], g['zb0'], g['xb1'], g['yb1'], g['zb1'])

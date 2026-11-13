@@ -186,6 +186,35 @@ def test_history_limit_capped_at_2000(client):
     assert len(hist["records"]) == 300
 
 
+def test_history_since_reads_a_range_page_by_page(client):
+    batch = [make_record(at=f"2026-11-14T16:{i // 60:02d}:{i % 60:02d}Z", n=i) for i in range(10)]
+    client.json("POST", "/api/records", batch)
+    client.json("POST", "/api/records", make_record(machine_id="other", at="2026-11-14T16:00:05Z"))
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records?since=2026-11-14T16:00:04Z&limit=3")
+    page = hist["records"]
+    assert [r["n"] for r in page] == [4, 5, 6]  # oldest 3 at or after since, oldest first
+
+    _, hist = client.json(
+        "GET", f"/api/machines/conveyor-07/records?since=2026-11-14T16:00:04Z&after_seq={page[-1]['seq']}&limit=3")
+    assert [r["n"] for r in hist["records"]] == [7, 8, 9]
+
+    _, hist = client.json("GET", f"/api/machines/conveyor-07/records?after_seq={page[-1]['seq']}&limit=2")
+    assert [r["n"] for r in hist["records"]] == [7, 8]  # after_seq alone pages from there
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records?since=2026-11-14T16:00:04%2B00:00")
+    assert [r["n"] for r in hist["records"]] == list(range(4, 10))  # an offset works too
+
+    _, hist = client.json("GET", "/api/machines/conveyor-07/records?since=2026-11-14T17:00:00Z")
+    assert hist == {"ok": True, "records": []}
+
+
+def test_history_since_and_after_seq_reject_bad_values(client):
+    for query in ("since=yesterday", "after_seq=abc", "after_seq=-1"):
+        status, body = client.json("GET", f"/api/machines/conveyor-07/records?{query}")
+        assert status == 400 and body["ok"] is False, query
+
+
 def test_machine_id_with_url_escapes(client):
     client.json("POST", "/api/records", make_record(machine_id="line 3/fan"))
     _, hist = client.json("GET", "/api/machines/line%203%2Ffan/records")
