@@ -123,11 +123,13 @@ class StreamReader(QObject):
         self._sock = None
         self._sock_lock = threading.Lock()
         self.connects = 0  # how many times a stream opened, for tests and status
+        self._up = None  # what `connected` last said; None before the first attempt
 
     def start(self) -> None:
         if self._thread is not None:
             return
         self._stop.clear()
+        self._up = None
         self._thread = threading.Thread(target=self._run, name="effente-stream", daemon=True)
         self._thread.start()
 
@@ -148,42 +150,45 @@ class StreamReader(QObject):
             except OSError:
                 pass
 
+    def _say(self, up: bool) -> None:
+        """Emit `connected` only when it changes: once per outage, once per recovery."""
+        if up != self._up:
+            self._up = up
+            self.connected.emit(up)
+
     def _run(self) -> None:
         failures = 0
-        said_down = False
         while not self._stop.is_set():
+            before = self.connects
             try:
-                opened = self._once()
+                self._once()
             except (OSError, http.client.HTTPException, ApiError, ValueError):
-                opened = False
+                pass  # an open stream can end this way too, on a read timeout
             if self._stop.is_set():
                 break
-            if opened or not said_down:  # say "down" once per outage, not on every retry
-                said_down = True
-                self.connected.emit(False)
-            failures = 0 if opened else failures + 1
+            self._say(False)  # however the attempt ended, the stream is closed now
+            failures = 0 if self.connects > before else failures + 1
             self._stop.wait(RECONNECT_S[min(failures, len(RECONNECT_S) - 1)])
 
-    def _once(self) -> bool:
-        """One connection. Returns True if it opened before it ended."""
+    def _once(self) -> None:
+        """One connection, read until it ends. `connects` counts it if it opened."""
         conn = http.client.HTTPConnection(self.client.host, self.client.port, timeout=TIMEOUT_S)
         try:
             conn.request("GET", "/api/stream", headers={"Accept": "text/event-stream"})
             sock = conn.sock
             resp = conn.getresponse()
             if resp.status != 200:
-                return False
+                return
             sock.settimeout(STREAM_READ_TIMEOUT_S)
             with self._sock_lock:
                 self._sock = sock
             if self._stop.is_set():
-                return False
+                return
             snap = self.client.state()
             self.connects += 1
-            self.connected.emit(True)
+            self._say(True)
             self.snapshot.emit(snap)
             self._read(resp)
-            return True
         finally:
             with self._sock_lock:
                 self._sock = None
