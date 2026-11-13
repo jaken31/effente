@@ -10,7 +10,9 @@ TRD's fallback table: calibrate here and copy the model file to the device.
 
 --entry is a library entry folder (model.json and manifest.json). --run is a learn-mode recording
 folder (its one-a-second rows); --rows is any file with t, X and feature_names.
-Exit code: 0 if the machine fits the entry, 2 if it does not (the model file is still written).
+Exit code: 0 if the fit check passed, 2 if it failed (the model file is still written), 1 if there
+was too little running. A pass only means no gross mismatch was found: the rule is a starting value
+from simulated machines and does not show the machine is of the entry's type.
 The numbers are starting values (unverified on real machines).
 """
 
@@ -64,7 +66,7 @@ def main(argv=None) -> int:
     for k, v in report.items():
         print(f"  {k}: {v}")
     verdict = fit_check(report, manifest)
-    print(f"fit check: {'fits' if verdict['ok'] else 'DOES NOT FIT'} - {verdict['reason']}")
+    print(f"fit check: {'passed' if verdict['ok'] else 'FAILED'} - {verdict['reason']}")
     return 0 if verdict["ok"] else 2
 
 

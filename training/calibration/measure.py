@@ -18,7 +18,7 @@ What it does:
               it, only new seeds, loads and rooms. With --sensors device (the default) the rows
               keep only what the device has today: the sound, heat and room readings are missing.
   section 1   every entry on every machine, calibrated on the first 300 s: the fit check's ratio
-              and verdict, the threshold, and the share of the 40 minutes of normal running that
+              and verdict, the threshold used and the one fitted from this machine alone, and the share of the 40 minutes of normal running that
               follow in which the device's Watcher alarms (and of the first 5 of them). Beside it,
               a model trained on the same 300 s alone (effente.trainer.train_model).
   section 2   the same alarm share for calibrations of 60 s to 20 minutes.
@@ -102,11 +102,16 @@ def session(kind, seed, start, seconds, settings, faults=(), cache=None, sensors
     return t, X
 
 
+FLOOR_SHARE = None  # --threshold-floor-share; None leaves calibrate's default
+
+
 def run_calibrate(model, manifest, t, X, min_running_s=300):
-    """Calibrate and fit-check: (calibrated model, {"ratio", "ok", "threshold"})."""
-    cal, rep = calibrate(model, t, X, NAMES, min_running_s=min_running_s)
+    """Calibrate and fit-check: (calibrated model, {"ratio", "ok", "threshold", ...})."""
+    extra = {} if FLOOR_SHARE is None else {"threshold_floor_share": FLOOR_SHARE}
+    cal, rep = calibrate(model, t, X, NAMES, min_running_s=min_running_s, **extra)
     v = fit_check(rep, manifest)
-    return cal, {"ratio": round(v["ratio"], 3), "ok": v["ok"], "threshold": rep["threshold"]}
+    return cal, {"ratio": round(v["ratio"], 3), "ok": v["ok"], "threshold": rep["threshold"],
+                 "threshold_fitted_here": rep["threshold_fitted_here"], "entry_threshold": rep["entry_threshold"]}
 
 
 def watch(d, t, X):
@@ -150,10 +155,17 @@ def main(argv=None) -> int:
     ap.add_argument("--cache", help="folder to keep the simulated rows in between runs")
     ap.add_argument("--classifier", action="store_true",
                     help="section 3: also name the faults with a fault classifier fitted during calibration")
+    ap.add_argument("--threshold-floor-share", type=float,
+                    help="calibrate's threshold_floor_share (default: its own default, 1.0)")
+    ap.add_argument("--faults-only", action="store_true", help="section 3 only")
     ap.add_argument("--quick", action="store_true", help="one conveyor, one server rack, section 1 only")
     a = ap.parse_args(argv)
+    global FLOOR_SHARE
+    FLOOR_SHARE = a.threshold_floor_share
     t_start = time.time()
     machines = {k: MACHINES[k] for k in list(MACHINES)[1:2] + list(MACHINES)[5:6]} if a.quick else MACHINES
+    if a.faults_only:
+        machines = {}
     get = lambda kind, seed, start, seconds, settings, faults=(): session(
         kind, seed, start, seconds, settings, faults, cache=a.cache, sensors=a.sensors)
     entries = {}
@@ -164,10 +176,12 @@ def main(argv=None) -> int:
         entries[name] = (json.loads((folder / "model.json").read_text()), manifest)
     out = {"label": "simulated (effente.simulate_conveyor, effente.simulate_server, effente.site_noise); "
                     "unverified on real machines", "sensors": a.sensors, "entries": list(entries),
+           "threshold_floor_share": "default" if FLOOR_SHARE is None else FLOOR_SHARE,
            "calibrated_300s": [], "lengths": [], "faults": []}
 
+    print(f"threshold_floor_share: {out['threshold_floor_share']}")
     print(f"SIMULATED, sensors: {a.sensors}. 1. Calibrated on the first 300 s, then {WATCH_S} s of normal running.")
-    print("   ratio = fit check; alarm = share of seconds alarming in the first 300 s / all 2400 s after calibration;")
+    print("   ratio = fit check (pass = no gross mismatch found, not proof of machine type); alarm = share of seconds alarming in the first 300 s / all 2400 s after calibration;")
     print("   alone = the same for a model trained on the same 300 s alone")
     for ename, (d, manifest) in entries.items():
         print(f" entry {ename}")
@@ -181,9 +195,15 @@ def main(argv=None) -> int:
             row = {"entry": ename, "machine": mname, **v, "first_300s": share(cal, t[first5], X[first5]),
                    "all_2400s": share(cal, t[after], X[after]), "trained_alone_2400s": share(alone, t[after], X[after])}
             out["calibrated_300s"].append(row)
-            print(f"   {mname:40s} ratio {v['ratio']:5.2f} {'fits  ' if v['ok'] else 'no fit'} threshold "
-                  f"{v['threshold']:7.2f}  alarm {row['first_300s']['alarm_share']:.3f} / "
+            print(f"   {mname:40s} ratio {v['ratio']:5.2f} {'pass' if v['ok'] else 'FAIL'} threshold "
+                  f"{v['threshold']:7.2f} (fitted here {v.get('threshold_fitted_here', float('nan')):7.2f})  alarm {row['first_300s']['alarm_share']:.3f} / "
                   f"{row['all_2400s']['alarm_share']:.3f}  alone {row['trained_alone_2400s']['alarm_share']:.3f}")
+
+    rows = [r for r in out["calibrated_300s"] if "threshold_fitted_here" in r]
+    above = sum(r["threshold_fitted_here"] > r["entry_threshold"] for r in rows)
+    print(f"   the threshold fitted here was above the entry's (so it was the one used) in {above} of {len(rows)} "
+          f"calibrations; in the others the entry's threshold was kept")
+    out["threshold_fitted_above_entry"] = {"above": above, "of": len(rows)}
 
     if not a.quick:
         print(f"\nSIMULATED, sensors: {a.sensors}. 2. Share of the {WATCH_S} s after calibration that alarm, "

@@ -262,6 +262,27 @@ def test_a_short_calibration_is_never_stricter_than_the_entry():
     assert report["entry_threshold"] == round(d["threshold"], 4) and report["spreads"] == "never below the entry's"
 
 
+def test_the_threshold_floor_share_sets_how_much_of_the_entrys_threshold_is_kept():
+    d, _ = entry()
+    high = dict(d, threshold=10 * d["threshold"])  # an entry whose own threshold is far above this machine's
+    t, X = seconds(300, seed=20, start=75_000, vib=0.2)
+    out = {share: C.calibrate(high, t, X, NAMES, threshold_floor_share=share) for share in (0.0, 0.5, 1.0)}
+    fitted = out[0.0][1]["threshold_fitted_here"]
+    assert fitted < 0.5 * high["threshold"]
+    assert math.isclose(out[0.0][0]["threshold"], fitted, abs_tol=1e-4)  # 0: the threshold fitted here alone
+    assert out[1.0][0]["threshold"] == high["threshold"]  # 1: never below the entry's
+    assert out[0.5][0]["threshold"] == 0.5 * high["threshold"]  # 0.5: between the two
+    assert out[0.0][0]["threshold"] < out[0.5][0]["threshold"] < out[1.0][0]["threshold"]
+    assert [out[s][1]["threshold_floor_share"] for s in (0.0, 0.5, 1.0)] == [0.0, 0.5, 1.0]
+    default = C.calibrate(high, t, X, NAMES)  # the default is the module constant, 1.0
+    assert C.THRESHOLD_FLOOR_SHARE == 1.0 and default[0]["threshold"] == out[1.0][0]["threshold"]
+    assert default[1]["threshold_floor_share"] == 1.0
+    low = dict(d, threshold=1e-3)  # a fitted threshold above the floor is used whatever the share
+    assert C.calibrate(low, t, X, NAMES, threshold_floor_share=1.0)[0]["threshold"] == out[0.0][0]["threshold"]
+    raises(lambda: C.calibrate(d, t, X, NAMES, threshold_floor_share=-0.1), "threshold_floor_share")
+    raises(lambda: C.calibrate(d, t, X, NAMES, threshold_floor_share=float("nan")), "threshold_floor_share")
+
+
 def library_style_entry():
     """The fixture entry in the shape training/library builds: neutral preparation, widen factors and
     held readings under "calibration", no fault classifier and no baseline, and its own extra keys."""
@@ -316,7 +337,8 @@ def test_fit_check_passes_the_entrys_type_and_fails_another_type():
     d, manifest = entry()
     _, report = calibrated()
     ok = C.fit_check(report, manifest)
-    assert ok["ok"] is True and 0 < ok["ratio"] <= C.FIT_MAX_RATIO and "fits" in ok["reason"]
+    assert ok["ok"] is True and 0 < ok["ratio"] <= C.FIT_MAX_RATIO and "no gross mismatch" in ok["reason"]
+    assert "does not show" in ok["reason"]  # a pass is never worded as proof of the machine's type
     t, X = seconds(300, seed=14, start=60_000, kind="other")
     _, other = C.calibrate(d, t, X, NAMES)
     no = C.fit_check(other, manifest)
@@ -335,6 +357,37 @@ def test_fit_check_uses_the_held_out_medians():
     assert C.fit_check(over, manifest)["ok"] is False
     for spelling in ({"q50": 2.0}, {"0.5": 2.0}, {"median": 2.0}):
         assert C.fit_check(report, dict(manifest, held_out_score_quantiles=spelling))["ratio"] == 2.0
+
+
+def test_fit_check_reads_the_librarys_manifest():
+    """The manifest training/library writes (branch feat/model-library): heldout_score_quantiles with
+    exactly p50, p90, p99 and max."""
+    manifest = {"entry_id": "conveyor", "version": "0.1.0", "normal_model": "pca", "features_version": "89613129193f",
+                "sources": [{"name": "sim_conveyor", "kind": "simulated", "used_for": "training"}],
+                "heldout_score_quantiles": {"p50": 2.0861323723227825, "p90": 2.5786691741110297,
+                                            "p99": 26.307316227339868, "max": 40.00208696907036},
+                "scorecard": {}, "status": "demo"}
+    report = {"score_quantiles_held_out": {"p50": 4.172264744645565}, "features_version": "89613129193f",
+              "normal_model": "pca"}
+    v = C.fit_check(report, manifest)
+    assert v["ok"] is True and math.isclose(v["ratio"], 2.0) and "not checked" not in v["reason"]
+    assert C.fit_check(dict(report, score_quantiles_held_out={"p50": 10.0}), manifest)["ok"] is False
+    d, _ = entry()  # and end to end: a real calibration report against a manifest in that shape
+    _, rep = calibrated()
+    man = dict(manifest, features_version=d["features_version"])
+    v = C.fit_check(rep, man)
+    assert math.isclose(v["ratio"], rep["score_quantiles_held_out"]["p50"] / 2.0861323723227825)
+
+
+def test_the_entrys_period_is_used():
+    d, _ = entry()
+    t, X = seconds(600, seed=19, start=65_000)
+    cal, report = C.calibrate(d, t, X, NAMES)
+    assert cal["period_s"] == d["period_s"] == report["period_s"] == 1
+    slow = dict(d, period_s=10)  # an entry on 10 s summaries: 600 s give 60 rows, 590 s too few
+    cal, report = C.calibrate(slow, t, X, NAMES)
+    assert cal["period_s"] == 10 and report["rows_fit"] + report["rows_held_out"] == 60
+    raises(lambda: C.calibrate(slow, t[:590], X[:590], NAMES), "at least 600 s")
 
 
 def test_a_fit_that_cannot_be_checked_is_not_a_fit():

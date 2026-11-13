@@ -55,13 +55,17 @@ from effente.model_input import MAX_NAN_FRAC, Prep, _transform_raw
 
 MIN_RUNNING_S = 300  # the trainer's minimum (TRD: starting value, 5 minutes of running)
 MIN_ROWS = 60  # below this there are too few held-out rows to fit a threshold at all, whatever min_running_s says
+# The alarm threshold is never set below this share of the entry's own threshold. 1.0: never below the
+# entry's. 0: the threshold fitted to this machine alone. STARTING VALUE, simulated only: 1.0 keeps a
+# short calibration quiet and costs sensitivity (training/calibration/README.md has the runs).
+THRESHOLD_FLOOR_SHARE = 1.0
 CALIB_SHARE = 0.15  # the last part of the calibration, held out for the threshold (as the trainer)
 
-# Fit check: the machine "does not look like the entry's type" when its median held-out score is
-# more than this many times the entry's own held-out median. A starting value, UNVERIFIED: set from
-# simulated machines only, where it passed every machine, of the right type or not
-# (training/calibration/README.md): it catches only a gross mismatch. The TRD leaves the rule open
-# until there are recordings of real machines.
+# Fit check: ok is False when this machine's median held-out score is more than this many times the
+# entry's own held-out median. STARTING VALUE, SIMULATED ONLY, unverified. On the simulators it did
+# not tell machine types apart: server racks passed on a conveyor entry (training/calibration/README.md).
+# It can only reject a gross mismatch; a pass does not show the machine is of the entry's type. The
+# TRD leaves the rule open until there are recordings of real machines.
 FIT_MAX_RATIO = 3.0
 
 QUANTILES = (("p50", 50), ("p90", 90), ("p99", 99))
@@ -144,13 +148,20 @@ def refit_prep(entry_prep: Prep, X_fit: np.ndarray, widen=None, held=None) -> tu
     return prep, {"missing": pick(missing), "constant": pick(constant), "held": pick(held)}
 
 
-def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNNING_S, seed: int = 0):
+def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNNING_S, seed: int = 0,
+              threshold_floor_share: float = THRESHOLD_FLOOR_SHARE):
     """Fit a library entry's model to this machine from feature rows of it running.
 
     entry_model: the entry's effente-model-1 dict (not changed). t, X, names: one-a-second feature
     rows with their times and feature names, as for effente.trainer.train_model. Returns
     (model file dict, report). Raises ValueError if the entry is not a model this device can run,
-    or the machine ran for less than min_running_s seconds in the rows given."""
+    or the machine ran for less than min_running_s seconds in the rows given.
+    threshold_floor_share: the alarm threshold is never set below this share of the entry's own
+    (THRESHOLD_FLOOR_SHARE; 0 uses the threshold fitted here alone). The default of 1.0 costs
+    sensitivity: see the module notes."""
+    if not (isinstance(threshold_floor_share, (int, float)) and math.isfinite(threshold_floor_share)
+            and threshold_floor_share >= 0):
+        raise ValueError("threshold_floor_share must be a number of 0 or more")
     entry = RT.Model(entry_model)  # refuses another format or another feature list
     X = TR.to_current(X, names)
     names = list(F.FEATURE_NAMES)
@@ -164,9 +175,7 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
         raise ValueError("no running data recorded")
     order = np.argsort(t, kind="stable")
     t, X = t[order], X[order]
-    # The entry's own summary period, or a shorter one if the calibration is too short for it (the
-    # trainer's choice: 1 s for a calibration of minutes).
-    period = min(entry.period, TR.choose_period(float(t[-1] - t[0])))
+    period = entry.period  # the entry's own summary period: what its network was trained on
     t, X = TR.summarise(t, X, period)
     running_s = len(t) * period
     need = max(float(min_running_s), MIN_ROWS * period)
@@ -189,11 +198,11 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     s, r, Z = model.score(X)
     scale = np.std(r[fit], 0)
     d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
-    # The threshold: fitted to this machine's held-out scores as the trainer does, but never below the
-    # entry's own. A few dozen held-out seconds can show this machine is noisier than the entry's
-    # machines; they cannot show a week of it would be quieter.
+    # The threshold: fitted to this machine's held-out scores as the trainer does, but never below
+    # threshold_floor_share of the entry's own. A few dozen held-out seconds can show this machine is
+    # noisier than the entry's machines; they cannot show a week of it would be quieter.
     fitted = TR.gamma_threshold(TR._causal_median(s[held], model.smooth), 7 * 86400 / period)
-    d["threshold"] = max(fitted, float(entry_model["threshold"]))
+    d["threshold"] = max(fitted, float(threshold_floor_share) * float(entry_model["threshold"]))
     model = RT.Model(d)
 
     # The fault classifier, as in full training (this machine's own normal deviations with the fault-type
@@ -217,18 +226,15 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     d["fault_types"] = [{"name": ft.name, "text": ft.text, "sensing": ft.sensing} for ft in FT.TYPES]
 
     notes = list(baseline["warnings"])
-    entry_period = int(entry_model.get("period_s", 60))
-    if entry_period != period:
-        notes.append(f"the entry was trained on {entry_period} s summaries, this calibration used {period} s ones: "
-                     f"the fit check compares scores of different summaries")
     if fell_back["missing"]:
         notes.append(f"{len(fell_back['missing'])} of the entry's {len(prep.columns)} readings were not measured "
                      f"while calibrating; they are not judged")
     report = {"calibrated": True, "features_version": d["features_version"],
               "normal_model": d.get("normal_model", "autoencoder"),
-              "period_s": int(period), "entry_period_s": entry_period, "running_s": int(running_s),
+              "period_s": int(period), "running_s": int(running_s),
               "rows_fit": int(fit.sum()), "rows_held_out": int(held.sum()),
               "threshold": round(d["threshold"], 4), "threshold_fitted_here": round(fitted, 4),
+              "threshold_floor_share": float(threshold_floor_share),
               "entry_threshold": round(float(entry_model["threshold"]), 4),
               "score_quantiles_held_out": _quantiles(s[held]), "score_quantiles_fit": _quantiles(s[fit]),
               "score_quantiles_before_calibration": _quantiles(s_before),
@@ -260,14 +266,16 @@ def _manifest_median(manifest: dict):
 
 
 def fit_check(report: dict, manifest: dict) -> dict:
-    """Does the machine just calibrated look like the entry's machine type?
+    """Is the machine just calibrated grossly unlike what the entry expects?
 
     report: calibrate()'s report. manifest: the entry's manifest.json. Compares the median score of
     the held-out calibration rows (this machine's levels, the entry's network) with the entry's own
     held-out median. Returns {"ok", "ratio", "reason"}; ratio is NaN when it could not be worked
-    out, and then ok is False: a fit that was not checked is never reported as a fit.
+    out, and then ok is False: a check that was not made is never reported as passed.
 
-    The rule (ratio <= FIT_MAX_RATIO) is a starting value set on simulated machines. Unverified."""
+    ok False means a gross mismatch. ok True does NOT show the machine is of the entry's type: on
+    the simulators a server rack passed on a conveyor entry. The rule (ratio <= FIT_MAX_RATIO) is a
+    starting value, simulated only; the TRD leaves the rule open."""
     def no(reason, ratio=float("nan")):
         return {"ok": False, "ratio": ratio, "reason": reason}
 
@@ -281,8 +289,10 @@ def fit_check(report: dict, manifest: dict) -> dict:
     if not isinstance(mine, (int, float)) or isinstance(mine, bool) or not math.isfinite(mine):
         return no("not checked: the calibration report has no held-out median score")
     ratio = float(mine) / ref
+    limit = f"limit {FIT_MAX_RATIO:g}, a starting value, simulated only"
     if ratio > FIT_MAX_RATIO:
-        return no(f"this machine does not look like the entry's type: its normal scores {ratio:.1f} times the "
-                  f"entry's own (limit {FIT_MAX_RATIO:g}, unverified); try generic_rotating or a long stay", ratio)
+        return no(f"this machine's normal scores {ratio:.1f} times the entry's own ({limit}): it does not look "
+                  f"like what the entry expects; try generic_rotating or a long stay", ratio)
     return {"ok": True, "ratio": ratio,
-            "reason": f"fits: its normal scores {ratio:.1f} times the entry's own (limit {FIT_MAX_RATIO:g}, unverified)"}
+            "reason": f"no gross mismatch: this machine's normal scores {ratio:.1f} times the entry's own ({limit}). "
+                      f"This does not show the machine is of the entry's type"}
