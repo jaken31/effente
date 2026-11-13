@@ -14,6 +14,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from ..theme import fonts
+from ..widgets import motion
 from .pages import KEYS
 
 # Qt reads "Ctrl" in a key sequence as the Command key on macOS, so the list names that key there.
@@ -86,6 +87,7 @@ class ShortcutHelp(QFrame):
         self._place()
         self.show()
         self.raise_()
+        motion.fade_in(self, motion.HOVER)
 
     def _place(self) -> None:
         host = self.parentWidget()

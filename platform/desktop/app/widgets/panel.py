@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from ..theme import fonts
 from ..theme import tokens as t
+from . import motion
 from .marks import paint_flag_value
 
 _order = itertools.count()
@@ -47,6 +48,7 @@ class _Title(QWidget):
         self._number: str = ""
         self.link = False
         self.arrow = False
+        self._arrow = motion.Glide(self)  # the arrow's opacity
         self.setFont(fonts.panel_title())
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
 
@@ -86,8 +88,9 @@ class _Title(QWidget):
             x = fm.horizontalAdvance(self._prefix())
         p.setPen(t.qcolor(t.TEXT))
         p.drawText(r.adjusted(x, 0, 0, 0), flags, self._title)
-        if self.arrow:
+        if self._arrow.at > 0:
             x += fm.horizontalAdvance(self._title) + 6
+            p.setOpacity(self._arrow.at)
             p.drawText(r.adjusted(x, 0, 0, 0), flags, "→")
 
 
@@ -210,8 +213,7 @@ class Panel(QFrame):
         if e.type() == e.Type.Polish:
             self._renumber()  # before the first layout, so the title gets its width
         if self._link and e.type() in (e.Type.HoverEnter, e.Type.HoverLeave):
-            self.title_label.arrow = e.type() == e.Type.HoverEnter
-            self.title_label.update()
+            self.title_label.set_arrow(e.type() == e.Type.HoverEnter)
         return super().event(e)
 
     def mouseReleaseEvent(self, e) -> None:

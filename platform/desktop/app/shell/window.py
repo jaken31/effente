@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from ..theme import schemes
 from ..theme import tokens as t
+from ..widgets import motion
 from . import format as fmt
 from . import shortcuts
 from .notices import Notices
@@ -261,6 +262,8 @@ class MainWindow(QMainWindow):
             log.warning("navigate: no page %r", key)
             return
         page = self.pages[key]
+        if key != self.current:
+            motion.crossfade(self.stack)  # the page being left fades out over the new one
         self.current = key
         self._remember(PAGE, key)
         self.stack.setCurrentIndex(KEYS.index(key))
@@ -379,6 +382,8 @@ class MainWindow(QMainWindow):
 
     def _record_added(self, _record: dict) -> None:
         self.refresh_chrome()
+        if not self.topbar.stale:
+            self.topbar.fresh_dot.pulse()  # one beat for each record that arrives
 
     def refresh(self) -> None:
         if self.state is None:
