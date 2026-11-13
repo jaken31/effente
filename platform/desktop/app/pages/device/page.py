@@ -72,7 +72,7 @@ class DevicePage(QWidget):
         self.log_panel.header_end.addWidget(pause)
         self.log_panel.header_end.addWidget(self.pause)
         self.log = RowTable([
-            Column("Time", width=84),
+            Column("Time", width=96),  # fits HH:MM:SS with wide digits
             Column("Event", strong=True, width=132),
             Column("Detail"),
         ])
