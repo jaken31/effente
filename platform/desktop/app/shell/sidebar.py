@@ -172,6 +172,26 @@ class Nav(QWidget):
             item.update()
 
 
+class _RightElidedLabel(QLabel):
+    """Right-aligned and one line: a long value ends in an ellipsis instead of pushing
+    the card wider. The full text is the tooltip."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None):
+        super().__init__(text, parent)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setToolTip(text)
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self.setToolTip(text)
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setPen(self.palette().windowText().color())
+        shown = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
+        p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), shown)
+
+
 class DeviceCard(QWidget):
     """Device id with its dot, then label/value rows, under a hairline."""
 
@@ -199,16 +219,14 @@ class DeviceCard(QWidget):
             lab = QLabel(label)
             lab.setProperty("role", "muted")
             lab.setFont(fonts.small())
-            val = QLabel("–")
+            val = _RightElidedLabel("\u2013")
             val.setProperty("role", "soft")
             val.setFont(fonts.body())
             val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             lab.setFixedHeight(17)  # 12px at line-height 1.45, top-aligned as in CSS
             val.setFixedHeight(LINE)
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             row.addWidget(lab, 0, Qt.AlignmentFlag.AlignTop)
-            row.addStretch(1)
-            row.addWidget(val)
+            row.addWidget(val, 1)
             lay.addLayout(row)
             self.values[key] = val
 
