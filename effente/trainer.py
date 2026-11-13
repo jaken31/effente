@@ -424,12 +424,11 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
     d["fault_types"] = [{"name": ft.name, "text": ft.text, "sensing": ft.sensing} for ft in FT.TYPES]
     d["feature_table"] = [{"name": c, "text": F.FEATURE_TEXT.get(c, ""), "unit": F.FEATURE_KIND.get(c, "")}
                           for c in prep.columns]
+    # Which line: with the crossfit line every row is learned from and every row is scored out of sample, so
+    # rows_learned == rows_calibration == all rows; with the tail line they split the rows (no new report field, so
+    # model files keep the same fields: training/library's test_the_model_file_has_no_new_fields).
     report = {"period_s": int(period), "rows_learned": int(fit.sum()),
               "rows_calibration": int(len(cal_scores) if crossfit else calib.sum()),
-              "line": ("crossfit: two halves in time, each scored by a model learned on the other; threshold = line x "
-                       f"{THRESHOLD_FACTOR:.3f}") if crossfit else
-                      (f"tail: the last {100 * calib_share:.0f} % held out" + ("" if normal_model != "pca" else
-                       f" (crossfit needs {LONG_PERIOD} s periods and {2 * MIN_ROWS} of them)")),
               "inputs": prep.n_out, "features_kept": len(prep.columns), "fit_seconds": round(fit_s, 1),
               "normal_model": normal_model, "patterns_kept": int(kept),
               "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, resid_int)[0, 1]), 5),
