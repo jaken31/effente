@@ -127,7 +127,9 @@ class Panel(QFrame):
         self.head.setMinimumHeight(t.PANEL_HEAD_MIN_H)
         hl = QHBoxLayout(self.head)
         pv, ph = t.PANEL_HEAD_PAD
-        hl.setContentsMargins(ph - 1, pv, ph - 1, pv)
+        # The mockup's .ph keeps a transparent 1px bottom border, so a header grows to
+        # content + 10 + 10 + 1: 53px with a 32px control, never under 44px.
+        hl.setContentsMargins(ph - 1, pv, ph - 1, pv + 1)
         hl.setSpacing(t.PANEL_HEAD_GAP)
         self.title_label = _Title(title, self.head)
         self.title_label.link = link
