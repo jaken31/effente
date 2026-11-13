@@ -44,34 +44,98 @@ def pushed_record(state, **changes):
 # ---- Agents -------------------------------------------------------------
 
 
-def test_run_starts_the_agent_in_the_chosen_mode(qtbot, state, monkeypatch):
+def test_run_starts_the_agent_in_the_chosen_mode(qtbot, state):
     from app.pages.agents import AgentsPage
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
     page = make(qtbot, AgentsPage, state)
+    assert [(k, page.mode.button(k).text()) for k in page.mode.keys()] == [
+        ("standin", "Stand-in"), ("local", "Local model")]
     assert page.run_button.isEnabled()
     qtbot.mouseClick(page.run_button, Qt.MouseButton.LeftButton)
     assert state.started_agents == ["standin"]
-    page.mode.button("live").click()
+    state.start_model_server()
+    page.mode.button("local").click()
     qtbot.mouseClick(page.run_button, Qt.MouseButton.LeftButton)
-    assert state.started_agents == ["standin", "live"]
+    assert state.started_agents == ["standin", "local"]
+    assert not page.message.isVisible()
 
 
-def test_live_mode_without_a_key_shows_the_state_refusal(qtbot, state, monkeypatch):
+def test_local_mode_with_no_model_server_shows_the_state_refusal(qtbot, state):
     from app.pages.agents import AgentsPage
 
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     page = make(qtbot, AgentsPage, state)
     assert not page.message.isVisible()
-    page.mode.button("live").click()
+    page.mode.button("local").click()
     qtbot.mouseClick(page.run_button, Qt.MouseButton.LeftButton)
-    assert state.started_agents == ["live"]
+    assert state.started_agents == ["local"]
     assert page.message.isVisible()
-    assert page.message.text() == state.last_agent_message() != ""
-    # The page never asks for the key.
-    from PySide6.QtWidgets import QLineEdit
+    assert page.message.text() == state.last_agent_message()
+    assert page.message.text().startswith("No model server is running at http://127.0.0.1:8081.")
 
-    assert page.findChildren(QLineEdit) == []
+
+def test_local_model_shows_its_folder_size_and_server(qtbot, state):
+    from app.pages.agents import AgentsPage
+    from app.pages.agents import view as agents_view
+
+    page = make(qtbot, AgentsPage, state)
+    rows = page.model_rows
+    assert (rows.text("Folder"), rows.text("Size"), rows.text("Server")) == (
+        "~/effente-models", "Small, small.gguf", "Not running.")
+    assert page.size.current() == "small"
+    assert (page.server_button.text(), page.server_button.isEnabled()) == (agents_view.START_SERVER, True)
+
+    qtbot.mouseClick(page.server_button, Qt.MouseButton.LeftButton)
+    assert rows.text("Server") == "Running with small.gguf."
+    assert page.server_button.text() == agents_view.STOP_SERVER
+
+    page.size.button("large").click()  # the running server still holds the small file
+    assert state.model_size() == "large"
+    assert rows.text("Size") == "Large, large.gguf"
+    assert rows.text("Server") == "Running with small.gguf. Stop and start it to load large.gguf."
+
+    qtbot.mouseClick(page.server_button, Qt.MouseButton.LeftButton)
+    assert rows.text("Server") == "Not running."
+    assert page.server_button.text() == agents_view.START_SERVER
+
+
+def test_a_server_started_elsewhere_is_not_ours_to_start_or_stop(qtbot, state):
+    from app.pages.agents import AgentsPage
+    from app.pages.agents import view as agents_view
+
+    page = make(qtbot, AgentsPage, state)
+    state.set_model_status("ready", "Running. It was started outside this app, so this app will not stop it.")
+    assert (page.server_button.text(), page.server_button.isEnabled()) == (agents_view.START_SERVER, False)
+    state.set_model_status("failed", "llama-server failed to start (exit code 1): out of memory")
+    assert page.model_rows.text("Server") == "llama-server failed to start (exit code 1): out of memory"
+    assert page.server_button.isEnabled()
+
+
+def test_change_folder_keeps_the_folder_picked(qtbot, state, monkeypatch, tmp_path):
+    from app.pages.agents import AgentsPage
+    from PySide6.QtWidgets import QFileDialog
+
+    page = make(qtbot, AgentsPage, state)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")  # cancelled
+    qtbot.mouseClick(page.folder_button, Qt.MouseButton.LeftButton)
+    assert state.model_folder() == "~/effente-models"
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+    qtbot.mouseClick(page.folder_button, Qt.MouseButton.LeftButton)
+    assert state.model_folder() == str(tmp_path)
+    assert page.model_rows.text("Folder") == str(tmp_path)
+
+
+def test_no_page_text_names_an_outside_service(qtbot, state):
+    """Labels and tooltips the app writes itself. A run's `model` is the agent's own text (device/agent)."""
+    from app.pages.agents import AgentsPage
+    from PySide6.QtWidgets import QAbstractButton
+
+    page = make(qtbot, AgentsPage, state)
+    page.mode.button("local").click()
+    qtbot.mouseClick(page.run_button, Qt.MouseButton.LeftButton)
+    texts = [page.message.text(), page.model_rows.text("Server")]
+    texts += [b.text() + " " + b.toolTip() for b in page.findChildren(QAbstractButton)]
+    for text in texts:
+        assert not any(word in text for word in ("Claude", "Live", "API key", "ANTHROPIC")), text
 
 
 def test_stand_in_report_is_labelled_simulated(qtbot, state):

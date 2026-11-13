@@ -4,7 +4,8 @@
     python3 platform/desktop/main.py --no-sim   # receiver only, for a real device
     python3 platform/desktop/main.py --fake     # no receiver: fixed sample data (FakeState)
 
-Arguments match platform/run.py. Closing the window stops everything.
+Arguments match platform/run.py. Closing the window stops everything, the model
+server included if the app started it (Agents page).
 `python3 platform/desktop/install_launcher.py` adds it to the app launcher (Linux).
 """
 
@@ -83,7 +84,7 @@ def main(argv=None) -> int:
             QMessageBox.critical(None, "effente did not start",
                                  text + ("\n\neffente may already be running." if busy else ""))
             return 1
-        state = DashboardState(host.url, host=host)
+        state = DashboardState(host.url, host=host, settings=settings.store())
         state.start()
         address = f"{host.host}:{host.port}"
 
