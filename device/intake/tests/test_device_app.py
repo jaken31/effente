@@ -80,7 +80,9 @@ def test_too_short_a_recording_keeps_learning_and_the_press_file_works():
         app = DeviceApp(tmp, ConveyorSim(days=1), clock=clock)
         (Path(tmp) / "press").touch()  # a press from the computer, until the button is wired
         run(app, clock, rows(START, 2), press_at=(START + 90,))
-        assert app.mode == "recording" and "learn 5 min" in app.message, (app.mode, app.message)
+        assert app.mode == "recording" and "learn 2 min" in app.message, (app.mode, app.message)
+        assert app.screen_lines()[0] == "@RECORDING", app.screen_lines()  # the reason is in status, not on the screen
+        assert app.status()["message"] == app.message
 
 
 def test_rows_kept_on_whole_seconds_even_when_windows_start_off_the_second():

@@ -6,8 +6,8 @@
   RECORDING   learn mode: keeps the feature rows, per-minute summaries, raw snippets and events
               (device.intake.recorder); the screen shows how long it has been learning
   TRAINING    trains this machine's model on the recording, on the device (effente.trainer, NumPy
-              only); the screen shows progress. A recording that is too short is refused and
-              learning carries on
+              only); the screen shows progress. A recording under 2 minutes isn't stopped: learning
+              carries on, the screen still says RECORDING, and status has the reason
   WATCHING    checks every summary period for faults (effente.model_runtime.Watcher) and shows the
               diagnosis; pressing the button again starts a new recording, to relearn. While nothing
               is wrong it also shows an early warning (effente.early_warning): a small change that
@@ -44,11 +44,14 @@ from device.intake.live import log_record
 from device.intake.recorder import Recorder
 
 MODES = ("display", "recording", "training", "watching")
-SCREEN_NAMES = {"display": "STREAMING", "recording": "RECORDING", "training": "TRAINING",
+SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
                 "watching": "INFERENCE"}  # what the screen calls each mode
 SCREEN_EVERY_S = 0.5  # how often the layout is checked for changes
 HISTORY_SAVE_EVERY_S = 300.0
-MIN_RECORD_S = 300.0  # learning needs at least 5 minutes of the machine running
+# A press sooner than this after learning started doesn't stop it (2 minutes: a bounce or a second thought, and
+# enough rows for effente.trainer's MIN_ROWS_SHORT). The screen never says so: it keeps showing RECORDING, and
+# the reason goes to status ("message") and the stream (a "stop_refused" event).
+MIN_RECORD_S = 120.0
 NOTES_SHOWN_S = 120.0  # how long the screen shows what was odd about the learning
 # Which tile goes with what is wrong (design B): the reading a person would look at.
 VIB_SYMPTOMS = {"vibration_too_high", "unusual_vibration", "knocking_or_jolts", "vibration_unsteady", "sensor_problem",
@@ -205,6 +208,7 @@ class DeviceApp:
         took = self.clock() - (self.record_started or self.clock())
         if took < self.min_record_s:
             self.message = f"learn {int(self.min_record_s // 60)} min or more ({int(took // 60)} so far)"
+            self._event("stop_refused", {"reason": self.message, "learning_s": round(took, 1)})
             return
         self._close_recorder()
         self._begin_training()
@@ -440,7 +444,9 @@ class DeviceApp:
     def screen_lines(self) -> list[str]:
         """The screen's layout, design B (tiles): four lines the microcontroller draws as a header and four
         boxed readings (device/app/effente/sketch/sketch.ino, composeTiles()):
-          "@<header left>"   the mode, or what is wrong with a leading "!" (not drawn; nothing is inverted)
+          "@<header left>"   the mode (IDLE, RECORDING, TRAINING n%, INFERENCE), or what is wrong with a leading
+                             "!" (not drawn; nothing is inverted). Messages (a recording too short to stop, a
+                             training that failed, a setting not used) are never shown: they are in status
           "<header right>"   the time, hours and minutes
           "<tile>"           vib, peak, temp or hz: the reading that goes with what is wrong; else empty
           "<speed>"          running speed in Hz, a whole number, or "--"
@@ -449,7 +455,7 @@ class DeviceApp:
         r = readings(self.latest)
         speed = f"{r['speed_hz']:.0f}" if r["speed_hz"] else "--"
         with self.lock:
-            mode, msg, problems = self.mode, self.message, list(self.problems)
+            mode, problems = self.mode, list(self.problems)
             early_obj = getattr(self, "early", None)
             early = early_obj.screen() if early_obj is not None and mode == "watching" else None
         res = (self.result or {}) if mode == "watching" else None
@@ -460,8 +466,6 @@ class DeviceApp:
             left = early  # a small lasting change; never shown with a real problem
         elif mode == "training":
             left = f"TRAINING {int(100 * self.train_share)}%"
-        elif mode == "recording" and msg:
-            left = msg
         elif mode == "watching" and res.get("diagnosis") in ("warming_up", "stopped"):
             left = SCREEN_DIAG[res["diagnosis"]]
         else:
