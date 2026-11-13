@@ -14,6 +14,150 @@ implementing it in the device's real code on a new branch, `track2/system-c`: PC
 alarm line, the "line" early warning as the default, the forklift fix, and the two spike-rate detectors. It then verifies
 with the device's real classes on the synthetic data. The other searches stay paused.
 
+**About 18:15, system C on `track2/system-c` (pushed up to `29b714f`; all device tests pass, one library test pending a small fix):**
+- **The trainer:** for recordings with 1-minute periods (a day or more), PCA keeps 99 % with no cap, smoothing is 10, the
+  line is cross-fitted, and the threshold is scaled so the device's default 0.5 is C's operating point. **Shorter recordings
+  (the demo path) keep today's settings:** the crossfit line missed the demo test's fault, and 200 patterns overfit short data.
+- **The early warning:** the default is "line" (30-period blocks over 0.3× the crossfit line, held 6).
+- **A new check, more_impacts** (the spike-rate detectors), learned after training from the recording's per-second rows;
+  it needs an hour or more of running data.
+- **Still to do:** verification with the device's real classes on the synthetic data.
+
+**The board test** (the user, about 18:15): a 5-minute recording on the real UNO Q, with no thermal camera. The `board-test`
+session prepares it on a branch cut from `track2/system-c`: the header goes IDLE → RECORDING, no "not enough data" text,
+a short recording that trains, live data on the screen, recorded values never smoothed, plus monitor and pull scripts.
+
+**The demo plan** (the user, 13 Nov evening): record for 5 minutes on the mini conveyor, then put a coin in the track. IMU
+only: the mic is the INMP441, and the live code has no audio path yet. Risks to check in tonight's rehearsal:
+- A coin gives intermittent knocks, and the short-recording model alarms on the median of the last 5 one-second scores,
+  so knocks in fewer than half the seconds may be hidden.
+- After only 5 minutes of normal, drift may alarm before the coin goes in.
+
+**System C checked with the device's real classes** (`verify_system_c.py`, rot_heldout only, commit `4278984`): the whole
+device misses 5 of 30 with 3 false alerts (1.7 a week: none in the held-out week, 3 before onset), against the eval's 7
+missed and 0. The device's crossfit line is 9 % lower than the eval's (45.6 vs 50.1), and the cause is being looked into
+before anything is changed.
+
+**For the board test, the user also wants** the local network stream (port 8765) to carry live data in every state, and
+the state named IDLE, RECORDING or DETECTING, on the screen and as an added `state` field (the contract's `mode` values stay).
+
+**Board test code, ready at about 19:00** (branch `claude/board-test-ce7d7f`, 3 commits, not pushed; not deployed, since the
+board isn't connected):
+- **Shared `effente/trainer.py`:** short recordings (1 s periods) train from 100 rows, not 300; and when fewer than 100 rows
+  count as running, it learns from every row, saying so in the report, instead of failing.
+- **`device_app.py`:** the header says IDLE; the minimum recording is 2 minutes, not 5; messages are never drawn on the screen.
+- **Tested without the board, IMU only:** idle → record 4.5 min → train → watch shows only the mode headers, and the recorded
+  rows, minute summaries and raw clip equal the unsmoothed samples.
+- **Tools:** `device/app/board_monitor.py`, `pull_recording.sh`, `recording_summary.py`.
+
+**jaken31's model work (track 3), read on 13 Nov evening.** A model library is merged (PR #33: `conveyor` and
+`generic_rotating` entries, PCA on accelerometer and gyro readings only, built on simulated days). Calibrating an entry to a
+machine from about 5 minutes is open in two competing PRs (#34 and #42), with a validation harness (#35) built on a third branch.
+- **His simulated result that matters for our demo:** after a 300 s calibration, about 0 alarms over 40 min; a model trained
+  alone on the same 300 s alarmed 73–98 % of the time.
+- **Limits he reports:** only about 38 % of simulated faults alarm (no sound or heat readings); fault names are often wrong; the
+  refitted threshold is inert (a floor at 0.25× the entry's decides it); about 9 % alarm time over 24 h.
+- **How it fits with ours:** his is for the first minutes on a machine; ours (cross-fitted line, persistence, per-second checks)
+  is for days of recording. Conflict risk: PR #34 restructures `train_model`, which system C and the board test also change.
+- **Tonight:** compare the board's own 5-minute model with his calibrated entries on the same recording, offline.
+
+**The crossfit line is fragile with two halves** (sound-fix): moving the split by 50 rows moves the line between 42 and 50,
+which explains the 9 % gap to the eval. It isn't the int8 weights (1 % off). Four folds keep it within 7 %. Not changed yet.
+
+**The coin demo, read from the code** (board-test, about 19:30; not yet measured): with a 5-minute recording the coin is
+likely NOT caught if it knocks once per belt lap of 3 s or longer.
+- The model alarms only when 3 of 5 consecutive seconds are over the line, and a knock is in one second.
+- The safety checks need sustained impacts.
+- The impact counter needs an hour of learning.
+- The alarm line from about 40 held-out seconds is likely far up, so the model is deaf rather than jumpy.
+- **The fix being built on the board-test branch:** the impact counter learns from a short recording (a level above the
+  highest kurtosis and peak seen, a 60 s window, alarm at 2–3 knock-seconds).
+
+**Also done there:** the screen and stream say IDLE / RECORDING / TRAINING / DETECTING (an added `state` field; `mode` is
+unchanged); status goes out every second; and a small page at `http://<board>:8765/view` shows the state, the readings and what is wrong.
+
+**Correction to the coin read** (board-test, simulated on the fake board; not the real one): sparse knocks CAN be caught by
+the model. A 0.4 g knock every 4 s took the level from 0.48 to 2.1 of the line within about 3 s, because the model keeps the
+`slow_*` readings (a spectrum over several seconds), which stay raised between knocks.
+- **The false-alarm margin is thinner than thought:** on perfectly steady simulated data the quiet level peaked at 0.79 of the
+  line, and 3 % of single seconds were over it.
+- **The count rule** (more than 2 seconds in 60 s over the learning maximum of `vib_kurtosis` or `vib_peak_g`) had no false
+  alarm and fired 7–8 s after the coin. It stays the fallback.
+- **Unknown until real data:** how hard a coin knocks, and the belt's lap time.
+
+**Decision (the user, 13 Nov evening):** "just keep our current model, thats the one we will put on the board. i want to see
+if it can find the fault in testing". So the test build keeps the model as it is: no short-recording impact counter, and no
+swap to a calibrated library entry. Those are compared offline on the captured data only.
+
+**The INMP441 can't be read on the UNO Q as shipped** (board-test, from the core, Zephyr and Arduino docs; not checked on
+hardware). The STM32U585 has SAI only, the Arduino Zephyr core has no I2S or SAI library, and the usable SAI pins collide with
+A4/A5, the IMU and screen's I2C bus. The quickest real sound is a USB microphone on the Linux side, through a powered USB-C hub;
+that needs an audio thread in `UnoQSource` (about 1–2 hours) and adb over the network. Tonight is IMU only.
+
+**Simulated preview of the rehearsal** (board-test; fake board, a weak 0.15 g knock every 4 s; not real data):
+
+| On the same simulated data | Alarm while untouched | The coin |
+|---|---|---|
+| The board's own 5-minute model | 0 % (level up to 0.79 of the line) | 1 s of alarm in 2 minutes: effectively missed |
+| jaken's `conveyor` / `generic_rotating`, calibrated | 0 % (level up to 0.26 / 0.32) | no alarm |
+| The short-recording impact counter (`29d8d3b`, NOT deployed) | 0 % | on after 8 s, off 56 s after the coin came out |
+
+- With the stronger 0.4 g knock, the board's own model did catch it. So the real test depends on how hard a coin knocks.
+- jaken's calibrate command refuses under 300 s of running rows, so record about 5:30.
+- A hard bump during the recording would make the counter deaf to smaller knocks.
+
+**Spikes** (the user, 13 Nov evening): "make sure our model notices spikes, such as those in vibration if something falls off
+conveyer. maybe the sensitivty helps decide that". A single-spike rule is being added to the impact counter on
+`track2/short-impact-counter`: one second with a peak over F × the highest seen while learning alerts for about 30 s, with F
+set by the sensitivity (2× at 0.5, 1.5× at 0.75, 3× at 0.25). The model itself is unchanged. The user said to include it on the board for tonight's
+test ("Yes, include it"), so the test build is the current model plus the impact checks.
+
+**The model itself must detect spikes** (the user: "fix the model so it can detect spikes, not just slow building thigs").
+Being added to the Watcher in `effente/model_runtime.py`: a single period whose score is over a spike line alarms at once and
+holds about 30 s. The spike line comes from unsmoothed scores, since the existing line is fitted to median-smoothed ones,
+and it scales with sensitivity.
+- **Limit:** with 1-minute periods (long recordings) the model is fed minute medians, so a 1-second spike can't reach it. There
+  the per-second impact check catches it.
+
+**The single-impact check is built** (`sudden_impact`, commit `19f2f4a` on `track2/short-impact-counter`; simulated and test
+data only). One whole second, while running, with `vib_peak_g` over F × the highest peak seen while learning, and at least
+0.05 g, shows KNOCKING OR JOLTS for 30 s. F is the existing vibration margin: 5× at sensitivity 0, 3× at 0.25, 2× at 0.5,
+1.5× at 0.75, 1.25× at 1.
+- **On the fake board at 30 mg rms** (highest normal peak 0.055 g), the line is 0.11 g at 0.5: a 0.15 g knock alerts at 0.5
+  and up; 0.10 g only at about 0.75 and up; 0.5 g at every setting.
+- **On a very quiet machine** (5 mg), the 0.05 g floor decides: anything over about 0.06 g alerts at 0.5.
+- **Cost:** every bump over the line shows for 30 s. Real sizes of a fall, a table bump or a footstep are unknown until measured.
+- **New problem names** for track 5's `platform/CONTRACT.md`: `sudden_impact` and `more_impacts`.
+
+**The deploy build is `3b85492`** (branch `claude/board-test-ce7d7f`; not pushed, not deployed): the current model, both impact
+checks, and a spike rule on the model's own score.
+- **The model's spike rule** (shared `effente/model_runtime.py` and `trainer.py`): one period whose score is over a spike line
+  alarms at once and holds 30 s. The spike line is 4× the one-a-week gamma tail of the UNSMOOTHED held-out scores, kept in the
+  baseline as `model_spike` (no new model-file key), and it scales with the model margin. It's off for 1-minute periods.
+- **Headroom on the fake board:** the highest healthy single second is 0.81–1.12 of that tail, so the line has 3.6× headroom at
+  sensitivity 0.5, 1.8× at 0.75, and none at 1. No spike alarms in healthy minutes at 0.5 or 0.75.
+- **A single knock:** 0.15 g and up alarms at 0.5 (borderline); 0.10 g needs 0.75.
+- **Finding 1, the shared sensitivity dial:** at 0.75 the existing median rule alarms 24–58 % of the time on clean fake-board
+  data after a 5-minute recording (0–0.1 % at 0.5; 99.8 % at 1). So raising the shared dial to catch smaller spikes makes the
+  model alarm constantly. Spikes would need their own setting.
+- **Finding 2, drift:** with vibration rising 15 % over 35 minutes, the median rule alone alarms 43–70 % of the time at 0.5. On
+  the simulated conveyor, a 5-minute recording from 06:10 alarms 90 % of the next 30 minutes (0 % from 14:00). That reproduces
+  jaken's 73–98 %. The likeliest failure in the rehearsal is a false alarm before the coin, not a missed spike.
+
+**A separate spike dial** (the user agreed, 13 Nov evening): `spike_sensitivity` (0 to 1, default 0.5) scales only the
+single-spike paths, i.e. the model's spike rule and `sudden_impact`. The main `sensitivity` keeps its meaning. It's an added field
+in `/settings`, the settings file, `/latest` and `/view`. Being built on the deploy branch.
+
+**More dials** (the user: "you can add dials for what you think would help to be configurable"). Chosen: optional overrides
+that default to following the main sensitivity, so nothing changes unless one is set: `model_sensitivity`;
+`vibration_sensitivity`, `heat_sensitivity` and `sound_sensitivity` for the outside-normal checks; `early_warning_sensitivity`
+and an early-warning on/off switch; plus `spike_sensitivity` (default 0.5, decoupled).
+
+**`sudden_impact` after a long recording is deaf with the maximum as its level** (sound-fix, simulated conveyor, rot_heldout):
+the highest `vib_peak_g` in two training weeks is 0.58 g, from a few unexplained jolts, against a p99.99 of 0.10 g. So the
+line at sensitivity 0.5 is 1.16 g: 0 false alerts at 0.25, 0.5 and 0.75, and nothing caught. A high percentile as the level is
+being measured. more_impacts is unchanged by the whole-second fix: 0 false alerts; looseness and both splice damages caught.
+
 ## Resuming (written 13 Nov afternoon, before a usage pause)
 Each side session writes its state and next steps to a resume file. Background jobs (downloads, grids) keep running while
 the sessions are paused.
