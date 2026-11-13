@@ -22,7 +22,7 @@ def test_agents_badge_while_a_run_is_going(window, state):
 
 
 def test_stale_freshness_text(window, state):
-    state.fresh = {"stale": True, "age_s": 12.2, "last_at": state.latest()["at"]}
+    state.fresh = {"status": "no_readings", "age_s": 12.2, "platform_up": True}
     state.record_added.emit({})
     assert window.topbar.fresh.text() == "No reading for 12s"
     assert window.topbar.stale
@@ -30,22 +30,34 @@ def test_stale_freshness_text(window, state):
 
 
 def test_freshness_ages_without_signals(window, state, qtbot):
-    state.fresh = {"stale": True, "age_s": 75, "last_at": None}
+    state.fresh = {"status": "disconnected", "age_s": 75, "platform_up": True}
     qtbot.waitUntil(lambda: window.topbar.fresh.text() == "No reading for 1m 15s", timeout=2000)
 
 
 def test_fresh_reading_shows_updated_time(window, state):
     at = state.latest()["at"]
-    state.fresh = {"stale": False, "age_s": 0.3, "last_at": at}
+    state.fresh = {"status": "live", "age_s": 0.3, "platform_up": True}
     state.snapshot_changed.emit()
     assert window.topbar.fresh.text() == f"Updated {fmt.fmt_time(at)}"
     assert not window.topbar.stale
 
 
 def test_no_reading_yet(window, state):
-    state.fresh = None
+    state.fresh = {"status": "no_readings", "age_s": None, "platform_up": True}
     state.snapshot_changed.emit()
     assert window.topbar.fresh.text() == "No reading yet"
+    assert window.topbar.stale
+
+
+def test_receiver_down_and_checking_in(window, state):
+    state.fresh = {"status": "live", "age_s": 1, "platform_up": False}
+    state.snapshot_changed.emit()
+    assert window.topbar.fresh.text() == "Receiver not reachable"
+    state.fresh = {"status": "checking_in", "age_s": None, "platform_up": True}
+    state.mode = "calibrating"
+    state.snapshot_changed.emit()
+    assert window.topbar.fresh.text() in ("Calibrating", "calibrating")
+    assert not window.topbar.stale
 
 
 def test_sim_chip_follows_simulated_flag(window, state):
@@ -63,7 +75,7 @@ def test_device_card(window):
     assert v["receiver"] == "0.0.0.0:8000"
     assert v["records"] == "1 / s"
     assert v["thermal"] == "none"
-    assert v["stored"] == "10"
+    assert v["stored"] == "1,349"
 
 
 def test_format_helpers():

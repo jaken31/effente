@@ -90,7 +90,7 @@ class TopBar(QWidget):
         fresh.addWidget(self.fresh_dot, 0, Qt.AlignmentFlag.AlignVCenter)
         fresh.addWidget(self.fresh, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addLayout(fresh)
-        self.set_stale(True)
+        self.set_fresh("No reading yet", "stale")
         self.set_page("", "", child=False)
 
     def set_machine(self, name: str | None) -> None:
@@ -106,16 +106,19 @@ class TopBar(QWidget):
     def set_simulated(self, simulated: bool) -> None:
         self.sim_chip.setVisible(bool(simulated))
 
-    def set_fresh(self, text: str, stale: bool) -> None:
+    def set_fresh(self, text: str, look: str) -> None:
+        """look is format.LIVE, STALE or IDLE. Stale reads in white, medium weight,
+        with a gray dot; never in red."""
+        stale = look == "stale"
         self.fresh.setText(text)
-        self.set_stale(stale)
-
-    def set_stale(self, stale: bool) -> None:
-        # Stale reads in white, medium weight, with a gray dot; never in red.
         self.fresh.setFont(fonts.font(t.FONT_BASE, 500 if stale else 400, tracking=t.TRACK_BASE))
         self.fresh.setStyleSheet(f"color: {t.TEXT if stale else t.SOFT};")
-        self.fresh_dot.set_color(t.MUTED if stale else t.DOT)
-        self.stale = stale
+        self.fresh_dot.set_color(t.DOT if look == "live" else t.MUTED)
+        self.look = look
+
+    @property
+    def stale(self) -> bool:
+        return self.look == "stale"
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)

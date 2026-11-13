@@ -30,7 +30,8 @@ class StubState(QObject):
         self.machine = self._records[-1]["machine_id"]
         self.unanswered: list[dict] = []
         self.running = False
-        self.fresh: dict | None = {"stale": False, "age_s": 0.4, "last_at": self._records[-1]["at"]}
+        self.fresh: dict | None = {"status": "live", "age_s": 0.4, "platform_up": True}
+        self.mode = "watching"
         self.machine_calls: list[str] = []
 
     # reads
@@ -66,9 +67,15 @@ class StubState(QObject):
     def problems(self):
         return []
 
+    def device_id(self):
+        return self._records[-1]["device_id"]
+
+    def stored_count(self):
+        return 1349
+
     def devices(self):
         r = self._records[-1]
-        return {r["device_id"]: {"connected": True, "last_seen": r["at"], "mode": "watching",
+        return {r["device_id"]: {"connected": True, "last_seen": r["at"], "mode": self.mode,
                                  "machine_id": r["machine_id"], "model_version": r["model_version"]}}
 
     def model(self):

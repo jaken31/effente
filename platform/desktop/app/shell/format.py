@@ -37,22 +37,33 @@ def fmt_time(value: Any) -> str:
     return dt.astimezone().strftime("%H:%M:%S") if dt else "–"
 
 
-def freshness_text(fresh: Any) -> tuple[str, bool]:
-    """The top bar's freshness line and whether it is stale.
+LIVE, STALE, IDLE = "live", "stale", "idle"
 
-    `fresh` is DashboardState.freshness(): a dict with
-      stale   bool         no record for too long (the logic's rule, not ours)
-      age_s   float|None   seconds since the newest record
-      last_at str|None     the newest record's time (ISO)
+
+def freshness_text(fresh: Any, latest: dict | None = None, mode_text: str = "") -> tuple[str, str]:
+    """The top bar's freshness line and its look: LIVE (white dot, soft text), STALE
+    (gray dot, white medium text: no reading when one is due) or IDLE (gray dot, soft
+    text: nothing is due, for example a device that is calibrating).
+
+    `fresh` is DashboardState.freshness(): {"status", "age_s", "platform_up"}, where
+    status is logic.device_status: none, disconnected, checking_in, no_readings or live.
+    `mode_text` is the device's mode name, shown while it is checking in.
     """
     if not fresh:
-        return "No reading yet", True
-    stale = bool(fresh.get("stale"))
-    last = fresh.get("last_at")
-    if stale:
-        age = fresh.get("age_s")
-        return (f"No reading for {fmt_dur(age)}" if age is not None else "No reading yet"), True
-    return (f"Updated {fmt_time(last)}" if last else "No reading yet"), last is None
+        return "No reading yet", STALE
+    status = fresh.get("status")
+    age = fresh.get("age_s")
+    if not fresh.get("platform_up", True):
+        return "Receiver not reachable", STALE
+    if status == "live":
+        return f"Updated {fmt_time((latest or {}).get('at'))}", LIVE
+    if status == "none":
+        return "Waiting for a device", IDLE
+    if status == "checking_in":
+        return mode_text or "Not watching", IDLE
+    if age is not None:
+        return f"No reading for {fmt_dur(age)}", STALE
+    return ("Device not connected" if status == "disconnected" else "No reading yet"), STALE
 
 
 def records_per_s(records: list[dict]) -> float | None:

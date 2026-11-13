@@ -181,12 +181,15 @@ class MainWindow(QMainWindow):
         self.sidebar.set_badge("history", str(n) if n else None)
         self.sidebar.set_badge("agent", "1" if s.agent_running() else None)
 
-    def refresh_freshness(self) -> bool:
-        if self.state is None:
-            return True
-        text, stale = fmt.freshness_text(self.state.freshness())
-        self.topbar.set_fresh(text, stale)
-        return stale
+    def refresh_freshness(self) -> str:
+        """Update the freshness line; returns its look (format.LIVE, STALE or IDLE)."""
+        s = self.state
+        if s is None:
+            return fmt.STALE
+        _, device = shown_device(s)
+        text, look = fmt.freshness_text(s.freshness(), s.latest(), mode_name((device or {}).get("mode")))
+        self.topbar.set_fresh(text, look)
+        return look
 
     def refresh_chrome(self) -> None:
         s = self.state
@@ -194,52 +197,49 @@ class MainWindow(QMainWindow):
             return
         machine = s.current_machine()
         self.topbar.set_machine(machine)
-        self.setWindowTitle(f"{machine} · effente" if machine else "effente")
-        stale = self.refresh_freshness()
+        self.setWindowTitle(f"{machine} \u00b7 effente" if machine else "effente")
+        live = self.refresh_freshness() == fmt.LIVE
         latest = s.latest()
         self.topbar.set_simulated(bool(latest and latest.get("simulated")))
-        self._refresh_device_card(latest, stale)
+        self._refresh_device_card(latest, live)
 
-    def _refresh_device_card(self, latest: dict | None, stale: bool) -> None:
+    def _refresh_device_card(self, latest: dict | None, live: bool) -> None:
         s = self.state
         device_id, device = shown_device(s)
-        records = list(s.records()) if device else []
-        connected = bool(device and device.get("connected", True))
-        live = connected and not stale
-        mode = (device or {}).get("mode") or "–"
+        records = list(s.records(limit=11)) if device else []
+        connected = bool(device and device.get("connected"))
+        mode = (device or {}).get("mode") or "\u2013"
         if device and not connected:
             mode = "not connected"
         values = {
             "mode": mode,
             "model": fmt.model_text(s.model()),
-            "receiver": self.receiver_address or "–",
-            "records": fmt.record_rate(records, not live) if device else "–",
-            "thermal": fmt.thermal_rate(latest, records, not live) if device else "–",
-            "stored": f"{stored_count(s):,}",
+            "receiver": self.receiver_address or "\u2013",
+            "records": fmt.record_rate(records, not live) if device else "\u2013",
+            "thermal": fmt.thermal_rate(latest, records, not live) if device else "\u2013",
+            "stored": stored_count(s),
         }
         self.sidebar.card.set_device(device_id, live, values)
 
 
 def shown_device(state) -> tuple[str | None, dict | None]:
-    """The device the state shows for the current machine. Uses the state's own choice
-    (`shown_device_id()`, the logic port's rule) when it has one."""
-    devices = state.devices() or {}
-    if isinstance(devices, list):
-        devices = {d.get("device_id"): d for d in devices}
-    pick = getattr(state, "shown_device_id", None)
-    if callable(pick):
-        device_id = pick()
-        return device_id, devices.get(device_id) if device_id else None
-    machine = state.current_machine()
-    mine = {k: v for k, v in devices.items() if v.get("machine_id") == machine} or devices
-    if not mine:
-        return None, None
-    device_id = max(mine, key=lambda k: (mine[k].get("last_seen") or "", k))
-    return device_id, mine[device_id]
+    """The device the state shows for the current machine (its device_id(), the
+    logic port's rule) and its view."""
+    device_id = state.device_id()
+    return device_id, (state.devices() or {}).get(device_id) if device_id else None
 
 
-def stored_count(state) -> int:
+def mode_name(mode) -> str:
+    """The logic port's mode name ("Calibrating"), if the data layer is present."""
+    try:
+        from app.data import logic
+    except ImportError:
+        return str(mode or "")
+    return logic.mode_name(mode)
+
+
+def stored_count(state) -> str:
+    """Records stored for the machine. Needs DashboardState.stored_count(); records()
+    is capped at the history length, so it would understate the count."""
     count = getattr(state, "stored_count", None)
-    if callable(count):
-        return int(count())
-    return len(state.records(limit=1_000_000))
+    return f"{int(count()):,}" if callable(count) else "\u2013"

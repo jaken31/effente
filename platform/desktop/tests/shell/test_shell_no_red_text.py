@@ -107,7 +107,7 @@ def test_window_has_no_red_text(window):
 
 
 def test_window_stale_and_badged_has_no_red_text(window, state):
-    state.fresh = {"stale": True, "age_s": 9, "last_at": None}
+    state.fresh = {"status": "no_readings", "age_s": 9, "platform_up": True}
     state.unanswered = [{"alarm_id": "a", "answer": None}]
     state.running = True
     window.refresh()
