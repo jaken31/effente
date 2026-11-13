@@ -29,7 +29,7 @@ Built for small and mid-size manufacturers: one handheld covers a whole floor of
 
 The device is a handheld built on an Arduino UNO Q, with a small magnetic sensor head on a short cable. The magnet holds the head on with the same force every time, so a reading does not depend on how hard someone presses. The microcontroller samples the accelerometer in the head and drives a 2.4" screen. See the [mock-up](docs/mockup.svg).
 
-Its Linux side turns each second of signal into 278 readings and calibrates a small pretrained neural network from its library to the machine. Left on longer, it can train a network on that machine alone. While watching, the network scores how far the machine is from its normal. When it stays far off, the device names the likely fault and the readings behind it, and uploads the full log over WiFi to a platform on a laptop.
+Its Linux side turns each second of signal into 285 readings and calibrates a small pretrained neural network from its library to the machine. Left on longer, it can train a network on that machine alone. While watching, the network scores how far the machine is from its normal. When it stays far off, the device names the likely fault and the readings behind it, and uploads the full log over WiFi to a platform on a laptop.
 
 ## Demo
 
