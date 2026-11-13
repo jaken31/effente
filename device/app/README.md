@@ -50,6 +50,16 @@ curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
 
 `curl http://localhost:8765/settings` shows the current value and what it means in numbers. Editing `data/settings.json` on the board (`{"sensitivity": 0.7}`) works too, and is picked up within 2 seconds.
 
+## Early warning
+
+In inference, while nothing is wrong, the device also looks for a small change that has lasted or is creeping up, before it is big enough to count as wrong ([effente/early_warning.py](../../effente/early_warning.py)). It watches each group of readings (the same groups the descriptions come from) and the model's score, against this machine's normal given the other readings, in blocks of 60 summary periods: an hour after a long recording, a minute after a short one. Stopped time is skipped.
+
+- **Screen:** while nothing is wrong, the header's left side reads like `EARLY: HEATING UP` instead of the mode. The header is not inverted, since nothing is wrong.
+- **Stream:** an `early_warning` event (`text`: `TOO HOT CREEPING UP` or `TOO HOT SLIGHTLY UP`, plus `symptom`, `rising` and a coarse `speed`: "rising over hours" or "over days"). An `early_warning_cleared` event follows when it goes away.
+- **Status:** `/latest` has an `early_warning` field (`on`, `symptom`, `text`, `since`, …).
+
+It never counts as wrong: `wrong` stays false. While something is wrong it is set aside, it starts again after relearning, and it clears when the change goes away. There's no countdown and no predicted failure time. Sensitivity scales it too. Its normal is saved beside the model (`models/<name>.early.json`). Models trained before it existed have none, so early warning stays off until the machine is relearned. How it compares with other approaches on the simulated conveyor: [EARLY_WARNING.md](../../training/record/conveyor_eval/EARLY_WARNING.md).
+
 ## Wiring
 
 | Part | Where | Notes |
@@ -59,6 +69,14 @@ curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
 | Button | D2 to GND | Internal pull-up, debounced. Until it's wired, `adb shell touch /home/arduino/ArduinoApps/effente/data/press` counts as a press |
 
 ## Deploy, and connect to the stream
+
+**Starting at power-up:** on 13 Nov effente was set as the board's default app, so it starts by itself when the board is plugged in:
+
+```bash
+adb shell arduino-app-cli properties set default user:effente
+```
+
+To stop that, set the default to `none`. Whether it starts reliably at every power-up is untested.
 
 From the repo root, with the board on USB:
 
@@ -128,7 +146,7 @@ How App Lab passes environment variables to the Python side hasn't been tried ye
 | Sample rate | 1,000 a second (998–1,002 by the microcontroller's clock), 0 lost, 0 FIFO overflows |
 | Bridge line | 115200 baud, about 11.5 kB/s. The sensor stream uses 7.5 kB/s (65 %). At 1,445 samples a second (the MPU-6500's rate with the old settings) the line was full, and the router logged corrupted packets |
 | At rest | 1.018 g; noise 4–9 mg rms (the MPU's own noise) |
-| IMU temperature | 42–43 °C, from the IMU's own temperature sensor, sent with every batch, and used as the heat reading when there's no thermal camera |
+| IMU temperature | About 28 °C on a desk (13 Nov), from the IMU's own temperature sensor, sent with every batch, and used as the heat reading when there's no thermal camera. Until 13 Nov it read about 43 °C, because the MPU-6050's conversion was used for our MPU-6500. The 6500's is raw / 333.87 + 21 |
 | Features per window | 29 ms with every sensor (12 % of one core at 4 windows a second); less with only the IMU |
 | Model | Loads in 8 ms, judges in 6 ms |
 | OLED | 10 frames a second, drawn one eighth of the screen per pass at 400 kHz. Drawing the whole frame at once held the bus for about 27 ms; with the sensor read on top, that overflowed the MPU-6500's 512-byte FIFO, which corrupted every later sample (2 g of "vibration" at rest). Running the bus at 1 MHz didn't help. Text from the Linux side costs about 180 bytes of Bridge line per update |
@@ -141,5 +159,5 @@ How App Lab passes environment variables to the Python side hasn't been tried ye
   - connect the mic to the Linux side
   - raise the router's baud rate (a system service change that needs `sudo`; untested)
 - **After reflashing the board:** check `systemctl status arduino-burn-bootloader`. On 12 Nov its first-boot run timed out, so the sketch never started (0 samples). Running `arduino-cli burn-bootloader -b arduino:zephyr:unoq -P jlink` on the board fixed it. The newer toolchain also no longer links `log10f` (missing `__errno`), so the sketch uses its own.
-- **Startup:** now and then, after the app restarts, the sketch doesn't start: the screen stays on `starting...` and no samples arrive. Stopping the app and starting it again (or starting another app first) has fixed it every time so far. The cause hasn't been found.
+- **Startup:** now and then, when the app starts, the sketch doesn't start on the microcontroller: no samples, and the screen frozen. Starting the app again has always fixed it. `deploy.sh` now waits for samples after each start and retries up to 3 times by itself; if all 3 fail, unplug the board for a few seconds. To tell what state it's in, the sketch sends a heartbeat each second: alive, sensor and screen found, WHO_AM_I, and the bus lines' levels. The app logs it every 10 s as `microcontroller: ...`, and "no heartbeat yet" means the sketch isn't running. At every start the sketch also frees the I2C bus (clock pulses on A5, then a STOP), in case a reset caught the sensor or screen mid-reply. It retries a missing sensor or screen every 2 s and shows SENSOR NOT FOUND meanwhile.
 - **Ownership:** the sketch belongs in `firmware/` and the app in `device/`, which is track 1's area under AGENTS.md. It's here as track 2's sensor app, until track 1's work replaces it.

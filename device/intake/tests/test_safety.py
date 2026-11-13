@@ -202,7 +202,7 @@ def test_device_shows_problems_and_takes_sensitivity_from_the_stream_and_the_fil
                 clock.t = 1000.0 + k * 0.25
                 app._row(clock.t, row(vel=14.0))
             lines = app.screen_lines()
-            assert lines[0].startswith("STREAMING") and "! VIBRATION TOO HIGH" in lines, lines
+            assert lines[0] == "@!VIBRATION TOO HIGH" and lines[2] == "vib", lines  # inverted header, vib tile
             st = app.status()
             assert st["wrong"] and st["what"] == ["vibration_too_high"] and st["sensitivity"] == 0.5
             assert st["details"] == ["vibration_over_limit"]  # the check's own name, for the data
@@ -284,7 +284,7 @@ def test_inference_screen_puts_a_sensor_problem_before_the_models_diagnosis():
         app.result = {"diagnosis": "unbalance_like", "features": {"vib_1x": 4.2}}
         app.problems = [{"name": "sensor_problem", "value": 0.4}]
         lines = app.screen_lines()
-        assert lines[1] == "SENSOR PROBLEM" and not any("UNBALANCE" in x for x in lines), lines
+        assert lines[0] == "@!SENSOR PROBLEM" and not any("UNBALANCE" in x for x in lines), lines
 
 
 def test_described_straight_from_what_moved():

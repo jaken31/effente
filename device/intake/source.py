@@ -157,6 +157,16 @@ class FileSource:
                 c = e
 
 
+def imu_temp_c(raw, who_am_i: int = 0x70) -> float:
+    """The IMU's temperature from its TEMP_OUT counts. The two chips differ: the MPU-6500 (WHO_AM_I 0x70,
+    and 0x71/0x73 for the 9250/9255) gives raw / 333.87 + 21 (its datasheet: 333.87 per degC, 0 at 21 degC);
+    the MPU-6050 (0x68) gives raw / 340 + 36.53. Until 13 Nov the 6050 formula was used for our 6500, which
+    read about 15 degC too high (43 degC for a board at about 28)."""
+    if who_am_i == 0x68:
+        return float(raw) / 340.0 + 36.53
+    return float(raw) / 333.87 + 21.0
+
+
 class UnoQSource:
     """Live sensor packets from the UNO Q's microcontroller over the Bridge.
 
@@ -167,7 +177,8 @@ class UnoQSource:
 
       accel      (n, 3) g at 1 kHz          (big-endian int16 counts / 4096, the +-8 g range)
       gyro       (n/10, 3) deg/s at 100 Hz  (every 10th sample; the Bridge line cannot carry more)
-      imu_temp   (1, 1) deg C               (the IMU's temperature sensor: raw / 340 + 36.53)
+      imu_temp   (1, 1) deg C               (the IMU's temperature sensor, imu_temp_c(): the MPU-6500's
+                                             raw / 333.87 + 21, or the MPU-6050's raw / 340 + 36.53)
 
     Times are the microcontroller's micros() (unwrapped past its 71-minute wrap), mapped onto
     wall-clock time by the offset seen when batches arrive, tracked slowly, and re-anchored if the
@@ -195,6 +206,7 @@ class UnoQSource:
         self.anchor: tuple[int, float] | None = None  # (sample number, microcontroller seconds) for the rate
         self.expected: int | None = None
         self.last_t = {s: -math.inf for s in self.sensors}
+        self.imu_who = 0x70  # the chip's WHO_AM_I, for the temperature formula; main.py sets it from the heartbeat
         self.stats = {"batches": 0, "samples": 0, "lost": 0, "gaps": 0, "overflows": 0, "dropped_packets": 0,
                       "reanchors": 0, "rate_hz": rate_hz, "imu_temp_c": None}
         self._closed = False
@@ -233,7 +245,7 @@ class UnoQSource:
             if len(idx) == len(g):
                 self._put("gyro", t[idx], g)
         if temp_raw is not None:
-            temp = float(temp_raw) / 340.0 + 36.53
+            temp = imu_temp_c(temp_raw, self.imu_who)
             self.stats["imu_temp_c"] = round(temp, 2)
             self._put("imu_temp", np.array([t_last]), np.array([[temp]], np.float32))
         self.stats["batches"] += 1
