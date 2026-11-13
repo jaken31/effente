@@ -10,9 +10,9 @@ plug in ──> DISPLAY ──button──> RECORDING ──button──> TRAINI
 
 | Mode | Screen | What happens |
 |------|--------|--------------|
-| Streaming | `STREAMING` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
+| Idle (`display`) | `IDLE` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
 | Recording | `RECORDING` and the readings | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
-| Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on. A day or more trains from the per-minute summaries, so a week fits in memory |
+| Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A press in the first 2 minutes of a recording doesn't stop it: learning carries on and the screen still says `RECORDING` (the reason is in `/latest` status as `message`, and a `stop_refused` event). A short recording (1 s periods) needs 100 rows; if fewer than that count as running (the device on something still), it learns from every row and the training report says so (`learned_from_all_rows`). A training that fails goes back to `RECORDING` with the reason in status and a `training_failed` event, never on the screen. A day or more trains from the per-minute summaries, so a week fits in memory |
 | Inference | `NOTHING WRONG`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
 
 Pressing the button while in inference starts a new recording, to relearn. After a power cut, the app resumes what it was doing. If it was in inference, it carries on with the saved model. If it was recording, it carries on recording into the same folder.
@@ -32,7 +32,7 @@ The device answers two things only: is something wrong, and what. There are no s
   - Each reading is judged on its median over the period the normal was learned from (a minute after a long recording), so like is compared with like. A passing forklift's reversing beeper (15 s, far over normal) no longer counts; a lasting change shows after about 40 seconds. Models trained before this get their own period.
 - **More impacts than normal** (after training on an hour or more): more seconds of impulsive sound (2–7 kHz) or impulsive vibration in the last 30 minutes than twice the most seen while learning. It shows as `KNOCKING OR JOLTS`, and catches repeating knocks too short for the model (simulated conveyor only, unverified on a real machine).
 - Each check must hold for 10 seconds before it shows, so a bump doesn't count.
-- **Notes after training:** the screen shows notes for 2 minutes after training (status keeps them) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
+- **Notes after training:** `/latest` status has notes (`learning_notes`) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. They are not shown on the screen. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
 
 **Sensitivity:** how far outside normal counts as wrong hasn't been decided. Sensitivity goes from 0 (least sensitive) to 1 (most), and the numbers above are the starting values at the default, 0.5. Each 0.25 step halves or doubles how far outside normal counts:
 
@@ -97,6 +97,30 @@ curl -N http://localhost:8765/stream
 `/settings` is described above. `/latest`, `/features` and `/health` are described in [device/intake/README.md](../intake/README.md). On a network that lets devices see each other, use the board's address instead of `localhost`. University WiFi usually doesn't allow that, so use the USB forward or a phone hotspot.
 
 Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/`, `state.json`, `settings.json` and `history.npz`. The deploy script never touches it.
+
+## Watching a test from the laptop, and pulling the recording
+
+With the board on USB and the app deployed:
+
+```bash
+python3 device/app/board_monitor.py --until watching --log data/board-monitor.jsonl
+```
+
+[board_monitor.py](board_monitor.py) presses nothing and changes nothing. It prints the mode, feature rows a second, each IMU stream's rate (accelerometer, gyroscope, temperature), lost samples, FIFO restarts and their rate, the recording folder and its size, training progress and then the training report. It exits with 4 when something needs a look (the app unreachable, the samples stopped, a refused stop, a failed training, a problem the checks raised); `--stay` keeps it going.
+
+```bash
+device/app/pull_recording.sh
+```
+
+[pull_recording.sh](pull_recording.sh) copies the newest recording (or the one named) and its model into `data/real/board/<name>/`, which is never committed.
+
+```bash
+python3 device/app/recording_summary.py data/real/board/<name>
+```
+
+[recording_summary.py](recording_summary.py) prints what is in it: rows and gaps, empty sensors and columns, vibration and temperature levels, the raw clips' sample rates, the events and the training report. Raw clips are 10 s at every 10-minute mark of the clock (and around jolts), so a 5-minute recording has one or none; the gyroscope (100 a second) isn't kept in them.
+
+Tried against a simulated board only (13 Nov), until the first run on the real one.
 
 ## The fan test
 
