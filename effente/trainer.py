@@ -287,6 +287,67 @@ def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
     return layers, k
 
 
+def running_summaries(t, X, names, period: int | None = None, min_rows: int = MIN_ROWS):
+    """The rows a model is fitted to, from one-a-second feature rows: running rows only, on the feature
+    list this code computes, summarised into per-period medians (period None: choose_period).
+    Returns (period start times, rows, period, baseline). Raises ValueError if the machine ran for
+    fewer than min_rows periods."""
+    X = to_current(X, names)  # the model is always built on the feature list this code computes
+    names = list(F.FEATURE_NAMES)
+    t = np.asarray(t, float)
+    run = running_rows(X, names)
+    t, X = t[run], X[run]
+    if len(t) < 2:
+        raise ValueError("no running data recorded")
+    if period is None:
+        period = choose_period(float(t.max() - t.min()))
+    t, X = summarise(t, X, period)
+    if len(t) < min_rows:
+        raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
+                         f"{math.ceil(min_rows * period / 60)} minutes of the machine running")
+    baseline = SF.learn_baseline(X, names, running=run)  # this machine's normal, and anything odd about it
+    return t, X, period, baseline
+
+
+def time_split(t, calib_share: float = 0.15):
+    """Split by time, never at random: (rows to learn from, the last calib_share held out for the threshold)."""
+    cut = t[0] + (t[-1] - t[0]) * (1 - calib_share)
+    return t < cut, t >= cut
+
+
+def fit_to_machine(d: dict, X, fit, calib, seed: int = 0, time_limit_s: float | None = None, say=None):
+    """Fill in the parts of model file d that belong to one machine, once d holds its preparation and
+    its normal model: the residual spreads, the alarm threshold and the fault classifier (with the
+    fault-type and feature tables). Shared by train_model and effente.calibration, so a calibrated
+    model and one trained on the machine alone get them the same way.
+    X: the machine's summarised rows; fit, calib: the time_split masks.
+    Returns (score per row, residuals per row, {"threshold", "fault_classes", "classifier_exact_match"})."""
+    model = RT.Model(d)
+    s, r, Z = model.score(X)
+    scale = np.std(r[fit], 0)
+    d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
+    model = RT.Model(d)
+    d["threshold"] = gamma_threshold(_causal_median(s[calib], model.smooth), 7 * 86400 / model.period)
+    if say:
+        say("learning fault types", 0.75)
+    rng = np.random.default_rng(seed)
+    dev_cols = [c for c in model.prep.names_out if c in model.prep.columns]
+    base = model.deviation_vector(r[fit], Z[fit])
+    Xc, Yc, classes = inject(base, dev_cols, rng)
+    clf, _ = fit_mlp(Xc, Yc, [Xc.shape[1], 32, Yc.shape[1]], ["relu", "sigmoid"], loss="bce", seed=seed,
+                     epochs=150, time_limit_s=time_limit_s)
+    d["fault_classifier"] = {"classes": classes, "inputs": dev_cols,
+                             "layers": [RT.quantize(W, b, a) for (W, b), a in zip(clf, ["relu", "sigmoid"])],
+                             "note": "learned from injected signature patterns only; no real labelled faults yet"}
+    p = 1 / (1 + np.exp(-np.clip(np.maximum(Xc @ clf[0][0] + clf[0][1], 0) @ clf[1][0] + clf[1][1], -30, 30)))
+    acc = float(((p > 0.5) == (Yc > 0.5)).all(1).mean())
+    d["fault_types"] = [{"name": ft.name, "text": ft.text, "sensing": ft.sensing} for ft in FT.TYPES]
+    d["feature_table"] = [{"name": c, "text": F.FEATURE_TEXT.get(c, ""), "unit": F.FEATURE_KIND.get(c, "")}
+                          for c in model.prep.columns]
+    return s, r, {"threshold": round(d["threshold"], 4), "fault_classes": len(classes),
+                  "classifier_exact_match": round(acc, 3)}
+
+
 def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_share: float = 0.15,
                 seed: int = 0, source: str = "", progress=None, time_limit_s: float | None = None,
                 normal_model: str = NORMAL_MODEL):
@@ -294,23 +355,9 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     the recording is too short. normal_model: "pca" (the default) or "autoencoder"."""
     if normal_model not in NORMAL_MODELS:
         raise ValueError(f"normal_model must be one of {NORMAL_MODELS}")
-    X = to_current(X, names)  # the model is always built on the feature list this code computes
+    t, X, period, baseline = running_summaries(t, X, names, period)
     names = list(F.FEATURE_NAMES)
-    t = np.asarray(t, float)
-    run = running_rows(X, names)
-    ran = run.copy()
-    t, X = t[run], X[run]
-    if len(t) < 2:
-        raise ValueError("no running data recorded")
-    if period is None:
-        period = choose_period(float(t.max() - t.min()))
-    t, X = summarise(t, X, period)
-    baseline = SF.learn_baseline(X, names, running=ran)  # this machine's normal, and anything odd about it
-    if len(t) < MIN_ROWS:
-        raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
-                         f"{MIN_ROWS * period // 60} minutes of the machine running")
-    cut = t[0] + (t[-1] - t[0]) * (1 - calib_share)
-    fit, calib = t < cut, t >= cut
+    fit, calib = time_split(t, calib_share)
     say = progress or (lambda stage, share: None)
     say("preparing", 0.05)
     prep = Prep.fit(X[fit], names, t[fit], running_only=False)
@@ -345,35 +392,13 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
         hs = np.std(model.ae.hidden(Z_fit, layer=0), 0)
         d["pca_score"] = {"pattern_scale": [float(v) for v in np.where(hs > 1e-6, hs, 1e-6)],
                           "residual_ref": float(max((r_fit ** 2).mean(), 1e-9))}
-        model = RT.Model(d)
-    s_int, r_int, Z_int = model.score(X)
+    _, r_int, machine = fit_to_machine(d, X, fit, calib, seed, time_limit_s, say)
     resid_int = (r_int ** 2).mean(1)  # for the int8 check: the same quantity as s_float
-    scale = np.std(r_int[fit], 0)
-    d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
-    model = RT.Model(d)
-    d["threshold"] = gamma_threshold(_causal_median(s_int[calib], smooth), 7 * 86400 / period)
-    say("learning fault types", 0.75)
-    rng = np.random.default_rng(seed)
-    dev_cols = [c for c in prep.names_out if c in prep.columns]
-    base = model.deviation_vector(r_int[fit], Z_int[fit])
-    Xc, Yc, classes = inject(base, dev_cols, rng)
-    clf, _ = fit_mlp(Xc, Yc, [Xc.shape[1], 32, Yc.shape[1]], ["relu", "sigmoid"], loss="bce", seed=seed,
-                     epochs=150, time_limit_s=time_limit_s)
-    d["fault_classifier"] = {"classes": classes, "inputs": dev_cols,
-                             "layers": [RT.quantize(W, b, a) for (W, b), a in zip(clf, ["relu", "sigmoid"])],
-                             "note": "learned from injected signature patterns only; no real labelled faults yet"}
-    p = 1 / (1 + np.exp(-np.clip(np.maximum(Xc @ clf[0][0] + clf[0][1], 0) @ clf[1][0] + clf[1][1], -30, 30)))
-    acc = float(((p > 0.5) == (Yc > 0.5)).all(1).mean())
-    d["fault_types"] = [{"name": ft.name, "text": ft.text, "sensing": ft.sensing} for ft in FT.TYPES]
-    d["feature_table"] = [{"name": c, "text": F.FEATURE_TEXT.get(c, ""), "unit": F.FEATURE_KIND.get(c, "")}
-                          for c in prep.columns]
     report = {"period_s": int(period), "rows_learned": int(fit.sum()), "rows_calibration": int(calib.sum()),
               "inputs": prep.n_out, "features_kept": len(prep.columns), "fit_seconds": round(fit_s, 1),
               "normal_model": normal_model, "patterns_kept": int(kept),
               "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, resid_int)[0, 1]), 5),
-              "threshold": round(d["threshold"], 4), "fault_classes": len(classes),
-              "classifier_exact_match": round(acc, 3), "dropped_limits": baseline["dropped"],
-              "warnings": baseline["warnings"]}
+              **machine, "dropped_limits": baseline["dropped"], "warnings": baseline["warnings"]}
     d["training_report"] = report
     say("done", 1.0)
     return d, report
