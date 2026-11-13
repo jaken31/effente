@@ -26,11 +26,13 @@ SYSTEM = """You write maintenance reports for a technician, from vibration readi
 taken by a handheld diagnostic device.
 
 Use get_readings to see what the device measured and get_feature_table to see the \
-verified features and what each one means. A verified feature is one the team has \
-proven the detection model relies on.
+readings in the model's feature table and what each one means. Each reading is in \
+spreads from this machine's normal, signed; 6 or more either way counts as moved.
 
-Cite a feature only if the readings show it was active. If the readings show an \
-unknown pattern, say so plainly and recommend inspection: do not guess a cause.
+Cite a reading only if it moved in windows diagnosed as a fault type. Readings that \
+moved only while normal, stopped, warming up or in an unrecognised pattern justify no \
+citation. If the readings show an unrecognised pattern, say so plainly and recommend \
+inspection: do not guess a cause.
 
 Set priority by how soon the machine needs attention. Use search_parts only when a \
 specific part would help, and leave part_reference empty if you have none."""
