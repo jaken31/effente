@@ -74,7 +74,7 @@ def test_table_row_clicked(qtbot):
     with qtbot.waitSignal(tb.row_clicked) as sig:
         qtbot.mouseClick(tb.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
     assert sig.args == [1]
-    assert tb.verticalHeader().defaultSectionSize() == 36
+    assert tb.verticalHeader().defaultSectionSize() == 38
 
 
 def test_hintless_panel_keeps_title_left(qtbot):
@@ -116,7 +116,23 @@ def test_cell_roles_paint(qtbot):
     tb.show()
     tb.resizeRowsToContents()
     assert isinstance(tb.itemDelegate(), CellDelegate)
-    assert tb.rowHeight(0) > 36
-    assert tb.rowHeight(1) == 36
+    assert tb.rowHeight(0) > 38
+    assert tb.rowHeight(1) == 38
     assert tb.itemDelegate().text_color(m.index(0, 3)).name() == "#ededed"
     assert not tb.grab().isNull()
+
+
+def test_panel_header_fits_its_controls(qtbot):
+    from PySide6.QtWidgets import QComboBox
+
+    plain, ctl = Panel("Plain", "hint"), Panel("With control")
+    combo = QComboBox()
+    combo.addItem("Last hour")
+    combo.setFixedHeight(32)
+    ctl.header_end.addWidget(combo)
+    for p in (plain, ctl):
+        qtbot.addWidget(p)
+        p.resize(500, 200)
+        p.show()
+    assert plain.head.height() == 44
+    assert ctl.head.height() == 53
