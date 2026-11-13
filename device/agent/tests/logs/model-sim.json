@@ -1,0 +1,63 @@
+{
+  "model_version": "sim-3",
+  "features": [
+    {
+      "name": "vib_1x",
+      "sentence": "vibration once per turn"
+    },
+    {
+      "name": "vib_2x",
+      "sentence": "vibration twice per turn"
+    },
+    {
+      "name": "vib_harm_3_10",
+      "sentence": "vibration at 3-10x running speed (rattle)"
+    },
+    {
+      "name": "vib_half",
+      "sentence": "vibration at half running speed"
+    },
+    {
+      "name": "vib_crest",
+      "sentence": "vibration knocks (peak over rms)"
+    },
+    {
+      "name": "vib_kurtosis",
+      "sentence": "vibration impulsiveness"
+    },
+    {
+      "name": "vib_band_17",
+      "sentence": "vibration 251-315 Hz"
+    },
+    {
+      "name": "vib_velocity_mm_s",
+      "sentence": "vibration velocity, 10-250 Hz rms (ISO 10816-like, partial band)"
+    },
+    {
+      "name": "snd_level_db",
+      "sentence": "sound level"
+    },
+    {
+      "name": "th_max_c",
+      "sentence": "hottest point in view"
+    }
+  ],
+  "fault_types": [
+    {
+      "name": "vibration_too_high",
+      "text": "overall vibration well above this machine's normal",
+      "group": "vibration"
+    },
+    {
+      "name": "unbalance_like",
+      "text": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)",
+      "group": "vibration"
+    },
+    {
+      "name": "looseness_or_rattle",
+      "text": "many harmonics, half-order and rattling (looseness, a soft foot, a cracked mount)",
+      "group": "vibration"
+    }
+  ],
+  "simulated": true
+}

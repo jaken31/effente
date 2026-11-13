@@ -1,11 +1,11 @@
 {
-  "note": "Unknown pattern. The correct report cites no feature, even though rattle peaks above the threshold in some unknown windows: the contract says unknown cites nothing.",
+  "note": "Unrecognised pattern. The correct report cites no reading, even though vib_harm_3_10 moves past 6 spreads in some windows: an unrecognised pattern names no cause, so it cites nothing.",
   "model_file": "model.json",
   "runs": [
     {
       "machine_id": "conveyor-07",
       "diagnoses": {
-        "unknown": 16
+        "unrecognised_pattern": 16
       },
       "may_cite": [],
       "must_cite": [],

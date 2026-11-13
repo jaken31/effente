@@ -1,5 +1,5 @@
 {
-  "note": "once_per_turn was switched off from the dashboard, so it reads 0 and the imbalance diagnosis went away. once_per_turn must not be cited.",
+  "note": "vib_1x was switched off from the dashboard, so it reads 0 and the unbalance-like diagnosis went away. vib_1x must not be cited.",
   "model_file": "model.json",
   "runs": [
     {
