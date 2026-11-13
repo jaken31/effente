@@ -10,6 +10,7 @@ whatever its hue, and the RED rule (shapes only, never text) follows it.
 
 from __future__ import annotations
 
+from .. import settings
 from . import tokens
 
 DEFAULT = "red"
@@ -103,18 +104,12 @@ def apply(key: str) -> str:
     return key
 
 
-def _settings():
-    from PySide6.QtCore import QSettings
-
-    return QSettings("effente", "desktop")
-
-
 def saved() -> str:
     """The scheme chosen last time, else the default."""
-    key = _settings().value(KEY, DEFAULT)
+    key = settings.store().value(KEY, DEFAULT)
     return key if key in SCHEMES else DEFAULT
 
 
 def save(key: str) -> None:
     if key in SCHEMES:
-        _settings().setValue(KEY, key)
+        settings.store().setValue(KEY, key)

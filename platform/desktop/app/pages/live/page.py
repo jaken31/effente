@@ -152,7 +152,7 @@ class LivePage(QWidget):
         self.controls.sensitivity_wanted.connect(self._set_sensitivity)
         self.controls.run_agent.connect(self._run_agent)
         self.controls.bookmark.connect(self.add_bookmark)
-        self.controls.export_session.connect(self._export_dialog)
+        self.controls.export_session.connect(self.export_dialog)
         self.controls.sim_key.connect(self._sim_key)
         self.controls_panel.add(self.controls, 1)
         grid.addWidget(self.controls_panel, 4, 7, 1, 5)
@@ -362,7 +362,7 @@ class LivePage(QWidget):
     def bookmarks(self) -> list[dict]:
         return list(self._bookmarks)
 
-    def _export_dialog(self) -> None:
+    def export_dialog(self) -> None:
         machine = (self.state.current_machine() if self.state else None) or "session"
         path, _ = QFileDialog.getSaveFileName(self, "Export session", f"{machine}-session.csv", "CSV (*.csv)")
         if path:

@@ -1,6 +1,6 @@
 # effente
 
-A handheld probe with a magnetic sensor head. Snap it onto a machine, pick the machine type, and it is judging within minutes, using a pretrained network from its library calibrated to that machine. Leaving it on for days is optional and sharpens the model. It raises an alarm when the machine drifts from its normal, names the likely fault, and shows which readings moved. Detection runs on the device with no cloud.
+A handheld probe with a magnetic sensor head. Snap it onto a machine, pick the machine type, and it is judging within minutes, using a pretrained network from its library calibrated to that machine. Leaving it on for days is optional and sharpens the model. It raises an alarm when the machine drifts from its normal, names the likely fault, and shows which readings moved. Detection runs on the device and the agents run on a model on your own laptop, so nothing leaves the site.
 
 Built for the 300 AI Hackathon, Nov 12-15, 2026.
 
@@ -23,7 +23,7 @@ Built for small and mid-size manufacturers: one handheld covers a whole floor of
 - **What is wrong:** normal, or a likely fault such as "possible unbalance" or "possible looseness", from 21 general fault types.
 - **Why:** the readings that moved and by how much, for example "once-per-turn vibration 7 times its usual spread".
 - **Unrecognised pattern, inspect:** when the machine is abnormal but no known fault type fits.
-- **What to do about it:** a fleet of agents on the laptop turns the log into a maintenance report, a repair priority, and a parts lookup when a connection is available.
+- **What to do about it:** a fleet of agents on the laptop turns the log into a maintenance report and a repair priority, using a language model that runs on that same laptop.
 
 ## How it works
 
@@ -52,7 +52,7 @@ Its Linux side turns each second of signal into 278 readings and calibrates a sm
 
 ## Competitors
 
-Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Fluke and SKF sell handheld vibration analyzers, which show a spectrum for a trained analyst to read. effente gives a diagnosis instead: it names the readings behind each alarm in plain words, flags faults it has not seen before, and needs no cloud to detect.
+Tractian, Augury, SKF and ABB sell permanent predictive maintenance sensors. Fluke and SKF sell handheld vibration analyzers, which show a spectrum for a trained analyst to read. effente gives a diagnosis instead: it names the readings behind each alarm in plain words, flags faults it has not seen before, and sends nothing off site: detection runs on the device and the agents on your own laptop.
 
 ## Tracks
 
