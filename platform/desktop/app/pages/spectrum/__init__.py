@@ -2,20 +2,9 @@
 
     from app.pages.spectrum import SpectrumPage
     from app.pages.spectrum.band_chart import BandChart   # the Live page embeds this
-
-Imports are lazy, so the band chart loads without the page.
 """
 
+from app.pages.spectrum.band_chart import BandChart
+from app.pages.spectrum.page import SpectrumPage
+
 __all__ = ["BandChart", "SpectrumPage"]
-
-
-def __getattr__(name):
-    if name == "BandChart":
-        from app.pages.spectrum.band_chart import BandChart
-
-        return BandChart
-    if name == "SpectrumPage":
-        from app.pages.spectrum.page import SpectrumPage
-
-        return SpectrumPage
-    raise AttributeError(name)
