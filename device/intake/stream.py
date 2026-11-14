@@ -174,6 +174,7 @@ class Stream:
         self.fires_at = None  # () -> the value each check fires at now, for GET /latest and /fires_at
         self.model_info = None  # (full) -> the model in use and how to compute with it, for GET /model
         self.data = None  # the device app, for reading what was recorded and learned: GET /recordings, /models
+        self.also_read = None  # () -> more to read that is not on this server (the ESP32's addresses)
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -286,6 +287,14 @@ class Stream:
                 "uptime_s": round(time.monotonic() - self._started, 1), "last_result_age_s": age,
                 "clients": len(self._clients), "published": dict(self.counts)}
 
+    def readable(self) -> dict:
+        """Every address a program on the network can read: this server's, and the ESP32's (raw sound, thermal
+        frames) when the device app knows where the ESP32 is. In GET / and in GET /latest."""
+        out = {"this_device_port_8765": dict(_INDEX["endpoints"])}
+        if self.also_read is not None:
+            out.update(self.also_read())
+        return out
+
     def latest_json(self) -> str:
         with self._lock:
             last = {t: (self._rings[t][-1] if self._rings[t] else None) for t in ("results", "features", "events")}
@@ -293,6 +302,7 @@ class Stream:
         parts.append('"status":' + dumps(self.status()))
         if self.controls is not None:  # what whoever reads this may send back: every setting and command, in full
             parts.append('"you_can_send":' + dumps(self.controls()))
+        parts.append('"you_can_read":' + dumps(self.readable()))  # every address there is, here and on the ESP32
         if self.fires_at is not None:  # the value each check fires at, with the sensitivities and the model as they are
             parts.append('"fires_at":' + dumps(self.fires_at()))
         return "{" + ",".join(parts) + "}"
@@ -491,7 +501,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/controls":
                 self._json(200, dumps({"ok": True, "you_can_send": s.controls() if s.controls else {}}))
             elif path == "/":
-                self._json(200, dumps({**_INDEX, "you_can_send": s.controls() if s.controls else {}}))
+                self._json(200, dumps({**_INDEX, "you_can_read": s.readable(),
+                                       "you_can_send": s.controls() if s.controls else {}}))
             else:
                 self._json(404, dumps({"error": f"no such endpoint: {url.path}", **_INDEX}))
         except OSError:  # the client went away

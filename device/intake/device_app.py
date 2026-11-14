@@ -201,6 +201,7 @@ class DeviceApp:
             self.stream.fires_at = self.fires_at
             self.stream.model_info = self.model_info
             self.stream.data = self  # data_listing, data_file, recording_files, recording_rows: read only
+            self.stream.also_read = self.also_read
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -697,6 +698,25 @@ class DeviceApp:
                 "names": [str(n) for n in names], "t": [float(v) for v in np.asarray(t, float)[idx]],
                 "rows": np.asarray(X, float)[idx].tolist()}
 
+    def also_read(self) -> dict:
+        """What can be read that this server doesn't hold: the ESP32's own addresses, over WiFi. `esp_address` is
+        set by the app (main.py) to a function giving the ESP32's address as it last said it, or None."""
+        ip = self.esp_address() if callable(getattr(self, "esp_address", None)) else None
+        at = ip or "<the ESP32's address>"
+        return {"the_esp32_over_wifi": {
+            "address": ip, "known": bool(ip),
+            "note": "the microphone's raw sound and the thermal camera's frames come straight from the ESP32, not "
+                    "through this device; its address is what it last told this device (null: not on WiFi, or "
+                    "not said yet)",
+            "sound_to_play": f"http://{at}:8770/audio.wav   an endless WAV, 16-bit mono 16 kHz",
+            "sound_blocks": f"tcp://{at}:8770   connect and say nothing: 16 ms blocks, each \"EFA1\" | first sample "
+                            "number (u32) | micros (u32) | rate (u32) | count (u16) | bits (u8) | 0 (u8) | int16 samples",
+            "sound_to_draw": f"http://{at}:8768/audio.json   the newest 1,024 samples (64 ms)",
+            "thermal_frame": f"http://{at}:8768/frame.json   the newest frame: 24 x 32 temperatures in degC",
+            "thermal_stream": f"http://{at}:8768/stream   every frame as it comes (server-sent events)",
+            "thermal_blocks": f"tcp://{at}:8767   binary frames (firmware/esp32_mic/thermal.h)",
+            "thermal_camera": "not connected yet (14 Nov): the thermal addresses answer with no frame"}}
+
     def fires_at(self) -> dict:
         """For whoever reads the JSON: the value each check fires at, in the reading's own unit, with the
         sensitivities as they are now and what this machine's model learned. Three kinds:
@@ -941,7 +961,7 @@ class DeviceApp:
 
     # ------------------------------------------------------------ what is shown
     def screen_lines(self) -> list[str]:
-        """The screen's layout, design B (tiles): four lines the microcontroller draws as a header and four
+        """The screen's layout, design B (tiles): five lines the microcontroller draws as a header and six
         boxed readings (device/app/effente/sketch/sketch.ino, composeTiles()):
           "@<header left>"   the mode (IDLE, RECORDING, TRAINING n%, DETECTING), or what is wrong with a leading
                              "!" (not drawn; nothing is inverted). Messages (a recording too short to stop, a
@@ -949,6 +969,9 @@ class DeviceApp:
           "<header right>"   the time, hours and minutes
           "<tile>"           vib, peak, temp or hz: the reading that goes with what is wrong; else empty
           "<speed>"          running speed in Hz, a whole number; 0 when no speed is found (the user, 13 Nov)
+          "<score>"          the model's score as a percentage of its alarm line at the present sensitivity (100 is
+                             the line), a whole number up to 999; 0 when nothing is being judged. It has the tile
+                             the peak had (the user, 14 Nov: the peak jumped about too much to read)
         Vibration, peak and temperature (shown in F) come from the samples on the microcontroller, so they
         move at the screen's own rate; this changes only when the mode, the minute or what is wrong does."""
         r = readings(self.latest)
@@ -980,7 +1003,11 @@ class DeviceApp:
                 tile = "vib"
         now = time.localtime(self.clock())  # 12-hour, with AM or PM, and 12 for midnight and noon (the user, 14 Nov)
         clock = f"{now.tm_hour % 12 or 12}:{now.tm_min:02d}{'AM' if now.tm_hour < 12 else 'PM'}"
-        return [f"@{left}"[:24], clock, tile, speed]
+        level = (res or {}).get("unknown_score") if mode == "watching" else None
+        score = "0"
+        if isinstance(level, (int, float)) and math.isfinite(level):  # as a share of the line at this sensitivity
+            score = str(int(min(999, max(0, round(100.0 * level / self._margins()["model"])))))
+        return [f"@{left}"[:24], clock, tile, speed, score]
 
     def _screen_worker(self):
         while not self._stop.is_set():
@@ -1005,6 +1032,7 @@ class DeviceApp:
                                               "useful_now": USEFUL_NOW[self.mode]},
                                  "settings": {"how": 'POST /settings {"<name>": <value>}', "names": list(SETTINGS)},
                                  "details": "GET /controls"}
+            s["you_can_read"] = "GET / and GET /latest list every address under \"you_can_read\""
             if self.mode == "recording" and self.record_started:
                 s["learning_s"] = round(self.clock() - self.record_started, 1)
             if self.mode == "training":

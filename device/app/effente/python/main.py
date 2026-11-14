@@ -87,6 +87,7 @@ def screen(text):
 app = DeviceApp(DATA, source, screen=screen, stream=stream, device_id=DEVICE, machine_id=MACHINE, uploader=uploader)
 if uploader is not None:
     uploader.start()
+app.esp_address = lambda: esp["ip"]  # for the list of what can be read (GET /, GET /latest)
 Bridge.provide("button", app.on_button)
 threading.Thread(target=app.run, name="pipeline", daemon=True).start()
 print(f"effente started in {app.mode} mode; sensors {', '.join(source.sensors)}; live stream on port 8765; data in {DATA}; platform "

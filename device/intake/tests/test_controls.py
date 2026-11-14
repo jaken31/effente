@@ -49,6 +49,13 @@ def test_controls_lists_every_setting_and_command():
                 assert "send" in c["settings"] and "send" in c["commands"] and "password" in c["note"]
             assert set(get(stream.port, "/command")["commands"]) == set(COMMANDS)
             latest = get(stream.port, "/latest")  # the JSON a dashboard reads says what it may send back
+            for where in (latest, get(stream.port, "/")):  # and everything it may read, here and on the ESP32
+                here, esp = where["you_can_read"]["this_device_port_8765"], where["you_can_read"]["the_esp32_over_wifi"]
+                assert {"/stream", "/latest", "/features", "/recordings", "/models", "/model/summary", "/model", "/fires_at",
+                        "/controls", "/settings", "/command"} <= set(here)
+                assert esp["address"] is None and "audio.wav" in esp["sound_to_play"] and "frame.json" in esp["thermal_frame"]
+            app.esp_address = lambda: "10.1.2.3"
+            assert "http://10.1.2.3:8770/audio.wav" in get(stream.port, "/latest")["you_can_read"]["the_esp32_over_wifi"]["sound_to_play"]
             assert set(COMMANDS) <= set(latest["you_can_send"]["commands"]) and "does" in latest["you_can_send"]["settings"]["sensitivity"]
             short = latest["status"]["you_can_send"]
             assert short["commands"]["names"] == list(COMMANDS) and short["settings"]["names"] == list(SETTINGS)

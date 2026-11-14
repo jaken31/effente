@@ -62,7 +62,7 @@ def test_display_record_train_watch_and_resume():
         assert app.mode == "watching", (app.mode, app.message)
         assert (Path(tmp) / "models").exists() and json.loads((Path(tmp) / "state.json").read_text())["mode"] == "watching"
         lines = app.screen_lines()
-        assert lines[0] == "@DETECTING" and lines[1][0].isdigit() and lines[1][-2:] in ("AM", "PM") and len(lines) == 4, lines  # design B: header, time, tile, speed
+        assert lines[0] == "@DETECTING" and lines[1][0].isdigit() and lines[1][-2:] in ("AM", "PM") and len(lines) == 5 and lines[4].isdigit(), lines  # design B: header, time, tile, speed
         assert not any("button" in x or "btn" in x for x in lines)
         # a fault after learning: the once-per-turn vibration four times larger
         run(app, clock, rows(START + 14 * 60, 3, fault=lambda x: x.__setitem__(F.INDEX["vib_1x"], x[F.INDEX["vib_1x"]] + 0.6)))
