@@ -733,3 +733,30 @@ A second agent recomputed the confirmation set from the cached features with its
 6. Small: the device headline leaves out its safety checks (75.7 % with them); the sensitivity table moves the spike margin with the median's, which the device's `model_sensitivity` does not; the "frozen before the confirmation run" note in RESUME.md was written after that run (file times say the choice was made 70 seconds before it; there is no record written in advance); `eval_methods`' docstring says two halves where the code uses 5 blocks.
 
 **Not checked by either agent:** the feature extraction from the raw files (15 windows compared with the cache, no more), the other ~70 configurations, the reverse split, the x10 unit what-if, the paper-protocol figures, CED-tiny, the yell test, the ablations, the how-early table. Nothing was run on the board.
+
+
+## Round 2: independent check and board timings (14 Nov, about 05:00): corrections
+
+A second checker recomputed the round-2 confirmation rows with its own code (`C:\Users\finnf\effente-sscc\check2\`). Where this disagrees with the Round 2 section at the top, this is right.
+
+**Confirmed.** The new final ("lin50") on the confirmation set: 1/175 normal clips, 94.6 % of all fault clips, 93.7 % without screwdrop, 98.0 % of screwdrop; dry 87, lean 91, loose 100; clean 0/74 and 87 %, factory noise 1/101 and 100 % (both without screwdrop). Selection: 0/350, 95.9 %. Nothing fitted sees held-out or fault clips. The choice was committed (03:58:25) six seconds before the first confirmation file was written, and no round-2 script scored med-load conditions before that. The 6 tests pass.
+
+**Corrections, most serious first.**
+
+1. **The "previous recommendation" row (94 / 96 / 84) is the round-1 code, not the `log64` preset that ships in `effente/band_model.py`.** The preset as shipped gives, on the confirmation set: 1/175, 91.9 % of all faults, 94.9 % without screwdrop, 81.0 % of screwdrop; clean 98 %, noise 92 % (without screwdrop). Selection: 1/350, 85 %. The two differ in how the line is built. Against the preset that ships, the new model reads: all faults 95 vs 92, without screwdrop 94 vs 95, noise 100 vs 92, screwdrop 98 vs 81, clean 87 vs 98. Still a trade-off, not a clear win.
+2. **Screwdrop is persistent but intermittent, not "as steady as the other faults".** It does not fade over a recording (first fifth 0.68 of seconds over the line, last fifth 0.67), but its median share of seconds over the line is 0.77 against 0.91-0.99 for the other classes, and as low as 0.06-0.40 under factory noise, in runs of 1-2 seconds.
+3. **The fault-class quotes could not be verified locally.** No paper or project-page text is on this computer; the cloned repo's README has no class descriptions. They agree with SSCC.md's one-line summaries.
+4. `vib_floor.py` printed the vibration's level over the sensor's noise for the normal clips of every condition, the confirmation set's included, before the 6 dB / 25 % rule was fixed. Normal clips only, nothing fitted, and the vibration is at the floor everywhere so the rule's outcome does not depend on it; but it is a look at that set.
+5. Model file: 1.1 MB is with the vibration group; about 0.8 MB for sound only (as on SSCC).
+6. Several speeds: the previous model with the normaliser fixed gave 3/202 false alarms under noise on the selection set (1/202 for one speed), which "as well as one" passes over.
+
+**Measured on the board (UNO Q, in the app's container, the app running alongside; random rows shaped like the features, both groups on).** These replace the estimates in "Cost on the board":
+
+| | features of one second | learn 10 min | learn 30 min | judge one second | file |
+|---|---|---|---|---|---|
+| lin50 | 9.5 ms | 0.9 s | 2.0 s | 3.4 ms | 1.1 MB |
+| log64 | 8.8 ms | 1.1 s | 2.5 s | 1.0 ms | 133 kB |
+
+The same script on this PC: features 1.3 ms, learn 30 min 1.1 s / 0.6 s, judge 0.3 / 0.08 ms. So the board is about 7x the PC for features, 2-4x for learning and 11-12x for judging, not 11x / 17x. The sensor stream lost nothing while it ran. Not measured: the ESP32's side, and real feature rows.
+
+**Not checked by either checker:** the several-speeds and `BandModes` rows beyond the log, the changed-conditions table, the 10x what-if, the time-to-alarm and stream columns of round 2.
