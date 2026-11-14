@@ -151,7 +151,7 @@ def test_running_device_trains_from_four_minutes_and_shows_live_readings_while_r
         rep = json.loads(app.model_path.read_text())["training_report"]
         assert not rep["learned_from_all_rows"] and rep["rows_learned"] >= 190, rep
         lines = app.screen_lines()
-        assert len(lines) == 4 and lines[1][2] == ":" and lines[3] not in ("", None), lines
+        assert len(lines) == 4 and ":" in lines[1] and lines[1][-2:] in ("AM", "PM") and lines[3] not in ("", None), lines
 
 
 def test_recorded_rows_minutes_and_clips_are_the_unsmoothed_samples():

@@ -326,7 +326,7 @@ class DeviceApp:
                                     progress=progress)
             report["recordings"] = [f.name for f in folders]
             try:  # the more_impacts check's levels, from the recordings' one-a-second rows (an addition)
-                parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + (SF.SOUND_FEATURE, "trend_running")) for f in folders]
+                parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + SF.MOMENT_COLUMNS + ("trend_running",)) for f in folders]
                 ts = np.concatenate([p[0] for p in parts])
                 cols = {c: np.concatenate([p[1][c] for p in parts]) for c in parts[0][1]}
                 spikes = SF.learn_spike_levels(ts, cols, ~(cols["trend_running"] < 0.5))
@@ -502,6 +502,8 @@ class DeviceApp:
                                     "model_score_over": round(m["model"], 2),
                                     "sudden_impact_times_highest_while_learning": round(sp["vibration"], 2),
                                     "sudden_sound_db_over_loudest_while_learning": round(sp["sound"], 1),
+                                    "sudden_heat_degrees_over_hottest_while_learning": round(sp["temperature"] / 3.0, 1),
+                                    "sudden_twist_times_highest_while_learning": round(sp["vibration"], 2),
                                     "model_spike_line_times": round(sp["model"], 2)},
                 "default": SF.DEFAULT_SENSITIVITY,
                 "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
@@ -792,7 +794,8 @@ class DeviceApp:
                 tile = "temp"
             elif first in VIB_SYMPTOMS:
                 tile = "vib"
-        clock = time.strftime("%H:%M", time.localtime(self.clock()))
+        now = time.localtime(self.clock())  # 12-hour, with AM or PM, and 12 for midnight and noon (the user, 14 Nov)
+        clock = f"{now.tm_hour % 12 or 12}:{now.tm_min:02d}{'AM' if now.tm_hour < 12 else 'PM'}"
         return [f"@{left}"[:24], clock, tile, speed]
 
     def _screen_worker(self):

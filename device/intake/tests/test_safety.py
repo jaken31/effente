@@ -563,3 +563,38 @@ def test_one_sudden_loud_sound_shows_at_once_holds_30_s_and_follows_the_spike_di
     no_sound = dict(lv)
     no_sound.pop("sound_max")
     assert SF.Safety({"levels": {}, "spikes": no_sound}).measure(0.0, row()).get("sudden_sound") is None  # learned without a mic
+
+
+def test_one_sudden_twist_or_jump_in_temperature_shows_too_and_a_missing_sensor_is_not_checked():
+    """The other sensors' single moments (MORE_MOMENTS): the gyro's peak at twice the highest while learning, the
+    IMU's temperature 5 degC over the hottest; the thermal camera's readings only when there was a camera."""
+    rng = np.random.default_rng(4)
+    n = 300
+    cols = {"vib_kurtosis": rng.normal(0, 0.3, n), "vib_peak_g": rng.normal(-1.3, 0.02, n),
+            "gyr_peak": rng.normal(-0.5, 0.02, n), "imu_temp_c": rng.normal(30.0, 0.2, n)}
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), cols, np.ones(n, bool))
+    assert set(lv["moment_max"]) == {"gyr_peak", "imu_temp_c"}  # no camera: th_max_c and th_change_c are not learned
+    g_top, t_top = lv["moment_max"]["gyr_peak"], lv["moment_max"]["imu_temp_c"]
+
+    def run(sens, at, **change):
+        s = SF.Safety({"levels": {}, "spikes": lv}, spike_sensitivity=sens)
+        on = []
+        for k in range(120 * 4):
+            tt = k * 0.25
+            x = row(kurt=0.0, peak_g=0.05, imu=30.0)
+            x[F.INDEX["trend_running"]] = 1
+            x[F.INDEX["gyr_peak"]] = -0.5
+            if int(tt) == at:
+                for name, v in change.items():
+                    x[F.INDEX[name]] = v
+            a, _ = s.update(tt, x)
+            on += [(tt, p["name"], SF.screen_text(p)) for p in a]
+        return on
+
+    assert run(0.5, 40) == []
+    assert run(0.5, 40, gyr_peak=g_top + math.log10(3.0)) == [(40.0, "sudden_twist", "KNOCKING OR JOLTS")]
+    assert run(0.5, 40, gyr_peak=g_top + math.log10(1.6)) == []  # 1.6x: not at the default (2x)
+    hot = run(0.5, 40, imu_temp_c=t_top + 8.0)
+    assert [(tt, name) for tt, name, _ in hot] == [(40.0, "sudden_heat")], hot
+    assert run(0.5, 40, imu_temp_c=t_top + 3.0) == [] and [n for _, n, _ in run(0.75, 40, imu_temp_c=t_top + 3.0)] == ["sudden_heat"]
+    assert run(0.5, 40, th_max_c=500.0) == []  # a camera reading with nothing learned for it: not checked
