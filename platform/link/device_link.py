@@ -8,7 +8,7 @@ and sends the platform the contract's messages on the device's behalf:
 
   not watching   a check-in (message 3) each time the device's status changes
   watching       the model (message 1), then a record (message 2) a second, each with the
-                 vibration velocity of the device's newest feature row (contract 9.2)
+                 vibration velocity (contract 9.2) and the heat of the device's newest feature row
 
 A sensitivity set on the dashboard comes back in the platform's reply and is
 passed to the device's `POST /settings`, as the uploader does on the board.
@@ -18,6 +18,7 @@ What the device's port does not carry, so this link cannot send:
     `fault_types` empty and no `threshold`, and a record's `reason` is only what
     the device's own results line gives
   - the model file: platform/report.py's agent has no log or model file to read
+  - the thermal camera's images: `heat` goes out with the camera's summary and no `frames`
 
 The watching path is UNVERIFIED on the board. On 13 Nov 2026 it was run against
 the device app itself (device/intake/device_app.py) on a laptop with simulated
@@ -81,17 +82,51 @@ def problems_of(problems, at: str) -> list[dict]:
 
 # Features copied from the device's newest row into a check-in's `readings`, under their own names.
 ROW_READINGS = ("vib_velocity_mm_s", "snd_tone_hz", "snd_tone_db", "snd_centroid_hz")
+# The thermal image's 48 blocks, row by row: th_cell_RC and th_spot_RC in effente/features.py.
+HEAT_BLOCKS = tuple(f"{r}{c}" for r in range(6) for c in range(8))
 
 
 def _number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def heat_of(value):
+    """The contract's `heat` (section 2, "Heat") from a feature row, or None when the row has no
+    temperature at all. `value(name)` gives a feature's number or None.
+
+    With `th_max_c` in the row the thermal camera gave this reading: `source` is "camera" and the
+    summary is the row's th_* features, each null when the row lacks it (`cells` and `spots` are
+    null unless all 48 blocks are there). Without it, the IMU's temperature alone.
+    No `frames`: the device's port serves no images.
+    The camera branch is UNVERIFIED on the board: on 14 Nov 2026 its rows had no th_* values."""
+    imu = value("imu_temp_c")
+    imu = None if imu is None else round(imu, 2)
+    if value("th_max_c") is None:
+        return None if imu is None else {"source": "imu", "imu_temp_c": imu}
+
+    def rounded(name):
+        return None if value(name) is None else round(value(name), 2)
+
+    def whole(name, below):
+        v = value(name)
+        return int(v) if v is not None and v == int(v) and 0 <= v < below else None
+
+    def blocks(prefix):
+        got = [value(prefix + b) for b in HEAT_BLOCKS]
+        return None if any(g is None for g in got) else [round(g, 2) for g in got]
+
+    frozen = value("th_frozen")
+    return {"source": "camera", "imu_temp_c": imu, "max_c": rounded("th_max_c"),
+            "hot_row": whole("th_hot_row", 24), "hot_col": whole("th_hot_col", 32),
+            "background_c": rounded("th_background_c"), "cells": blocks("th_cell_"), "spots": blocks("th_spot_"),
+            "frozen": frozen is not None and frozen >= 1.0, "scene_match": rounded("trend_scene_match")}
+
+
 def row_extras(row, table) -> dict:
     """What the device's newest feature row adds to a check-in (contract section 3, "Readings"):
-    `spectrum` (the vibration bands, with `spectrum_edges_hz`), `heat` (the IMU's temperature, as
-    in a record without a camera) and `readings` (ROW_READINGS). Each only when the row has the numbers.
-    `table` is the device's `GET /features`, which names the row's values."""
+    `spectrum` (the vibration bands, with `spectrum_edges_hz`), `heat` (heat_of: the thermal camera's
+    summary, or the IMU's temperature without one) and `readings` (ROW_READINGS). Each only when the
+    row has the numbers. `table` is the device's `GET /features`, which names the row's values."""
     values = row.get("values") if isinstance(row, dict) else None
     if not isinstance(values, list) or not isinstance(table, dict):
         return {}
@@ -111,8 +146,9 @@ def row_extras(row, table) -> dict:
         out["spectrum"] = [round(b, 3) for b in bands]
         if isinstance(spec.get("edges_hz"), list):
             out["spectrum_edges_hz"] = spec["edges_hz"]
-    if value("imu_temp_c") is not None and value("th_max_c") is None:  # no thermal camera reading
-        out["heat"] = {"source": "imu", "imu_temp_c": round(value("imu_temp_c"), 2)}
+    heat = heat_of(value)
+    if heat is not None:
+        out["heat"] = heat
     more = {name: round(value(name), 3) for name in ROW_READINGS if value(name) is not None}
     if more:
         out["readings"] = more
@@ -173,6 +209,7 @@ def record(line: dict, status: dict, row=None, table=None) -> dict:
 
     `readings` is the device's screen numbers plus `vib_velocity_mm_s` (contract 9.2), taken from
     `row`, the device's newest feature row, named by `table`. It is always there, null when unknown.
+    `heat` (heat_of) comes from the same row, and is left out when the row is missing or old.
 
     `line["result"]` is the model's own result. The line's top-level diagnosis is an older
     contract's (four names), so it is not used."""
@@ -202,8 +239,11 @@ def record(line: dict, status: dict, row=None, table=None) -> dict:
                note=result.get("note", ""), problems=problems, wrong=diagnosis not in QUIET or bool(problems))
     if isinstance(line.get("spectrum"), list):
         rec["spectrum"] = line["spectrum"]
+    extras = row_extras(row, table) if _samples_coming(status) else {}
+    if "heat" in extras:
+        rec["heat"] = extras["heat"]
     readings = dict(status["readings"]) if isinstance(status.get("readings"), dict) else {}
-    readings["vib_velocity_mm_s"] = velocity(status, row, table)
+    readings["vib_velocity_mm_s"] = extras.get("readings", {}).get("vib_velocity_mm_s")
     rec["readings"] = readings
     rec["simulated"] = bool(line.get("simulated", False))
     return rec
