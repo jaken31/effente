@@ -56,6 +56,13 @@ DIAGNOSIS = {
 }
 ABNORMAL_CASES = ("unbalance", "looseness", "unrecognised")
 
+# Each case's vibration velocity, mm/s, 10 to 250 Hz rms (contract 9.2's readings.vib_velocity_mm_s).
+# Made up to move with the case: unbalance highest, the unrecognised tone mostly above 250 Hz so only a
+# little raised, almost nothing while stopped, warming_up running as normal. Not measured on any fan.
+VELOCITY_MM_S = {"normal": (1.2, 1.6), "unbalance": (4.2, 5.0), "looseness": (3.2, 3.9),
+                 "unrecognised": (1.8, 2.3), "stopped": (0.05, 0.15), "warming_up": (1.2, 1.6)}
+NORMAL_VELOCITY_MM_S = 1.4  # what vibration_above_normal's "times normal" is taken against
+
 # The fault types this stand-in can name, with effente/fault_types.py's texts.
 FAULT_TYPES = [
     {"name": "vibration_too_high", "text": "overall vibration well above this machine's normal", "group": "vibration"},
@@ -275,6 +282,18 @@ def is_wrong(diagnosis, problems: list[dict]) -> bool:
     return bool(problems) or diagnosis not in (None, "normal", "stopped", "warming_up")
 
 
+def velocity(case: str, rng: random.Random, problems: list[dict]) -> float:
+    """The record's readings.vib_velocity_mm_s: the case's own, raised to match a vibration problem
+    that is on, so the number never disagrees with the problem shown beside it."""
+    v = _r(rng, *VELOCITY_MM_S[case])
+    for p in problems:
+        if p.get("name") == "vibration_over_limit" and isinstance(p.get("value"), (int, float)):
+            v = max(v, round(p["value"], 2))
+        elif p.get("name") == "vibration_above_normal" and isinstance(p.get("value"), (int, float)):
+            v = max(v, round(p["value"] * NORMAL_VELOCITY_MM_S, 2))
+    return v
+
+
 def make_record(
     case: str,
     rng: random.Random,
@@ -314,6 +333,7 @@ def make_record(
         problems=problems,
         wrong=is_wrong(model["diagnosis"], problems),
         spectrum=make_spectrum(case, rng),
+        readings={"vib_velocity_mm_s": velocity(case, rng, problems)},
         simulated=True,
     )
     return record

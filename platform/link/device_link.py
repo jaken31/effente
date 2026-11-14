@@ -7,7 +7,8 @@ board. Until it is, the device only serves its own data on port 8765
 and sends the platform the contract's messages on the device's behalf:
 
   not watching   a check-in (message 3) each time the device's status changes
-  watching       the model (message 1), then a record (message 2) a second
+  watching       the model (message 1), then a record (message 2) a second, each with the
+                 vibration velocity of the device's newest feature row (contract 9.2)
 
 A sensitivity set on the dashboard comes back in the platform's reply and is
 passed to the device's `POST /settings`, as the uploader does on the board.
@@ -118,6 +119,20 @@ def row_extras(row, table) -> dict:
     return out
 
 
+def _samples_coming(status: dict) -> bool:
+    """Whether the device's screen shows vibration now, so its newest feature row is current."""
+    readings = status.get("readings")
+    return isinstance(readings, dict) and _number(readings.get("vib_mg"))
+
+
+def velocity(status: dict, row=None, table=None):
+    """`vib_velocity_mm_s` of the device's newest feature row, in mm/s (contract 9.2), or None when the
+    row is missing, is for another feature table, has no such value, or is old (no samples coming in)."""
+    if not _samples_coming(status):
+        return None
+    return row_extras(row, table).get("readings", {}).get("vib_velocity_mm_s")
+
+
 def check_in(status: dict, row=None, table=None) -> dict:
     """Message 3 from the device's status while it is not watching. With the device's newest
     feature row and its feature table, the check-in also carries row_extras."""
@@ -129,7 +144,7 @@ def check_in(status: dict, row=None, table=None) -> dict:
         c["sensitivity"] = status["sensitivity"]
     if isinstance(status.get("readings"), dict):
         c["readings"] = dict(status["readings"])  # the numbers on the device's screen (contract section 3)
-        if _number(c["readings"].get("vib_mg")):  # samples are coming in, so the newest row is current
+        if _samples_coming(status):
             extras = row_extras(row, table)
             c["readings"].update(extras.pop("readings", {}))
             c.update(extras)
@@ -153,8 +168,11 @@ def model_message(status: dict, table: dict) -> dict:
     return msg
 
 
-def record(line: dict, status: dict) -> dict:
+def record(line: dict, status: dict, row=None, table=None) -> dict:
     """Message 2 from one of the device's results lines and its status, as uploader.py builds it.
+
+    `readings` is the device's screen numbers plus `vib_velocity_mm_s` (contract 9.2), taken from
+    `row`, the device's newest feature row, named by `table`. It is always there, null when unknown.
 
     `line["result"]` is the model's own result. The line's top-level diagnosis is an older
     contract's (four names), so it is not used."""
@@ -184,8 +202,9 @@ def record(line: dict, status: dict) -> dict:
                note=result.get("note", ""), problems=problems, wrong=diagnosis not in QUIET or bool(problems))
     if isinstance(line.get("spectrum"), list):
         rec["spectrum"] = line["spectrum"]
-    if isinstance(status.get("readings"), dict):
-        rec["readings"] = status["readings"]
+    readings = dict(status["readings"]) if isinstance(status.get("readings"), dict) else {}
+    readings["vib_velocity_mm_s"] = velocity(status, row, table)
+    rec["readings"] = readings
     rec["simulated"] = bool(line.get("simulated", False))
     return rec
 
@@ -249,7 +268,7 @@ class DeviceLink:
         line = latest.get("results")
         if status.get("mode") == "watching":
             if isinstance(line, dict) and line.get("at") and line["at"] != self._line_at:
-                self._send_record(line, status)
+                self._send_record(line, status, latest.get("features"))
         elif status["at"] != self._status_at:  # a status that stops changing means a device that stopped
             message = check_in(status, latest.get("features"), self._feature_table())
             reply = self._post(f"/api/devices/{urllib.parse.quote(status['device_id'], safe='')}", message)
@@ -258,14 +277,14 @@ class DeviceLink:
                 self.stats["check_ins"] += 1
                 self._settings(reply, status)
 
-    def _send_record(self, line: dict, status: dict) -> None:
+    def _send_record(self, line: dict, status: dict, row=None) -> None:
         version = line.get("model_version")
         if not (isinstance(version, str) and version and isinstance(line.get("device_id"), str)
                 and isinstance(line.get("machine_id"), str)):
             return self._say("line", "the device's results line has no device_id, machine_id or model_version")
         if self._announced != version and not self._announce(dict(status, model_version=version)):
             return
-        reply = self._post("/api/records", record(line, status))
+        reply = self._post("/api/records", record(line, status, row, self._feature_table()))
         if reply is None:
             return
         self._line_at = line["at"]

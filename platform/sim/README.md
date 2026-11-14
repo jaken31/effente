@@ -108,6 +108,20 @@ Differences from the real device: it applies the new line from the next record, 
 - **unrecognised:** a strong tone in the 251-315 Hz band.
 - **stopped:** everything low.
 
+## Velocity
+
+Every record carries `readings.vib_velocity_mm_s` (contract 9.2), the vibration velocity in mm/s, 10 to 250 Hz rms. Made up like everything else, picked to move with the case, not measured:
+
+| Case | mm/s |
+|------|------|
+| normal, warming_up | 1.2 to 1.6 |
+| unbalance | 4.2 to 5.0 |
+| looseness | 3.2 to 3.9 |
+| unrecognised | 1.8 to 2.3 (its tone is mostly above 250 Hz) |
+| stopped | 0.05 to 0.15 |
+
+A vibration problem raises it so the two never disagree: with `vibration_over_limit` on it is that problem's value (over 11), with `vibration_above_normal` on at least the problem's "times normal" times 1.4 mm/s. The sensitivity never moves it. Check-ins do not carry it.
+
 ## Heat
 
 Records carry the contract 3.3 `heat` field ([sim_heat.py](sim_heat.py)). Made up like everything else: the thermal scene is a hand-drawn layout (a warm motor body, a hot bearing spot, the room) with 0.15 degC noise and slow drift, and the IMU temperature wanders around 42.5 degC.
@@ -120,14 +134,14 @@ Heat has its own random generator, so `--seed` gives the same vibration records 
 
 ## Replay
 
-`--replay FILE` sends each line of a JSON lines file. Every time in it (`at`, and each problem's `since`) is moved by the same amount so the first record goes out now and the spacing is kept. `device_id` and `model_version` become the simulator's own, so they line up with its announcement; `machine_id` is kept from the file. Records from before version 3 get `problems: []` and a `wrong` worked out from their diagnosis. A record is `simulated: true` unless it says `simulated: false` explicitly.
+`--replay FILE` sends each line of a JSON lines file. Every time in it (`at`, and each problem's `since`) is moved by the same amount so the first record goes out now and the spacing is kept. `device_id` and `model_version` become the simulator's own, so they line up with its announcement; `machine_id` is kept from the file. Records from before version 3 get `problems: []` and a `wrong` worked out from their diagnosis. A record with no `readings.vib_velocity_mm_s` (made before version 3.5) is sent without it, as the contract allows. A record is `simulated: true` unless it says `simulated: false` explicitly.
 
 [sample_replay.jsonl](sample_replay.jsonl): ten records, one a second: normal; `too_hot` coming on while the model still says normal; unbalance with `too_hot` still on; `too_hot` next to stopped; an unrecognised pattern with nothing else wrong. Made by `sim_model.sample_records()` (a test checks the file still matches).
 
 ## Testing a real device against this
 
 1. **Shape:** run `python3 platform/sim/main.py --count 5 --log sim.jsonl` and compare a real device record with `sim.jsonl` field by field.
-2. **Behaviour:** point the device at the small fake receiver used by the tests. It prints each announcement, record and check-in and flags contract problems (missing fields, a spectrum that is not 20 numbers, `wrong` not matching the diagnosis and problems, an outside-normal problem in a check-in, a reason on normal, a `heat` field of the wrong shape):
+2. **Behaviour:** point the device at the small fake receiver used by the tests. It prints each announcement, record and check-in and flags contract problems (missing fields, a spectrum that is not 20 numbers, `wrong` not matching the diagnosis and problems, an outside-normal problem in a check-in, a reason on normal, a `heat` field of the wrong shape, a record without `readings.vib_velocity_mm_s`):
 
    ```
    python3 platform/sim/tests/sim_fake_platform.py 8000
