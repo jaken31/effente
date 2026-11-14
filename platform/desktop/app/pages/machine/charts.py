@@ -128,12 +128,17 @@ class VelocityChart(_Chart):
             p.setPen(QPen(t.qcolor(colour), 1.4))
             p.setBrush(t.qcolor(t.PANEL) if pt.simulated else t.qcolor(colour))
             p.drawEllipse(QPointF(self.x(pt.at), self.y(pt.velocity)), radius, radius)
-        last = self.points[-1]
-        label = rd.number(last.velocity)
-        w = fm.horizontalAdvance(label) + 4
-        lx = min(max(self.x(last.at) - w / 2, r.left()), r.right() - w)  # above the newest point
-        ly = max(r.top(), min(self.y(last.velocity), *(self.y(q.velocity) for q in self.points[-4:])) - 24)
-        _text(p, QRectF(lx, ly, w, 16), Qt.AlignmentFlag.AlignHCenter, label, t.TEXT)
+        _text(p, self.newest_label_rect(), Qt.AlignmentFlag.AlignRight, rd.number(self.points[-1].velocity), t.TEXT)
+
+    def newest_label_rect(self) -> QRectF:
+        """Where the newest reading's value goes: just left of its point, on the side away from the line
+        coming into it, so it reads as that point's and not a neighbour's."""
+        r, last = self.plot(), self.points[-1]
+        w = self.fontMetrics().horizontalAdvance(rd.number(last.velocity)) + 4
+        x, y = self.x(last.at), self.y(last.velocity)
+        rising = len(self.points) < 2 or last.velocity >= self.points[-2].velocity
+        top = y - 20 if rising else y + 4
+        return QRectF(max(r.left(), x - 8 - w), min(max(top, r.top()), r.bottom() - 16), w, 16)
 
 
 class MovedChart(_Chart):
@@ -141,6 +146,7 @@ class MovedChart(_Chart):
     No "counts as evidence" line: no such threshold is in the contract (plan 15.1)."""
 
     ROW = 22
+    BAR_MIN = 120
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -150,14 +156,27 @@ class MovedChart(_Chart):
         self.rows, self._empty = list(rows), empty
         self.update()
 
+    def columns(self) -> tuple[float, float]:
+        """The width of the names and of the values. The names take the room they need, leaving the bars
+        at least BAR_MIN."""
+        fm = self.fontMetrics()
+        values_w = max(fm.horizontalAdvance(f"+{rd.number(m.spreads)}") for m in self.rows) + 12
+        names_w = min(max(fm.horizontalAdvance(m.text) for m in self.rows) + 16,
+                      self.width() - 12 - self.BAR_MIN - values_w)
+        return names_w, values_w
+
+    def name_shown(self, row: rd.Moved) -> str:
+        """The name as drawn: whole, or cut with an ellipsis when the chart is too narrow."""
+        return self.fontMetrics().elidedText(row.text, Qt.TextElideMode.ElideRight, int(self.columns()[0] - 12))
+
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self._draw_empty(p) or not self.rows:
             return
         fm = self.fontMetrics()
-        names_w = min(max(fm.horizontalAdvance(m.text) for m in self.rows) + 12, self.width() * 0.45)
-        r = QRectF(12 + names_w, 4, max(1, self.width() - names_w - 60), self.height() - 24)
+        names_w, values_w = self.columns()
+        r = QRectF(12 + names_w, 4, max(1, self.width() - 12 - names_w - values_w), self.height() - 24)
         top = max(abs(m.spreads) for m in self.rows) or 1.0
         neg = any(m.spreads < 0 for m in self.rows)
         zero = r.left() + (r.width() / 2 if neg else 0)
@@ -168,7 +187,7 @@ class MovedChart(_Chart):
         for i, m in enumerate(self.rows):
             y = r.top() + i * step
             h = max(4.0, min(12.0, step - 8))
-            name = fm.elidedText(m.text, Qt.TextElideMode.ElideRight, int(names_w - 12))
+            name = self.name_shown(m)
             _text(p, QRectF(4, y, names_w - 8, step), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                   name, t.SOFT)
             w = m.spreads * scale

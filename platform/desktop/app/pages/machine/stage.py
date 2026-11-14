@@ -29,7 +29,7 @@ CARD_W = 440
 
 TITLE = "Scan"
 NEW_SCAN = "New scan"
-RESET_VIEW = "Reset view"
+RESET_VIEW = "Reset"
 IMPORT = "Import file"
 CONVERT_AGAIN = "Convert again"
 ADD_PART = "Add part"
@@ -146,7 +146,7 @@ class Stage(Panel):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(TITLE, parent=parent)
         self.reset_button = Button(RESET_VIEW, "ghost", small=True)
-        self.reset_button.setToolTip("Turn the model back to where it started")
+        self.reset_button.setToolTip("Reset view: turn the model back to where it started")
         self.reset_button.clicked.connect(self.reset_view)
         self.scan_button = Button(NEW_SCAN, small=True)
         self.scan_button.setToolTip("Pair the phone app with this laptop, or import a scan file")
