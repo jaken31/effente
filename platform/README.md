@@ -61,6 +61,14 @@ python3 platform/run.py --no-sim
 
 The receiver listens on port 8000 on all interfaces. On the device, set `EFFENTE_PLATFORM_URL` to the laptop's address on the hotspot, for example `http://192.168.43.10:8000`. The command prints the address devices should use.
 
+If the board is not set up to send (no `EFFENTE_PLATFORM_URL` on it), the laptop can read the device's own port instead:
+
+```
+python3 platform/desktop/main.py --device http://10.110.213.214:8765   # or platform/run.py --device ...
+```
+
+[platform/link/device_link.py](link/device_link.py) reads the device's `/latest` twice a second and sends the receiver the contract's messages for it. Run against the board on 13 Nov while it was idle: the dashboard showed it connected, in display mode. Records while watching are **unverified on the board**: they were run against the device app on a laptop with simulated sensors (recording, training, watching, a fault added), where diagnoses and alarms reached the receiver. The device's port carries no fault type texts and no model file, so the dashboard shows fault type names without their sentences and the report agent has nothing to read. Setting `EFFENTE_PLATFORM_URL` on the board has neither gap.
+
 What the device must send and expect back is in [CONTRACT.md](CONTRACT.md). [sim/README.md](sim/README.md) walks through it from the device's side, and `sim/tests/sim_fake_platform.py` is a small checker a device implementation can be pointed at.
 
 The simulated device and a real one can run at the same time. The dashboard shows whichever was heard from most recently and lets you pick.
