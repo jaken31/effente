@@ -650,8 +650,13 @@ void compose() {
 }
 
 // Called from the Linux side; runs between loop() passes ("safe"), so the I2C bus is free.
+extern volatile bool slipTest;
 bool screen(MsgPack::str_t text) {
   const char *s = text.c_str();
+  if (s[0] == 1 && strncmp(s + 1, "SLIP", 4) == 0) {  // not a layout: the out-of-step test
+    slipTest = true;
+    return true;
+  }
   uint8_t line = 0;
   const char *start = s;
   for (const char *p = s;; p++) {
@@ -679,6 +684,20 @@ bool buttonDown = false;
 uint32_t buttonChange = 0;
 uint32_t lastSampleMs = 0;  // when the FIFO last gave a sample
 uint32_t sensorRestarts = 0;
+// Samples out of step: the FIFO gives 12 bytes a sample, and if a byte is ever lost or doubled on the bus every
+// later sample is put together from the wrong bytes, for good. Seen on the board (14 Nov, 03:37): at the
+// moment the ESP32 lost its power the readings turned into a steady 9 g with clipping, and stayed so for 13
+// minutes until the app was restarted; the sensor itself was fine. Two signs, either one restarts the FIFO:
+//   - the FIFO's count is not a whole number of samples on STEP_ODD_READS reads in a row;
+//   - gravity (the half-second average of the three axes) is outside STEP_MIN_G..STEP_MAX_G for STEP_BAD_MS.
+//     A fixed device always shows about 1 g there, however hard it vibrates.
+// Counted in outOfStep (the heartbeat) and as a FIFO restart.
+const float STEP_MIN_G = 0.4f, STEP_MAX_G = 2.5f;
+const uint32_t STEP_BAD_MS = 1000;
+const uint8_t STEP_ODD_READS = 4;
+uint32_t outOfStep = 0, gravBadSince = 0, oddCounts = 0;
+uint8_t oddRun = 0;
+volatile bool slipTest = false;  // a test from the Linux side: lose 5 bytes on purpose (the screen text "\x01SLIP")
 
 void setup() {
   Bridge.begin(BRIDGE_BAUD);
@@ -703,12 +722,39 @@ void setup() {
   Monitor.println(oledOk ? "ok" : "NOT FOUND");
 }
 
+void outOfStepRestart() {
+  outOfStep++;
+  overflows++;  // reported like an overflow: samples were lost and the FIFO restarted
+  fifoReset();
+  gravInit = false;
+  gravBadSince = 0;
+  oddRun = 0;
+}
+
 void readFifo() {
+  if (slipTest) {  // the test: take 5 bytes out, so every sample after is out of step
+    uint8_t junk[5];
+    mpuRead(0x74, junk, 5);
+    slipTest = false;
+  }
   uint16_t avail = fifoCount();
   if (avail >= fifoBytes - 24) {  // nearly full: data was lost (a full FIFO overwrites bytes); start clean, say so
     overflows++;
     fifoReset();
     return;
+  }
+  if (avail % 12 != 0) {
+    oddCounts++;
+    if (++oddRun >= STEP_ODD_READS) { outOfStepRestart(); return; }
+  } else {
+    oddRun = 0;
+  }
+  float g2 = grav[0] * grav[0] + grav[1] * grav[1] + grav[2] * grav[2];
+  if (gravInit && (g2 > STEP_MAX_G * STEP_MAX_G || g2 < STEP_MIN_G * STEP_MIN_G)) {
+    if (!gravBadSince) gravBadSince = millis() | 1;
+    else if (millis() - gravBadSince > STEP_BAD_MS) { outOfStepRestart(); return; }
+  } else {
+    gravBadSince = 0;
   }
   uint16_t n = avail / 12;
   while (n > 0) {
@@ -818,7 +864,8 @@ void loop() {
     lastBeat = millis();
     Bridge.notify("hb", (uint32_t)millis(), mpuOk, oledOk, (uint32_t)whoAmI, (uint32_t)lastBusClocks,
                   (uint32_t)busTries, sdaWasHigh, sclWasHigh, (uint32_t)readErrors, (uint32_t)oledErrors,
-                  (uint32_t)frames, (uint32_t)micLines, (int32_t)(micDb == micDb ? micDb * 10 : 0));
+                  (uint32_t)frames, (uint32_t)micLines, (int32_t)(micDb == micDb ? micDb * 10 : 0),
+                  (uint32_t)outOfStep, (uint32_t)oddCounts);
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
   if (down != buttonDown && millis() - buttonChange > 30) {  // 30 ms debounce

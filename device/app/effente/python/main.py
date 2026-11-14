@@ -64,7 +64,7 @@ mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and sc
 
 
 def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors,
-                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None):
+                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None, out_of_step=None, odd_counts=None):
     # The last four only from sketches that send them. mic_lines: lines received from the ESP32 microphone
     # front end; mic_db10: its last level in tenths of a dB below full scale (screen only, not a feature yet).
     if mpu_ok:
@@ -72,7 +72,10 @@ def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high,
     mcu.update(beat=dict(up_s=round(ms / 1000), sensor=bool(mpu_ok), screen=bool(oled_ok), who_am_i=hex(who_am_i),
                          bus_clocks=bus_clocks, bus_tries=bus_tries, sda_high=bool(sda_high), scl_high=bool(scl_high),
                          read_errors=read_errors, screen_errors=oled_errors, frames=frames,
-                         mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10), at=time.time())
+                         mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10,
+                         # out_of_step: times the sketch found the samples out of step and restarted the FIFO;
+                         # odd_counts: reads where the FIFO did not hold a whole number of samples
+                         out_of_step=out_of_step, odd_counts=odd_counts), at=time.time())
 
 
 Bridge.provide("hb", on_heartbeat)
@@ -81,7 +84,16 @@ stream = Stream(port=8765, device_id=DEVICE, machine_id=MACHINE, status_every_s=
 uploader = Uploader.from_env(DEVICE, MACHINE)  # None when EFFENTE_PLATFORM_URL is not set
 
 
+SLIP_TEST = os.path.join(DATA, "slip_test")  # touch this file to test the sketch's out-of-step recovery once
+
+
 def screen(text):
+    if os.path.exists(SLIP_TEST):
+        try:
+            os.remove(SLIP_TEST)
+        except OSError:
+            pass
+        text = "\x01SLIP"
     Bridge.call("screen", text, timeout=1)
 
 
