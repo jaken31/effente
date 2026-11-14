@@ -12,6 +12,8 @@ at the end that answer 400 "not built yet".
 from log_store import DEFAULT_LOG_LIMIT, ENTRY_KINDS
 from receiver_store import MAX_HISTORY_LIMIT, BadRequest, parse_time
 
+DEFAULT_READINGS_LIMIT = 300
+
 
 def _log(request):
     return request.server.store.partlog
@@ -84,8 +86,20 @@ def put_probe(request, query, machine_id):
 
 
 def get_part_readings(request, query, part_id):
-    """GET /api/parts/<part_id>/readings (section 9.3)"""
-    _not_built(request)
+    """GET /api/parts/<part_id>/readings (section 9.3). `projection` is null until row P1 builds it."""
+    since = None
+    if "since" in query:
+        since = parse_time(query["since"][-1])
+        if since is None:
+            raise BadRequest("since must be an ISO 8601 time")
+    try:
+        limit = int(query.get("limit", [str(DEFAULT_READINGS_LIMIT)])[-1])
+    except ValueError:
+        raise BadRequest("limit must be a whole number")
+    if limit < 0:
+        raise BadRequest("limit must be 0 or more")
+    reply = _log(request).part_readings(part_id, since, min(limit, MAX_HISTORY_LIMIT))
+    request.send_json(200, dict({"ok": True}, **reply, projection=None))
 
 
 def get_normal_spectrum(request, query, machine_id):

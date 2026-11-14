@@ -23,6 +23,12 @@ The probe's part (contract 9.1) is kept in a third append-only file,
 `probe.jsonl`: one line each time a pick is set or cleared, the newest line for
 a machine wins. Its 5 minute rule runs on the wall clock (`self.clock`), not a
 monotonic one, so it still holds across a restart.
+
+Readings (contract 9.3) are never stored: platform/partlog/readings.py works
+them out from each part's stamped records, kept here sorted by `at`. Each part's
+newest reading is kept worked out, for the part's `reading`. The `reading` event
+goes out when a reading is first made, when it closes, and while it grows at
+most every 10 seconds, the rest being sent by `tick` once those are up.
 """
 
 import bisect
@@ -41,6 +47,7 @@ if PARTLOG_DIR not in sys.path:
 
 import part_kinds  # noqa: E402
 import part_state  # noqa: E402
+import readings  # noqa: E402
 
 PARTS_FILE = "parts.jsonl"
 ENTRIES_FILE = "log_entries.jsonl"
@@ -52,10 +59,11 @@ PROBE_QUIET_S = 5 * 60  # a pick clears itself after this long with no record fr
 PROBE_QUIET_REASON = "no records for 5 minutes"
 SAMPLE_MACHINE = "sample-machine"  # the only machine simulated history is written to
 HISTORY_DEVICE = "sim-history"  # the device the history command sends as
+READING_EVENT_EVERY_S = 10  # a growing reading sends its `reading` event at most this often (9.3)
 
 ENTRY_KINDS = ("finding", "inspection", "repair", "note", "review")
 PART_FIELDS = ("name", "kind", "position", "fault_types", "note", "removed")  # what a person may set
-PART_SET_BY_PLATFORM = ("part_id", "machine_id", "created", "changed", "state", "by")
+PART_SET_BY_PLATFORM = ("part_id", "machine_id", "created", "changed", "state", "reading", "by")
 ENTRY_FIELDS = ("kind", "text", "by", "part_id", "at", "needs_repair", "alarm_id", "run_id", "simulated")
 ENTRY_SET_BY_PLATFORM = ("entry_id", "machine_id", "received_at", "diagnosis", "source")
 CSV_COLUMNS = ("at", "part", "kind", "text", "by", "needs_repair", "alarm_id", "diagnosis", "source", "entry_id")
@@ -183,6 +191,9 @@ class LogStore:
         self.probe_file = JsonLines(os.path.join(store.data_dir, PROBE_FILE))
         self.probes = {}  # machine_id -> its selection (contract 9.1)
         self.heard = {}  # machine_id -> wall-clock time its newest record was stored
+        self.part_records = {}  # part_id -> its stamped records, sorted by readings.key
+        self.newest = {}  # part_id -> its newest reading, worked out
+        self.sent = {}  # part_id -> {"reading", "at", "pending"}: the last `reading` event and when
         if part_kinds.PROBLEM:
             print(f"warning: part kind table: {part_kinds.PROBLEM}", file=sys.stderr)
         for part in self.parts_file.load():
@@ -215,6 +226,15 @@ class LogStore:
             if heard and heard[0] is not None:
                 self.heard[machine_id] = heard[0]
         self._expire_probes()
+        for record in store.records:
+            if isinstance(record.get("part_id"), str) and readings.key(record)[0] is not None:
+                self.part_records.setdefault(record["part_id"], []).append(record)
+        now = self.clock()
+        for part_id, records in self.part_records.items():
+            records.sort(key=readings.key)
+            newest = self.newest[part_id] = readings.newest_reading(records, self._alarm_of, now)
+            if newest is not None and newest["open"]:  # so its closing is still announced
+                self.sent[part_id] = {"reading": newest, "at": now, "pending": None}
 
     def close(self):
         """The receiver is stopping. Every change is already on disk."""
@@ -242,8 +262,9 @@ class LogStore:
         )
 
     def _view(self, part):
-        """The part as the contract shows it: with its state."""
-        return dict(part, state=dict(self.states[part["part_id"]]))
+        """The part as the contract shows it: with its state and its newest reading."""
+        return dict(part, state=dict(self.states[part["part_id"]]),
+                    reading=readings.short(self.newest.get(part["part_id"])))
 
     def _refresh(self, machine_id, emit=True):
         """Work out the state of every part of a machine again, and send a `part`
@@ -388,6 +409,67 @@ class LogStore:
             if now - last > PROBE_QUIET_S:
                 self._put_probe(machine_id, None, PROBE_QUIET_REASON)
 
+    # ---- readings (section 9.3) ---------------------------------------------
+
+    def part_readings(self, part_id, since=None, limit=300):
+        """The readings route's reply, but `projection`, which is not built yet (row P1)."""
+        with self.store.lock:
+            part = self.parts.get(part_id)
+            if part is None:
+                raise BadRequest(f"no such part: {part_id}")
+            every = readings.readings(self.part_records.get(part_id, []), self._alarm_of, self.clock())
+        shown = readings.chosen(every, since, limit)
+        return {"part_id": part_id, "machine_id": part["machine_id"], "readings": shown,
+                "summary": readings.summary(shown)}
+
+    def _alarm_of(self, record):
+        """The alarm an abnormal stored record belongs to: its machine's newest
+        alarm opened at or before it, since every abnormal record opens or grows one."""
+        alarms = self.store.machine_alarms.get(record["machine_id"], ())
+        opened = [self.store.alarm_seq[a["alarm_id"]] for a in alarms]
+        i = bisect.bisect_right(opened, record.get("seq", 0))
+        return alarms[i - 1]["alarm_id"] if i else None
+
+    def _reading_moved(self, part_id, record):
+        """A stamped record was stored: work out its visit's reading again, keep
+        the part's newest, and send the `reading` event if it is due."""
+        records = self.part_records[part_id]
+        now = self.clock()
+        lo, hi = readings.visit_around(records, bisect.bisect_left(records, readings.key(record), key=readings.key))
+        made = readings.reading(records[lo:hi], self._alarm_of, now)
+        if hi == len(records):  # it is in the newest visit; an older one cannot change the newest reading
+            self.newest[part_id] = made or readings.newest_reading(records, self._alarm_of, now)
+        if made is None:
+            return
+        sent = self.sent.get(part_id)
+        if sent is None or sent["reading"]["start"] != made["start"] or now - sent["at"] >= READING_EVENT_EVERY_S:
+            self._send_reading(made, now)
+        elif made != sent["reading"]:
+            sent["pending"] = made
+
+    def _send_reading(self, made, now):
+        self.sent[made["part_id"]] = {"reading": made, "at": now, "pending": None}
+        self.store.emit("reading", {"part_id": made["part_id"], "machine_id": made["machine_id"], "reading": made})
+
+    def _tick_readings(self):
+        """Send what the 10 seconds held back, and each reading that has closed."""
+        now = self.clock()
+        for part_id, sent in list(self.sent.items()):
+            if sent["pending"] is not None and now - sent["at"] >= READING_EVENT_EVERY_S:
+                self._send_reading(sent["pending"], now)
+            elif sent["reading"]["open"] and now - readings.timestamp(sent["reading"]["end"]) >= readings.OPEN_FOR_S:
+                records = self.part_records.get(part_id, [])
+                made = readings.reading_starting(records, sent["reading"]["start"], self._alarm_of, now)
+                if made is None:  # cannot happen: a visit only grows. Stop watching it.
+                    del self.sent[part_id]
+                    continue
+                if made["open"]:
+                    continue
+                newest = self.newest.get(part_id)
+                if newest is not None and newest["start"] == made["start"]:
+                    self.newest[part_id] = made
+                self._send_reading(made, now)
+
     # ---- entries (section 8.6) ----------------------------------------------
 
     def add_entry(self, machine_id, body):
@@ -457,6 +539,7 @@ class LogStore:
         """Called about four times a second, with records arriving or not, so a
         pick can clear itself (9.1) and a reading can close (9.3)."""
         self._expire_probes()
+        self._tick_readings()
 
     def record_stored(self, record):
         """A record was stored (message 2). Not called for records read at start.
@@ -469,6 +552,10 @@ class LogStore:
         timestamp = parse_time(record.get("at"))
         if timestamp is None:
             return
+        part_id = record.get("part_id")
+        if isinstance(part_id, str):
+            bisect.insort(self.part_records.setdefault(part_id, []), record, key=readings.key)
+            self._reading_moved(part_id, record)
         bisect.insort(self.record_times.setdefault(machine_id, []), (timestamp, record["at"]))
         for part_id in self.machine_parts.get(machine_id, ()):
             state = self.states[part_id]

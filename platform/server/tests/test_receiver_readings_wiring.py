@@ -7,7 +7,6 @@ from receiver_testkit import make_check_in, make_record
 
 NOT_BUILT = (400, {"ok": False, "error": "not built yet"})
 ROUTES = [
-    ("GET", "/api/parts/part-0007/readings?since=2026-09-15T00:00:00Z&limit=300", None),
     ("GET", "/api/machines/conveyor-07/normal-spectrum?part=part-0007", None),
     ("PUT", "/api/machines/conveyor-07/profile", {"machine_type": "conveyor", "by": "Sam"}),
     ("GET", "/api/machines/conveyor-07/profile", None),
