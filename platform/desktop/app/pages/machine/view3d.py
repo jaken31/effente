@@ -10,10 +10,9 @@ All positions in and out are in the model's own coordinates, the GLB file's (pla
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import os
 import sys
+from pathlib import Path
 
 import PySide6
 

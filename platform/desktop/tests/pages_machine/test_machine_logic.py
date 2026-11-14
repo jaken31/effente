@@ -1,12 +1,12 @@
 """The Machine page's logic (app/pages/machine/logic.py): plain Python, no window, no graphics card."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from app.pages.machine import logic
 
 PALETTE = {"red": "#ff4d2e", "text": "#ededed", "muted": "#878787", "bg": "#0a0a0a"}
-NOW = datetime(2026, 11, 14, 21, 2, 11, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 14, 21, 2, 11, tzinfo=UTC)
 SCAN = {"scan_id": "scan-20261114181502-3fa9", "machine_id": "conveyor-07",
         "model": {"status": "ready", "reason": "", "bytes": 9120344,
                   "bounds": {"min": [-0.21, 0.0, -0.09], "max": [0.21, 0.14, 0.09]}}}
@@ -216,3 +216,144 @@ def test_the_empty_parts_panel_says_what_to_do():
     assert "click the model" in logic.parts_note([], SCAN)
     assert "without a pin" in logic.parts_note([], None)
     assert "without a pin" in logic.parts_note([part("p", "Gone", "possible", removed=True)], scan_with("failed"))
+
+
+# ---- words the page shows ---------------------------------------------------------------------------------
+
+
+def test_the_part_kinds_are_the_contracts_twelve():
+    assert len(logic.PART_KINDS) == 12 and logic.DEFAULT_PART_KIND in logic.PART_KINDS
+    assert logic.kind_label("probe_point") == "Probe point"
+    assert logic.kind_label(None) == ""
+
+
+def test_every_state_says_what_it_means_and_nothing_found_is_not_a_health_check():
+    assert set(logic.STATE_MEANS) == set(logic.STATES)
+    assert "not a check of the part itself" in logic.STATE_MEANS["nothing_found"]
+    for text in (*logic.STATE_MEANS.values(), *logic.STATE_WORDS.values()):
+        assert not any(word in text.lower() for word in ("healthy", "good", "fine", "ok "))
+
+
+def test_a_time_reads_as_day_month_and_clock():
+    assert logic.when("2026-11-14T19:02:11Z", UTC) == "14 Nov 19:02"
+    assert logic.when("2026-11-04T09:05:00.000Z", UTC) == "4 Nov 09:05"
+    assert logic.when(None) == "" and logic.when("soon") == ""
+
+
+def test_the_scan_line_says_when_it_was_made_and_its_file():
+    scan = dict(SCAN, at="2026-11-14T18:14:40Z", file={"name": "scan.usdz", "bytes": 1})
+    assert logic.scan_line(scan, UTC) == "scanned 14 Nov 18:14 · scan.usdz"
+    assert logic.scan_line(dict(SCAN, received_at="2026-11-14T18:15:02Z"), UTC) == "scanned 14 Nov 18:15"
+    assert logic.scan_line(SCAN) == "" and logic.scan_line(None) == ""
+
+
+# ---- a scan on its way ------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name, marks", [
+    ("arriving", ["done", "todo", "todo"]),
+    ("converting", ["done", "now", "todo"]),
+    ("failed", ["done", "failed", "todo"]),
+    ("fetching", ["done", "done", "now"]),
+])
+def test_the_steps_of_a_scan_on_its_way(name, marks):
+    steps = logic.steps(name)
+    assert [s["mark"] for s in steps] == marks
+    assert [s["label"] for s in steps] == list(logic.STEP_LABELS)
+
+
+@pytest.mark.parametrize("name", ["no_scan", "ready", "cannot_draw"])
+def test_a_state_with_no_scan_on_its_way_has_no_steps(name):
+    assert logic.steps(name) == []
+
+
+# ---- the New scan panel -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["conveyor-07", "a", "7", "x" * 40])
+def test_a_machine_id_the_code_can_carry(text):
+    assert logic.machine_id_problem(text) == ""
+
+
+@pytest.mark.parametrize("text", ["Conveyor-07", "conveyor 07", "conveyor_07", "x" * 41, "bänd"])
+def test_a_machine_id_the_code_cannot_carry(text):
+    assert logic.machine_id_problem(text) == logic.BAD_MACHINE_ID
+
+
+def test_no_machine_id_asks_for_one():
+    assert logic.machine_id_problem("") == logic.NO_MACHINE_ID
+    assert logic.machine_id_problem(None) == logic.NO_MACHINE_ID
+
+
+def test_a_scan_for_another_machine_says_where_it_will_arrive():
+    assert "under press-02" in logic.other_machine_note("press-02", "conveyor-07")
+    assert logic.other_machine_note("conveyor-07", "conveyor-07") == ""
+    assert logic.other_machine_note("Press 2", "conveyor-07") == ""
+    assert logic.other_machine_note("", None) == ""
+
+
+# ---- the selected part ------------------------------------------------------------------------------------
+
+
+def entry(n, kind, text, at, needs_repair=None, simulated=False):
+    return {"entry_id": f"entry-{n:06d}", "part_id": "part-0001", "at": at, "kind": kind, "text": text,
+            "needs_repair": needs_repair, "simulated": simulated}
+
+
+ENTRIES = [
+    entry(4, "review", "Stand-in review: possible unbalance.", "2026-11-14T19:30:00Z", simulated=True),
+    entry(3, "finding", "added weight found", "2026-11-14T19:12:03Z", needs_repair=True),
+    entry(2, "inspection", "", "2026-11-14T18:40:00Z", needs_repair=False),
+    entry(1, "note", "part added", "2026-11-14T18:20:11Z"),
+]
+
+
+def test_no_selected_part_has_no_detail():
+    assert logic.detail(None, [], SCAN, True) is None
+    assert logic.detail(part("p", "Gone", "possible", removed=True), [], SCAN, True) is None
+
+
+def test_the_detail_of_a_part_that_needs_repair():
+    d = logic.detail(PARTS[0], ENTRIES, SCAN, True, NOW, UTC)
+    assert (d["name"], d["kind"], d["state"]) == ("Drive roller", "Roller", "needs_repair")
+    assert d["headline"] == "Needs repair since 14 Nov 19:02 (2 h)"
+    assert d["means"] == logic.STATE_MEANS["needs_repair"]
+    assert (d["pin_note"], d["pin_action"]) == ("", "Move pin")
+    assert [e["kind"] for e in d["entries"]] == ["Review", "Finding", "Inspection"]  # the newest three
+    assert d["entries"][1] == {"when": "14 Nov 19:12", "kind": "Finding", "text": "added weight found"}
+    assert d["entries"][2]["text"] == "does not need repair"  # an inspection with no words of its own
+    assert d["more"] == "and 1 more in the log" and d["no_entries"] == ""
+    assert d["simulated"] is True
+
+
+def test_the_detail_of_the_other_states():
+    assert logic.detail(PARTS[1], [], SCAN, True, NOW, UTC)["headline"] == "Possible since 14 Nov 20:22 (40 min)"
+    found = logic.detail(PARTS[2], [], SCAN, True, NOW, UTC)
+    assert found["headline"] == "Nothing found since 14 Nov 18:30"  # how long nothing was found is no news
+    assert found["no_entries"] and found["more"] == "" and found["simulated"] is False
+    unchecked = logic.detail(PARTS[3], [], SCAN, True, NOW, UTC)
+    assert unchecked["headline"] == "Not checked"
+    assert (unchecked["pin_note"], unchecked["pin_action"]) == ("It has no pin.", "Place pin")
+
+
+def test_the_detail_of_a_part_pinned_on_an_older_scan():
+    old = part("part-0005", "Gearbox", "not_checked", at=[0.1, 0.1, 0.0], scan_id=OLD_SCAN)
+    d = logic.detail(old, [], SCAN, True, NOW, UTC)
+    assert "older scan" in d["pin_note"] and d["pin_action"] == "Place pin"
+
+
+def test_with_no_model_on_screen_there_is_no_pin_to_move():
+    assert logic.detail(PARTS[0], [], SCAN, False, NOW, UTC)["pin_action"] == ""
+    none = logic.detail(PARTS[3], [], None, False, NOW, UTC)
+    assert (none["pin_note"], none["pin_action"]) == ("", "")  # no scan: nothing to say about pins
+
+
+def test_an_entry_with_no_words_says_what_it_decided():
+    assert logic.entry_text(entry(1, "finding", " ", "", needs_repair=True)) == "needs repair"
+    assert logic.entry_text(entry(1, "note", "", "")) == ""
+
+
+def test_the_part_just_added_is_the_one_that_was_not_there():
+    before = {p["part_id"] for p in PARTS}
+    assert logic.new_part_id(before, PARTS) is None
+    assert logic.new_part_id(before, [*PARTS, part("part-0005", "Gearbox", "not_checked")]) == "part-0005"
