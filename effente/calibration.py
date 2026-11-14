@@ -20,7 +20,7 @@ The alarm threshold is this machine's own:
 
     threshold = threshold_median_multiple x median(held-out smoothed scores)
 
-The held-out scores are the last 15 % of the calibration by time, scored with the calibrated model
+The held-out scores are the last 15 % of the running rows, scored with the calibrated model
 and smoothed as the runtime smooths before it compares with the threshold (the median of the last
 smooth_minutes scores). There is no gamma fit and no floor or ceiling from the entry: the entry's
 own threshold plays no part. The multiple (THRESHOLD_MEDIAN_MULTIPLE = 5.0) is PROVISIONAL and
@@ -37,8 +37,9 @@ Calibration needs 5 minutes of running at the least (min_running_s). Ask for 10.
 
 It follows effente.trainer.train_model's steps and reuses its parts, so a calibrated model
 and one trained on the machine alone differ in where the network came from and in the threshold
-rule: running rows only, per-period medians, the last 15 % of the time held out for the threshold
-(never a random split).
+rule: running rows only, per-period medians, the last 15 % held out for the threshold (never a
+random split; counted in running rows, which without a stop in between is the trainer's split by
+time).
 
     model, report = calibrate(entry_model, t, X, names)
     verdict = fit_check(report, manifest)   # a gross mismatch with the entry, or not
@@ -198,8 +199,12 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
         raise ValueError(f"too little recorded: {running_s} s of the machine running; "
                          f"calibration needs at least {math.ceil(need)} s, and 10 minutes is asked for")
     baseline = SF.learn_baseline(X, names, running=ran)
-    cut = t[0] + (t[-1] - t[0]) * (1 - CALIB_SHARE)
-    fit, held = t < cut, t >= cut
+    # The last 15 % of the running rows are held out, counted in rows and not in clock time: a stop
+    # in the middle of the calibration must not leave a handful of rows to fit on. Without a gap in
+    # the running this is the trainer's split by time. MIN_ROWS keeps at least 51 rows on the fit side.
+    n_fit = math.ceil((len(t) - 1) * (1 - CALIB_SHARE))
+    fit = np.arange(len(t)) < n_fit
+    held = ~fit
 
     s_before = entry.score(X)[0]  # this machine through the entry as shipped, for the report only
     widen, held_cols = _entry_settings(entry_model, entry.prep.columns)

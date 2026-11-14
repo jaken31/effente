@@ -156,6 +156,23 @@ def test_levels_come_from_the_first_part_and_the_threshold_from_the_held_out_par
     assert report["score_quantiles_held_out"]["p50"] > report["score_quantiles_fit"]["p50"]  # the louder part shows
 
 
+def test_a_stop_in_the_middle_does_not_shrink_the_rows_fitted_on():
+    d, _ = entry()
+    t, X = seconds(600, seed=30, start=10_000)
+    _, whole = C.calibrate(d, t, X, NAMES)
+    assert (whole["rows_fit"], whole["rows_held_out"]) == (510, 90)  # no gap: the split by time, as before
+    for ran_first in (20, 1):  # the machine ran this long, stood still for two hours, then ran the rest
+        gap = t.copy()
+        gap[ran_first:] += 7200
+        cal, report = C.calibrate(d, gap, X, NAMES)
+        assert (report["rows_fit"], report["rows_held_out"]) == (510, 90)
+        j = cal["prep"]["columns"].index("vib_1x")  # the levels come from the first 510 running rows
+        assert math.isclose(cal["prep"]["centre"][j], float(np.median(X[:510, F.INDEX["vib_1x"]])), rel_tol=1e-9)
+    X[20:300, F.INDEX["trend_running"]] = 0.0  # the same with the stop recorded as rows: 320 s of running
+    _, report = C.calibrate(d, t, X, NAMES)
+    assert report["running_s"] == 320 and (report["rows_fit"], report["rows_held_out"]) == (272, 48)
+
+
 def test_the_same_rows_and_seed_give_the_same_model():
     d, _ = entry()
     t, X = seconds(300, seed=5, start=20_000)
