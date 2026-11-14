@@ -97,6 +97,12 @@ def _wrap(text: str, width: int = 21) -> list[str]:
     return lines + [cur] if cur else lines
 
 
+# Sensors this device will never have (the user, 13 Nov: there won't be a room sensor). Their readings stay
+# empty in every row, as before; they are only left out of the list of sensors that are "missing", which
+# is for sensors that should be there.
+NOT_FITTED = ("room",)
+
+
 class DeviceApp:
     def __init__(self, data_dir, source, screen=None, stream=None, device_id: str = "effente-01",
                  machine_id: str = "machine-1", hop_s: float = 0.25, min_record_s: float = MIN_RECORD_S,
@@ -363,7 +369,7 @@ class DeviceApp:
             result.update(SF.verdict(result, problems), problems=problems)
             self.result = result
         if self.stream is not None:
-            missing = F.missing_sensors(x)
+            missing = [s for s in F.missing_sensors(x) if s not in NOT_FITTED]
             self.stream.publish_features(t0, x, missing)
             if result is not None:
                 self.stream.publish_result(log_record(t0, x, result, mode, missing, 0.0, self.device_id,

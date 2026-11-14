@@ -270,7 +270,7 @@ def test_the_stream_has_the_state_and_live_readings_in_every_mode():
                 assert 0.9 <= per_s <= 1.1, (mode, per_s)  # a feature row a second on the stream
             latest = json.loads(stream.latest_json())
             assert latest["status"]["state"] == "DETECTING" and latest["status"]["mode"] == "watching"
-            assert len(latest["features"]["values"]) == F.N_FEATURES and latest["features"]["missing"] == ["sound", "heat", "room"]
+            assert len(latest["features"]["values"]) == F.N_FEATURES and latest["features"]["missing"] == ["sound", "heat"]
             assert latest["results"] is not None  # while detecting, the results line too
             import urllib.request
             with urllib.request.urlopen(f"http://127.0.0.1:{stream.port}/view", timeout=5) as r:  # the page for a browser
