@@ -107,6 +107,11 @@ def _quantiles(s) -> dict:
 NOT_JUDGED = 1e12  # a spread this large makes a reading always read as usual: it is not judged
 
 
+def _number(v) -> bool:
+    """A real number (Python's or NumPy's), not a bool; it may still be NaN or infinite."""
+    return isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, (bool, np.bool_))
+
+
 def _entry_settings(entry_model: dict, columns: list[str]):
     """What the entry itself says about calibrating it: (widen factors or None, held mask).
 
@@ -175,16 +180,18 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     entry_model: the entry's effente-model-1 dict (not changed). t, X, names: one-a-second feature
     rows with their times and feature names, as for effente.trainer.train_model. Returns
     (model file dict, report). Raises ValueError if the entry is not a model this device can run or
-    is itself a calibrated model,
+    is itself a calibrated model, a time is not a finite number,
     the machine ran for less than min_running_s seconds in the rows given, no reading the entry
     uses was measured, or no threshold can be
     set from the held-out rows (fewer of them than the entry's smoothing window, or a median score
     that is zero or not a number).
     threshold_median_multiple: the alarm threshold is this many times the median of the held-out
     smoothed scores (THRESHOLD_MEDIAN_MULTIPLE, provisional)."""
-    if not (isinstance(threshold_median_multiple, (int, float)) and not isinstance(threshold_median_multiple, bool)
-            and math.isfinite(threshold_median_multiple) and threshold_median_multiple > 0):
+    if not (_number(threshold_median_multiple) and math.isfinite(threshold_median_multiple)
+            and threshold_median_multiple > 0):
         raise ValueError("threshold_median_multiple must be a number above 0")
+    if not (_number(min_running_s) and math.isfinite(min_running_s) and min_running_s >= 0):
+        raise ValueError("min_running_s must be a number of seconds, 0 or more")
     report_in = entry_model.get("training_report") if isinstance(entry_model, dict) else None
     if isinstance(report_in, dict) and report_in.get("calibrated"):
         # Its "not judged" readings carry a huge spread as if it were the entry's, so a second
@@ -196,6 +203,8 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     t = np.asarray(t, float)
     if len(t) != len(X):
         raise ValueError(f"{len(t)} times for {len(X)} rows")
+    if not np.isfinite(t).all():
+        raise ValueError(f"{int((~np.isfinite(t)).sum())} of the {len(t)} times are not finite numbers")
     run = TR.running_rows(X, names)
     ran = run.copy()
     t, X = t[run], X[run]

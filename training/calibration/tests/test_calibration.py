@@ -208,6 +208,22 @@ def test_it_refuses_a_sensor_that_gave_no_reading():
     assert C.MIN_READINGS == 1 and len(report["readings_missing"]) == report["readings"] - 1
 
 
+def test_it_refuses_times_and_settings_that_are_not_numbers():
+    d, _ = entry()
+    t, X = seconds(600, seed=33)
+    for bad in (float("nan"), float("inf")):
+        broken = t.copy()
+        broken[5] = bad
+        raises(lambda: C.calibrate(d, broken, X, NAMES), "1 of the 600 times are not finite")
+        raises(lambda: C.calibrate(dict(d, period_s=10), broken, X, NAMES), "1 of the 600 times are not finite")
+    for bad in (float("nan"), float("inf"), -1, "300", True):  # a NaN used to switch the length check off
+        raises(lambda: C.calibrate(d, t[:100], X[:100], NAMES, min_running_s=bad), "min_running_s")
+    a = C.calibrate(d, t, X, NAMES, threshold_median_multiple=np.float32(4), min_running_s=np.int64(300))
+    b = C.calibrate(d, t, X, NAMES, threshold_median_multiple=4.0)
+    assert a[0]["threshold"] == b[0]["threshold"] and a[1]["threshold_median_multiple"] == 4.0
+    raises(lambda: C.calibrate(d, t, X, NAMES, threshold_median_multiple=np.bool_(True)), "threshold_median_multiple")
+
+
 def test_min_running_s_can_be_lowered_but_not_below_the_floor():
     d, _ = entry()
     t, X = seconds(120, seed=7)
