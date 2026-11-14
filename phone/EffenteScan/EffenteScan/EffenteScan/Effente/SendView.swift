@@ -14,64 +14,77 @@ struct SendView: View {
     let scan: StoredScan
 
     @State private var preview: URL?
-    @State private var showPairing = false
+    @State private var showScanner = false
     @State private var confirmDiscard = false
 
+    private var isSending: Bool {
+        if case .sending = flow.upload { return true }
+        return false
+    }
+
+    private var hasFile: Bool { scan.modelBytes != nil }
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    ScanSummary(scan: scan)
+        Screen(step: 4, title: "Send to laptop") {
+            ScanPanel(scan: scan)
 
-                    if scan.modelBytes == nil {
-                        Label("The scan file is no longer on this phone.", systemImage: "exclamationmark.triangle")
-                    } else {
-                        sendSection
-                        ShareLink(item: scan.modelFile) {
-                            Label("Share the file", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        Text("If the laptop cannot be reached: AirDrop the file to a Mac or copy it by cable, then use Import scan file on the laptop.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-
-                        Button(action: { preview = scan.modelFile }, label: {
-                            Label("Look at the model", systemImage: "cube").frame(maxWidth: .infinity)
-                        })
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+            if hasFile {
+                sendPanel
+                HStack(spacing: 10) {
+                    ShareLink(item: scan.modelFile) {
+                        Label("Share file", systemImage: "square.and.arrow.up")
                     }
-
-                    Divider()
-
-                    Button("Pair with the laptop again") { showPairing = true }
-                        .disabled(isSending)
-                    Button("Discard this scan", role: .destructive) { confirmDiscard = true }
-                        .disabled(isSending)
+                    .buttonStyle(SecondaryButtonStyle())
+                    Button(action: { preview = scan.modelFile }, label: {
+                        Label("View model", systemImage: "cube")
+                    })
+                    .buttonStyle(SecondaryButtonStyle())
                 }
-                .padding(20)
+                Hint("If the laptop cannot be reached, share the file: AirDrop it to a Mac or copy it by cable, then use Import scan file on the laptop.")
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    StatusLine(kind: .bad, text: "The scan file is gone")
+                    Hint("It is no longer on this phone. Discard this scan and scan again.")
+                }
+                .panel()
             }
-            .navigationTitle("Send to laptop")
+
+            if let problem = flow.pairingProblem, !showScanner {
+                StatusLine(kind: .bad, text: "Code not accepted")
+                Hint(problem)
+            }
+        } actions: {
+            if hasFile {
+                switch flow.upload {
+                case .sending:
+                    Button(action: {}, label: { Text("Sending") })
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(true)
+                case .failed:
+                    Button(action: { flow.send() }, label: {
+                        Label("Try again", systemImage: "arrow.clockwise")
+                    })
+                    .buttonStyle(PrimaryButtonStyle())
+                case .idle:
+                    Button(action: { flow.send() }, label: {
+                        Label("Send to laptop", systemImage: "arrow.up.circle")
+                    })
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            HStack(spacing: 24) {
+                Button("Pair again") {
+                    flow.pairingProblem = nil
+                    showScanner = true
+                }
+                Button("Discard scan") { confirmDiscard = true }
+            }
+            .buttonStyle(QuietButtonStyle())
+            .disabled(isSending)
         }
         .quickLookPreview($preview)
-        .sheet(isPresented: $showPairing) {
-            NavigationStack {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("Use this if the laptop's address changed. The scan is kept and goes to the laptop you pair with.")
-                        .foregroundStyle(.secondary)
-                    PairingEntry(title: "Read the code on the laptop", onPaired: { showPairing = false })
-                    Spacer()
-                }
-                .padding(20)
-                .navigationTitle("Pair again")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showPairing = false }
-                    }
-                }
-            }
+        .sheet(isPresented: $showScanner) {
+            ScannerSheet(onPaired: { showScanner = false })
         }
         .confirmationDialog("Discard this scan? Its photos and model are removed from this phone.",
                             isPresented: $confirmDiscard, titleVisibility: .visible) {
@@ -80,45 +93,34 @@ struct SendView: View {
         .onAppear { flow.sendIfJustBuilt() }
     }
 
-    private var isSending: Bool {
-        if case .sending = flow.upload { return true }
-        return false
-    }
-
     @ViewBuilder
-    private var sendSection: some View {
-        switch flow.upload {
-        case .sending(let fraction):
-            VStack(alignment: .leading, spacing: 8) {
-                ProgressView(value: fraction)
-                Text("Sending, \(Int((fraction * 100).rounded())) %")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("Keep the app open until it is done.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        case .failed(let reason):
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Not sent", systemImage: "exclamationmark.circle.fill").bold()
+    private var sendPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch flow.upload {
+            case .sending(let fraction):
+                HStack(alignment: .firstTextBaseline) {
+                    StatusLine(kind: .busy, text: "Sending")
+                    Spacer()
+                    Text("\(Int((fraction * 100).rounded())) %")
+                        .font(.system(size: 26, weight: .regular))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.text)
+                }
+                AccentProgressBar(fraction: fraction)
+                Hint("Keep the app open until it is done.")
+            case .failed(let reason):
+                StatusLine(kind: .bad, text: "Not sent")
                 Text(reason)
-                    .font(.subheadline)
-                Text("The scan is still on this phone.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Button(action: { flow.send() }, label: {
-                    Text("Try again").frame(maxWidth: .infinity)
-                })
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.soft)
+                    .fixedSize(horizontal: false, vertical: true)
+                Hint("The scan is still on this phone. Trying again does not need a new scan.")
+            case .idle:
+                StatusLine(kind: .good, text: "Ready to send")
+                Hint("The model was built on this phone. It goes to the laptop and nowhere else.")
             }
-        case .idle:
-            Button(action: { flow.send() }, label: {
-                Text("Send to laptop").frame(maxWidth: .infinity)
-            })
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
         }
+        .panel()
     }
 }
 
@@ -130,45 +132,43 @@ struct DoneView: View {
     @State private var confirmDelete = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Label("Sent to laptop", systemImage: "checkmark.circle.fill")
-                        .font(.title2.bold())
-                        .foregroundStyle(.green)
-                    if scan.duplicate {
-                        Text("The laptop already had this scan. Nothing was stored twice.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ScanSummary(scan: scan)
-
-                    Button(action: { flow.scanAnother() }, label: {
-                        Text("Scan another").frame(maxWidth: .infinity)
-                    })
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
-                    if scan.filesDeleted {
-                        Text("The photos and the model were deleted from this phone.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ShareLink(item: scan.modelFile) {
-                            Label("Share the file", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-
-                        Button("Delete the photos and the model from this phone", role: .destructive) {
-                            confirmDelete = true
-                        }
-                    }
+        Screen(step: 5, title: "Sent to laptop") {
+            HStack(spacing: 14) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Theme.onAccent)
+                    .frame(width: 52, height: 52)
+                    .background(Theme.accent, in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("The laptop has the scan")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    Hint(scan.duplicate
+                         ? "It already had this one. Nothing was stored twice."
+                         : "Open the Machine page on the laptop to see it.")
                 }
-                .padding(20)
             }
-            .navigationTitle("Done")
+            .panel()
+
+            ScanPanel(scan: scan)
+
+            if scan.filesDeleted {
+                Hint("The photos and the model were deleted from this phone.")
+            } else {
+                ShareLink(item: scan.modelFile) {
+                    Label("Share file", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+            }
+        } actions: {
+            Button(action: { flow.scanAnother() }, label: {
+                Label("Scan another", systemImage: "viewfinder")
+            })
+            .buttonStyle(PrimaryButtonStyle())
+            if !scan.filesDeleted {
+                Button("Delete this scan from the phone") { confirmDelete = true }
+                    .buttonStyle(QuietButtonStyle())
+            }
         }
         .confirmationDialog("Delete this scan's photos and model from this phone? The laptop keeps its copy.",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -178,45 +178,55 @@ struct DoneView: View {
 }
 
 /// The machine, and the numbers of this scan: photos, build time, file size.
-private struct ScanSummary: View {
+private struct ScanPanel: View {
     let scan: StoredScan
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(scan.scan.pairing.displayName)
-                .font(.title2)
-                .bold()
-            Text(scan.scan.pairing.base.absoluteString)
-                .font(.footnote.monospaced())
-                .foregroundStyle(.secondary)
-            Divider()
-            row("Photos", "\(scan.photos)")
-            if let seconds = scan.buildSeconds {
-                row("Build time", Self.duration(seconds))
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                CapsLabel("Machine")
+                Text(scan.scan.pairing.displayName)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Theme.text)
             }
-            if let bytes = scan.modelBytes {
-                row("File size", megabytes(bytes))
+
+            Rectangle().fill(Theme.border).frame(height: 1)
+
+            HStack(alignment: .top, spacing: 12) {
+                figure("Photos", "\(scan.photos)")
+                figure("Build time", scan.buildSeconds.map(Self.duration) ?? "not timed")
+                figure("File size", scan.modelBytes.map(megabytes) ?? "no file")
             }
+
             if let id = scan.sentScanID, !id.isEmpty {
-                row("Scan id", id)
+                Rectangle().fill(Theme.border).frame(height: 1)
+                VStack(alignment: .leading, spacing: 6) {
+                    CapsLabel("Scan id")
+                    Text(id)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(Theme.soft)
+                        .textSelection(.enabled)
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .panel()
     }
 
-    private func row(_ name: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(name).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).multilineTextAlignment(.trailing)
+    private func figure(_ name: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CapsLabel(name)
+            Text(value)
+                .font(.system(size: 20, weight: .regular))
+                .monospacedDigit()
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
-        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private static func duration(_ seconds: Double) -> String {
         let whole = Int(seconds.rounded())
-        return whole < 60 ? "\(whole) s" : "\(whole / 60) min \(whole % 60) s"
+        return whole < 60 ? "\(whole) s" : "\(whole / 60) m \(whole % 60) s"
     }
 }

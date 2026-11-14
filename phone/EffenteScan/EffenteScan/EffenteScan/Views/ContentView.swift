@@ -35,6 +35,8 @@ struct ContentView: View {
             .onChange(of: appModel.state) { _, newState in
                 if newState == .reconstructing { flow.captureFinished() }
             }
+            // effente: one dark look for the whole app, as on the laptop.
+            .preferredColorScheme(.dark)
             .onOpenURL { url in
                 flow.pair(line: url.absoluteString)
             }
