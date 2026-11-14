@@ -368,7 +368,8 @@ PRESETS = {
 }
 
 
-# The team's choice (14 Nov) is "log64": make_model() gives it. BandModel() with no arguments is still "lin50".
+# make_model() gives "log64"; BandModel() with no arguments is "lin50". The team's choice since round 3 (14 Nov) is
+# "hyb60", which is not in this file: training/record/sscc_eval/round3/round3_model.py.
 def make_model(preset: str = "log64", **kw) -> "BandModel":
     return BandModel(**{**PRESETS[preset], **kw})
 
