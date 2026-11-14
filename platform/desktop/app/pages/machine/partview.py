@@ -11,7 +11,7 @@ from app.theme import tokens as t
 from app.theme.qss import css
 from app.widgets import Button, Panel, Segmented, SimChip
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -63,6 +63,38 @@ class Elided(QLabel):
         p = QPainter(self)
         p.setPen(self.palette().windowText().color())
         text = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
+        p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
+
+
+class Fitted(Elided):
+    """One line that shrinks its font to fit, down to `floor` px, so a number is never cut. Only below
+    that does it end in an ellipsis, with the whole text in its tooltip."""
+
+    def __init__(self, text: str, role: str, font, floor: int):
+        super().__init__(text, role, font)
+        self.floor = floor
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self.setToolTip(text)
+
+    def fitted_font(self) -> QFont:
+        font = QFont(self.font())
+        size = font.pixelSize()  # the theme sets sizes in px
+        while size > self.floor and QFontMetrics(font).horizontalAdvance(self.text()) > self.width():
+            size -= 1
+            font.setPixelSize(size)
+        return font
+
+    def fits(self) -> bool:
+        return QFontMetrics(self.fitted_font()).horizontalAdvance(self.text()) <= self.width()
+
+    def paintEvent(self, _event) -> None:
+        font = self.fitted_font()
+        p = QPainter(self)
+        p.setFont(font)
+        p.setPen(self.palette().windowText().color())
+        text = QFontMetrics(font).elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
         p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
 
 
@@ -133,9 +165,8 @@ class Tile(QFrame):
         col.setSpacing(0)
         self.label = label("", "muted", fonts.small())
         self.simulated = False
-        self.value = label("", "strong", fonts.font(22, 600, tracking=t.TRACK_TITLE))
-        self.sub = label("", "muted", fonts.small())
-        self.sub.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.value = Fitted("", "strong", fonts.font(22, 600, tracking=t.TRACK_TITLE), 13)
+        self.sub = Fitted("", "muted", fonts.small(), 10)
         col.addWidget(self.label)
         col.addWidget(self.value)
         col.addWidget(self.sub)
@@ -144,7 +175,6 @@ class Tile(QFrame):
         self.label.setText(tile.label)
         self.value.setText(tile.value)
         self.sub.setText(tile.sub)
-        self.sub.setToolTip(tile.sub)
         self.simulated = tile.simulated
 
 
@@ -172,7 +202,7 @@ class ChartPanel(Panel):
     range_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
-        super().__init__("Vibration over time", "mm/s, one point a visit", parent=parent)
+        super().__init__("Vibration over time", parent=parent)  # the axis says mm/s; there is no room for a hint
         self.sim_chip = _sim_chip()
         self.range = Segmented([(k, lab) for k, lab, _ in rd.RANGES], current=rd.DEFAULT_RANGE, small=True)
         self.range.changed.connect(self.range_changed)
