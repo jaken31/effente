@@ -67,7 +67,7 @@ def test_the_general_api_calls(make_host, tmp_path, monkeypatch):
     api = ApiClient(host.url)
     assert api.get("/api/state")["ok"] is True
     assert api.put(f"/api/devices/{quote('effente 01')}/settings", {"sensitivity": 0.3})["settings"] == {"sensitivity": 0.3}
-    with pytest.raises(ApiError, match="not built yet"):
+    with pytest.raises(ApiError, match="no such scan"):
         api.get_bytes("/api/scans/scan-1/model.glb")
 
     # A file goes up as raw bytes and comes back the same, through the receiver's two file helpers.
