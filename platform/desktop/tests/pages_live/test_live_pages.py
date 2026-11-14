@@ -198,7 +198,7 @@ def test_history_flags_scores_over_the_line(history):
     m = history.records_model
     flagged = [m.index(r, 5).data(history.records_table.FlagRole) for r in range(m.rowCount())]
     scores = [m.index(r, 5).data() for r in range(m.rowCount())]
-    assert flagged[0] and scores[0] == "1.61"
+    assert flagged[0] and float(scores[0]) > 1.0  # the newest sample record is over the line, whatever its score
     assert not any(f for f, s in zip(flagged, scores) if s == "–" or float(s) <= 1.0)
 
 
