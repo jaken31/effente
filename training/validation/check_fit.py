@@ -10,10 +10,12 @@ Per seed, the 5-minute calibration rows of one simulated conveyor and one simula
   generic_rotating  meant for any machine without its own entry: right for the server racks; the
                     conveyors are reported too. No simulated machine is wrong for it.
 
-The pass rule is open (TRD, and track 3's entry manifests). Counting passes and fails needs one, so
-those rows use the placeholder rule named in training/validation/track3.py and say so. The numbers
-a rule would be set from are reported as they are and kept per machine in the result file: the
-calibration rows' median score over the entry's threshold, and over the entry's own held-out median.
+The pass rule is track 3's (effente.calibration.fit_check): the median score of the held-out
+calibration rows on the calibrated model, over the entry's own held-out median, must not be above
+effente.calibration.FIT_MAX_RATIO. That limit is a starting value set on the simulators and the TRD
+leaves the rule open, so the pass and fail shares say so (training/validation/track3.py, FIT_RULE).
+Two numbers are reported as they are and kept per machine in the result file: that ratio, and the
+calibration rows' median score on the entry as shipped over the entry's threshold.
 
 Simulated only: two machine types, both from simulators.
 """
@@ -36,7 +38,7 @@ def one(task, lib) -> list[dict]:
     (t, X), _ = sessions(machine, seed)
     rows = C.cut(t, X, t[0], t[0] + C.CALIB_S)
     return [dict(entry=entry, machine=machine, seed=seed, right_entry=RIGHT[(entry, machine)],
-                 **C.track3.fit_check(lib[entry], *rows, list(F.FEATURE_NAMES))) for entry in lib]
+                 **C.track3.fit_check(lib[entry], C.track3.manifest(entry), *rows, list(F.FEATURE_NAMES))) for entry in lib]
 
 
 def rows_of(detail) -> list[dict]:
@@ -50,9 +52,10 @@ def rows_of(detail) -> list[dict]:
             rows.append({"entry": entry, "metric": f"fit check, {machine} machines ({kind}): share that {verb}",
                          "value": C.share(d["passes"] == (verb == "pass") for d in got), "n": f"{len(got)} machines",
                          "standin": getattr(C.track3, "FIT_RULE", None)})
-            for key, text in (("score_over_entry_line", "median calibration score over the entry's threshold"),
-                              ("score_over_entry_heldout_median",
-                               "median calibration score over the entry's own held-out median score")):
+            for key, text in (("score_over_entry_heldout_median",
+                               "median held-out score after calibration over the entry's own held-out median score"),
+                              ("score_over_entry_line",
+                               "median calibration score on the entry as shipped over the entry's threshold")):
                 over = [d[key] for d in got if key in d]
                 if over:
                     rows.append({"entry": entry, "metric": f"fit check, {machine} machines ({kind}): {text}, median over machines",

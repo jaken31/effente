@@ -11,6 +11,7 @@ import json
 import numpy as np
 import pytest
 
+from effente import calibration as CAL
 from effente import fault_types as FT
 from effente import features as F
 from effente import model_runtime as RT
@@ -102,8 +103,10 @@ def test_session_starts_are_in_the_running_shift_and_fixed_by_the_seed():
 
 
 def test_entry_machines_are_never_test_machines():
-    assert track3.TRAINING_SEEDS == {"conveyor": [11, 12, 13, 14, 15], "server": [21]}
-    for seed in (11, 21):
+    # the library's catalog: `conveyor` is built on seed 21, generic_rotating on 101 to 106; the
+    # server rack is an evaluation source only, so no server seed is a training machine
+    assert track3.TRAINING_SEEDS == {"conveyor": [21, 101, 102, 103, 104, 105, 106], "server": []}
+    for seed in (21, 101):
         with pytest.raises(SystemExit):
             C.args_for("", ["--seeds", f"1,{seed}"])
     assert C.args_for("", ["--seeds", "3,4"]).seeds == [3, 4]
@@ -133,32 +136,35 @@ def test_the_library_is_track_3s_committed_entries():
     lib = track3.library()
     assert tuple(lib) == track3.ENTRIES == ("conveyor", "generic_rotating") and not track3.IS_STANDIN
     for name, entry in lib.items():
-        assert entry["library_entry"] == name and entry["period_s"] == 1 and RT.Model(entry).threshold > 0
+        assert track3.manifest(name)["entry_id"] == name and entry["period_s"] == 1 and RT.Model(entry).threshold > 0
 
 
 def test_calibration_keeps_the_entrys_network_and_runs_under_five_minutes(model):
-    t, X = minutes(0.05, seed=2)  # 72 rows: under the 300 that calibration asks for on its own
+    t, X = minutes(0.05, seed=2)  # 72 periods: under the 300 s that calibration asks for on its own
     d, report = track3.calibrate(model, t, X, NAMES)
-    assert d["autoencoder"] == model["autoencoder"] and d["threshold"] == model["threshold"]
-    assert d["prep"]["centre"] != model["prep"]["centre"] and report["rows_used"] == 72
-    with pytest.raises(ValueError):
-        track3.calibrate(model, t[:track3.MIN_CALIB_ROWS - 1], X[:track3.MIN_CALIB_ROWS - 1], NAMES)
+    assert d["autoencoder"] == model["autoencoder"] and d["prep"]["centre"] != model["prep"]["centre"]
+    assert report["rows_fit"] + report["rows_held_out"] == 72
+    # the threshold is this machine's own, not the entry's
+    assert d["threshold"] == pytest.approx(report["threshold_median_multiple"] * report["held_out_smoothed_median"], rel=1e-3)
+    with pytest.raises(ValueError):  # calibration's own hard floor still refuses
+        track3.calibrate(model, t[:CAL.MIN_ROWS - 1], X[:CAL.MIN_ROWS - 1], NAMES)
 
 
-def test_fit_check_gives_the_calibration_numbers_and_the_placeholder_verdict(model):
-    t, X = minutes(1, seed=7, start=5 * DAY)
-    same = track3.fit_check(model, t, X, NAMES)
-    assert same["passes"] is (same["score_over_entry_line"] <= 1.0) and 0 < same["score_over_entry_line"] < 1
-    assert "score_over_entry_heldout_median" not in same  # this entry is a trainer's model: no such number
-    entry = track3.library()["conveyor"]
-    real = track3.fit_check(entry, *minutes(0.25, seed=7), NAMES)
-    assert real["score_over_entry_heldout_median"] == pytest.approx(
-        real["score_over_entry_line"] * entry["threshold"] / entry["training_report"]["heldout_score_median"], rel=1e-2)
-    rng = np.random.default_rng(0)  # a machine whose readings do not move together as the entry's do
-    for name in ("vib_1x", "vib_2x", "vib_velocity_mm_s", "snd_level_db", "env_hot_above_room_c", "th_max_c"):
-        X[:, F.INDEX[name]] = rng.normal(0, 1, len(X))
-    assert track3.fit_check(model, t, X, NAMES)["score_over_entry_line"] > same["score_over_entry_line"]
-    assert "placeholder" in track3.FIT_RULE
+def test_fit_check_gives_track_3s_verdict_and_the_numbers_behind_it(model):
+    t, X = minutes(0.05, seed=7, start=5 * DAY)
+    _, report = track3.calibrate(model, t, X, NAMES)
+    mine = report["score_quantiles_held_out"]["p50"]
+    fits = track3.fit_check(model, {"heldout_score_quantiles": {"p50": mine}}, t, X, NAMES)
+    assert fits["passes"] is True and fits["score_over_entry_heldout_median"] == 1.0
+    assert fits["score_over_entry_line"] == pytest.approx(
+        report["score_quantiles_before_calibration"]["p50"] / model["threshold"], rel=1e-3)
+    over = mine / (2 * CAL.FIT_MAX_RATIO)  # an entry whose own scores are far lower than this machine's
+    far = track3.fit_check(model, {"heldout_score_quantiles": {"p50": over}}, t, X, NAMES)
+    assert far["passes"] is False and far["score_over_entry_heldout_median"] == pytest.approx(2 * CAL.FIT_MAX_RATIO)
+    unchecked = track3.fit_check(model, {}, t, X, NAMES)  # a check that could not be made does not pass
+    assert unchecked["passes"] is False and "not checked" in unchecked["reason"]
+    assert "score_over_entry_heldout_median" not in unchecked and "score_over_entry_line" in unchecked
+    assert "starting rule" in track3.FIT_RULE and f"{CAL.FIT_MAX_RATIO:g}" in track3.FIT_RULE
 
 
 # ----------------------------------------------------------------- check 1
@@ -386,12 +392,13 @@ def test_fit_rows_count_passes_on_the_right_entry_and_fails_on_the_wrong_one():
               d("generic_rotating", "server", True, 0.1), d("generic_rotating", "conveyor", True, 0.3)]
     rows = {(r["entry"], r["metric"]): r for r in check_fit.rows_of(detail)}
     right = rows[("conveyor", "fit check, conveyor machines (right entry): share that pass")]
-    assert right["value"] == 0.5 and right["standin"] == track3.FIT_RULE  # counted with the placeholder rule
+    assert right["value"] == 0.5 and right["standin"] == track3.FIT_RULE  # the rule is a starting value: marked
     assert rows[("conveyor", "fit check, server machines (wrong entry): share that fail")]["value"] == round(2 / 3, 4)
-    pre = "fit check, server machines (wrong entry): median calibration score over the entry's "
-    assert rows[("conveyor", pre + "threshold, median over machines")]["value"] == 3.0
-    assert "standin" not in rows[("conveyor", pre + "threshold, median over machines")]  # a plain number
-    assert rows[("conveyor", pre + "own held-out median score, median over machines")]["value"] == 30.0
+    pre = "fit check, server machines (wrong entry): median "
+    line = rows[("conveyor", pre + "calibration score on the entry as shipped over the entry's threshold, median over machines")]
+    assert line["value"] == 3.0 and "standin" not in line  # a plain number
+    assert rows[("conveyor", pre + "held-out score after calibration over the entry's own held-out median score, "
+                 "median over machines")]["value"] == 30.0
     assert rows[("generic_rotating", "fit check, server machines (right entry): share that pass")]["value"] == 1.0
     assert rows[("generic_rotating", "fit check, conveyor machines (neither right nor wrong): share that pass")]["value"] == 1.0
 

@@ -3,8 +3,8 @@
 Everything here is simulated (effente.simulate_conveyor in realistic mode, effente.simulate_server,
 both with effente.site_noise). No device recording is read. One feature row a second, as the device
 keeps while recording, through the one signal pipeline (device.intake.extract.feature_stream).
-The simulators run every sensor; track 3's entries read the accelerometer and gyro readings only,
-so a fault that shows only in sound or heat is one today's entries cannot see.
+The simulators run every sensor; track 3's entries read the accelerometer, the gyro and the IMU's
+own temperature only, so a fault that shows only in sound or heat is one today's entries cannot see.
 
 A session is one stay of the device on one machine: it starts with a fresh history, like a device
 just snapped on. The first CALIB_S seconds are the calibration; the rest is watched.
