@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from ..theme import fonts
 from ..theme import tokens as t
+from . import motion
 
 KINDS = ("primary", "secondary", "ghost")
 
@@ -64,6 +65,23 @@ class _SegButton(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pad = (2, 10) if small else (4, 12)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self._lit = motion.Glide(self)  # 0 soft text, 1 full: hovered or chosen
+        self.toggled.connect(lambda _on: self._light())
+
+    def _light(self) -> None:
+        self._lit.to(1.0 if self.isChecked() or self.underMouse() else 0.0)
+
+    def enterEvent(self, e) -> None:
+        super().enterEvent(e)
+        self._light()
+
+    def leaveEvent(self, e) -> None:
+        super().leaveEvent(e)
+        self._light()
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._lit.jump(1.0 if self.isChecked() or self.underMouse() else 0.0)
 
     def sizeHint(self) -> QSize:
         fm = self.fontMetrics()
@@ -72,13 +90,8 @@ class _SegButton(QAbstractButton):
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = QRectF(self.rect())
-        if self.isChecked():
-            p.setPen(QPen(t.qcolor(t.ACCENT), 1))
-            rr = r.adjusted(0.5, 0.5, -0.5, -0.5)
-            p.drawRoundedRect(rr, rr.height() / 2, rr.height() / 2)
-        on = self.isChecked() or self.underMouse()
-        p.setPen(t.qcolor(t.TEXT if on else t.SOFT))
+        r = QRectF(self.rect())  # the ring round the chosen one is Segmented's to paint
+        p.setPen(motion.mix(t.qcolor(t.SOFT), t.qcolor(t.TEXT), self._lit.at))
         if not self.isEnabled():
             p.setOpacity(0.4)
         p.drawText(r, Qt.AlignmentFlag.AlignCenter, self.text())
@@ -109,6 +122,11 @@ class Segmented(QWidget):
             lay.addWidget(b)
         self._group.idClicked.connect(self._clicked)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # The ring slides from where it was (_ring_from) to the chosen button.
+        self._ring_from: QRectF | None = None
+        self._last: QAbstractButton | None = None
+        self._slide = motion.Glide(self, motion.SLIDE, 1.0)
+        self._group.idToggled.connect(self._toggled)
         self.set_current(current if current is not None else (self._keys[0] if self._keys else None))
 
     def keys(self) -> list[str]:
@@ -125,6 +143,7 @@ class Segmented(QWidget):
                 self._group.setExclusive(False)
                 b.setChecked(False)
                 self._group.setExclusive(True)
+            self._last = None
             return
         self._group.button(self._keys.index(key)).setChecked(True)
 
@@ -134,12 +153,37 @@ class Segmented(QWidget):
     def _clicked(self, i: int) -> None:
         self.changed.emit(self._keys[i])
 
+    def _toggled(self, i: int, on: bool) -> None:
+        if not on:
+            return
+        self._ring_from = self._ring_towards(self._last)  # where the ring is as it sets off
+        self._last = self._group.button(i)
+        self._slide.jump(0.0)
+        self._slide.to(1.0)  # jumps to the end when hidden or with motion off
+
+    def _ring_towards(self, button: QAbstractButton | None) -> QRectF | None:
+        """Where the ring is on its way to `button`: on it once the slide is done."""
+        if button is None:
+            return None
+        to = QRectF(button.geometry())
+        if self._ring_from is None or self._slide.at >= 1.0:
+            return to
+        return motion.lerp_rect(self._ring_from, to, self._slide.at)
+
+    def _ring(self) -> QRectF | None:
+        return self._ring_towards(self._group.checkedButton())
+
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(QPen(t.qcolor(t.BORDER), 1))
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        ring = self._ring()
+        if ring is not None:
+            p.setPen(QPen(t.qcolor(t.ACCENT), 1))
+            rr = ring.adjusted(0.5, 0.5, -0.5, -0.5)
+            p.drawRoundedRect(rr, rr.height() / 2, rr.height() / 2)
 
 
 class Toggle(QAbstractButton):
@@ -155,7 +199,7 @@ class Toggle(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pos = 1.0 if checked else 0.0
         self._anim = QPropertyAnimation(self, b"knob", self)
-        self._anim.setDuration(150)
+        self._anim.setDuration(motion.TOGGLE)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.toggled.connect(self._animate)
 
@@ -170,7 +214,7 @@ class Toggle(QAbstractButton):
 
     def _animate(self, on: bool) -> None:
         self._anim.stop()
-        if not self.isVisible():
+        if not self.isVisible() or not motion.enabled():
             self._set_knob(1.0 if on else 0.0)
             return
         self._anim.setStartValue(self._pos)

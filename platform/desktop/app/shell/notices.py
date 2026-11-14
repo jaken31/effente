@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ..theme import fonts
 from ..theme import tokens as t
-from ..widgets import Button, StatusDot
+from ..widgets import Button, StatusDot, motion
 
 FAILURE_MS = 8000
 MAX_SHOWN = 4  # the oldest goes when a fifth comes
@@ -87,12 +87,14 @@ class Notices(QWidget):
         self._col.setContentsMargins(0, 0, 0, 0)
         self._col.setSpacing(8)
         self._col.addStretch(1)
+        self._leaving: set[Notice] = set()  # fading out: still drawn, no longer counted
         host.installEventFilter(self)
         self.hide()
 
     def notices(self) -> list[Notice]:
         """Shown cards, oldest first."""
-        return [self._col.itemAt(i).widget() for i in range(1, self._col.count())]
+        cards = (self._col.itemAt(i).widget() for i in range(1, self._col.count()))
+        return [n for n in cards if n not in self._leaving]
 
     def show_failure(self, text: str) -> Notice:
         title, _, detail = text.partition(": ")
@@ -112,11 +114,17 @@ class Notices(QWidget):
         while len(self.notices()) > MAX_SHOWN:
             self._remove(self.notices()[0])
         self._place()
+        motion.fade_in(notice)
         return notice
 
     def _remove(self, notice: Notice) -> None:
-        if notice.parent() is not self:
-            return  # already gone
+        if notice.parent() is not self or notice in self._leaving:
+            return  # already gone or going
+        self._leaving.add(notice)
+        motion.fade_out(notice, lambda: self._drop(notice))
+
+    def _drop(self, notice: Notice) -> None:
+        self._leaving.discard(notice)
         self._col.removeWidget(notice)
         notice.setParent(None)
         notice.deleteLater()
@@ -124,7 +132,7 @@ class Notices(QWidget):
 
     def _place(self) -> None:
         host = self.parentWidget()
-        shown = self.notices()
+        shown = [self._col.itemAt(i).widget() for i in range(1, self._col.count())]
         if not shown or host is None:
             self.hide()
             return

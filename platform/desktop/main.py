@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import errno
 import logging
+import os
 import shutil
 import signal
 import sys
@@ -35,6 +36,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     parser.add_argument("--fake", action="store_true", help="no receiver: show fixed sample data (tests/fakes.py)")
+    parser.add_argument("--no-motion", action="store_true", help="no animations (as EFFENTE_REDUCE_MOTION=1)")
     parser.add_argument("--scheme", help="colour scheme for this run: red, amber, blue or light (default: the saved one)")
     return parser.parse_args(argv)
 
@@ -42,6 +44,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    if args.no_motion:
+        os.environ["EFFENTE_REDUCE_MOTION"] = "1"
 
     from app import settings
     from app.theme import apply_theme, schemes

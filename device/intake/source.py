@@ -184,12 +184,25 @@ class UnoQSource:
     wall-clock time by the offset seen when batches arrive, tracked slowly, and re-anchored if the
     two drift more than a second apart (for example when NTP corrects the board's clock). Lost
     samples are counted from the sample numbers; the timestamps simply skip them.
+
+    Slots for sensors not fitted yet (unverified: no sketch sends these yet). Each is off unless
+    switched on, because the pipeline waits for every sensor it is told about:
+      audio=True    INMP441 microphone, notification "audio": (micros() at the last sample, samples as
+                    big-endian int32, already shifted down to 24 bits). 16 kHz by default. Raw 16 kHz audio
+                    is about 64 kB/s, far more than the Bridge line carries (about 11.5 kB/s, most of it
+                    already used by the IMU), so the microphone needs another route or processing on the
+                    microcontroller first (device/app/README.md, "Limits and known issues")
+      thermal=True  MLX90640-D55 thermal camera (55 degree view, 24 x 32 pixels, I2C address 0x33),
+                    notification "thermal": (micros() when read, 768 big-endian int16 in hundredths of
+                    a deg C, row by row). One frame is 1.5 kB, so 4 frames a second also needs more
+                    room on the line than is left
     """
 
     sensors = ("accel", "gyro", "imu_temp")
 
     def __init__(self, rate_hz: float = 1000.0, gyro_every: int = 10, accel_lsb_per_g: float = 4096.0,
-                 gyro_lsb_per_dps: float = 131.0, max_packets: int = 3000, clock=None):
+                 gyro_lsb_per_dps: float = 131.0, max_packets: int = 3000, clock=None,
+                 audio: bool = False, thermal: bool = False, audio_rate_hz: float = 16000.0, audio_bits: int = 24):
         import queue
         import time as _time
         self.rate, self.nominal, self.gyro_every = rate_hz, rate_hz, gyro_every
@@ -199,8 +212,10 @@ class UnoQSource:
         lt = _time.localtime(self.clock())
         now = self.clock()
         week_t = lt.tm_wday * 86400 + lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
+        self.sensors = UnoQSource.sensors + (("audio",) if audio else ()) + (("thermal",) if thermal else ())
         self.info = SourceInfo(accel_lsb_per_g=accel_lsb_per_g, accel_range_g=32768.0 / accel_lsb_per_g,
-                               gyro_lsb_per_dps=gyro_lsb_per_dps, week_offset_s=week_t - now)
+                               gyro_lsb_per_dps=gyro_lsb_per_dps, week_offset_s=week_t - now,
+                               audio_rate_hz=audio_rate_hz, audio_bits=audio_bits)
         self.offset: float | None = None  # wall time minus microcontroller time
         self.wraps, self.last_us = 0, None
         self.anchor: tuple[int, float] | None = None  # (sample number, microcontroller seconds) for the rate
@@ -208,7 +223,7 @@ class UnoQSource:
         self.last_t = {s: -math.inf for s in self.sensors}
         self.imu_who = 0x70  # the chip's WHO_AM_I, for the temperature formula; main.py sets it from the heartbeat
         self.stats = {"batches": 0, "samples": 0, "lost": 0, "gaps": 0, "overflows": 0, "dropped_packets": 0,
-                      "reanchors": 0, "rate_hz": rate_hz, "imu_temp_c": None}
+                      "reanchors": 0, "rate_hz": rate_hz, "imu_temp_c": None, "audio_blocks": 0, "thermal_frames": 0}
         self._closed = False
 
     # ------------------------------------------------------------ from the Bridge thread
@@ -252,6 +267,38 @@ class UnoQSource:
         self.stats["samples"] += n
         self.stats["overflows"] = int(overflows)
         self.stats["rate_hz"] = round(self.rate, 2)
+
+    def _wall_s(self, t_us) -> float | None:
+        """A microcontroller micros() as wall-clock seconds, by the offset the IMU batches keep; None until the
+        first IMU batch has arrived."""
+        if self.offset is None:
+            return None
+        return self.offset + (int(t_us) + self.wraps * 2 ** 32) / 1e6
+
+    def on_audio(self, t_us, samples) -> None:
+        """INMP441 samples (see the class notes). Ignored unless the source was made with audio=True."""
+        t_last = self._wall_s(t_us)
+        if "audio" not in self.sensors or t_last is None:
+            return
+        raw = bytes(samples)
+        a = np.frombuffer(raw[:len(raw) - len(raw) % 4], ">i4").astype(np.float32)  # whole samples only
+        if not len(a):
+            return
+        t = t_last - (len(a) - 1 - np.arange(len(a))) / self.info.audio_rate_hz
+        self._put("audio", t, a)
+        self.stats["audio_blocks"] += 1
+
+    def on_thermal(self, t_us, frame) -> None:
+        """One MLX90640-D55 frame (see the class notes). Ignored unless the source was made with thermal=True."""
+        t = self._wall_s(t_us)
+        if "thermal" not in self.sensors or t is None:
+            return
+        raw = bytes(frame)
+        if len(raw) != 24 * 32 * 2:
+            return  # a cut-off frame: never guess the missing pixels
+        v = np.frombuffer(raw, ">i2")
+        self._put("thermal", np.array([t]), (v.astype(np.float32) / 100.0).reshape(1, 24, 32))
+        self.stats["thermal_frames"] += 1
 
     def _put(self, sensor, t, v) -> None:
         import queue

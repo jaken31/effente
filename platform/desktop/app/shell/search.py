@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from ..theme import fonts
 from ..theme import tokens as t
+from ..widgets import motion
 
 WIDTH = 520
 TOP = 96  # from the window's top edge
@@ -113,6 +114,7 @@ class Search(QFrame):
         self._filter("")
         self.show()
         self.raise_()
+        motion.fade_in(self, motion.HOVER)
         self.field.setFocus()
 
     def close_search(self) -> None:
