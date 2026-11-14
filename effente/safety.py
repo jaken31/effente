@@ -161,15 +161,20 @@ SOUND_FEATURE = "snd_level_db"
 # shows at once and stays IMPACT_HOLD_S. (problem, reading, how it is compared, the margin from margins()):
 #   "ratio": the reading is a log10; over means more than margin times the highest
 #   "over":  the reading is in its own unit; over means more than margin above the highest
-# Temperature margins are a third of the lasting check's (5 degC at the default, where hotter_than_normal has
-# 15): a moment well over anything seen is news sooner than a level that has to last. A reading the device
-# doesn't have (no thermal camera) is simply not learned and not checked. All unverified on a machine: only
-# sudden_impact and sudden_sound have been set off on purpose, on a bench.
+# For heat, a moment is a RISE, never a level: the temperature's rise per minute, and the camera's fastest change
+# of any pixel within the second, each over the fastest seen while learning by a third of the lasting check's
+# margin (5 degC, or 5 degC a minute, at the default). The first version compared the temperature itself with
+# the hottest second of the recording: a device recorded cold and used warm alarmed for good with no sudden
+# change at all (the review of 14 Nov, confirmed with a probe). A level that stays up is hotter_than_normal's to
+# say. A reading the device doesn't have (no thermal camera) is simply not learned and not checked.
+# TWIST_MIN_DPS: a twist under this never counts, however still the device lay while learning (as IMPACT_MIN_G
+# for impacts): on a bench the highest learned was 10 deg/s, and a touch to the table doubled it.
+# All unverified on a machine: only sudden_impact, sudden_sound and sudden_twist have been set off, on a bench.
+TWIST_MIN_DPS = 30.0
 MORE_MOMENTS = (
-    ("sudden_twist", "gyr_peak", "ratio", lambda m: m["vibration"]),          # a jolt that turns the device or its mount
-    ("sudden_heat", "imu_temp_c", "over", lambda m: m["temperature"] / 3.0),  # the IMU's own temperature
-    ("sudden_heat", "th_max_c", "over", lambda m: m["temperature"] / 3.0),    # the camera's hottest point
-    ("sudden_heat", "th_change_c", "over", lambda m: m["temperature"] / 3.0), # the fastest change of any pixel in the second
+    ("sudden_twist", "gyr_peak", "ratio", lambda m: m["vibration"]),                        # a jolt that turns the device
+    ("sudden_heat", "trend_heat_rise_per_min", "over", lambda m: m["temperature"] / 3.0),   # degC a minute
+    ("sudden_heat", "th_change_c", "over", lambda m: m["temperature"] / 3.0),               # any pixel, within the second
 )
 MOMENT_COLUMNS = (SOUND_FEATURE,) + tuple(f for _, f, _, _ in MORE_MOMENTS)  # for learn_spike_levels, besides the spikes'
 
@@ -209,7 +214,7 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "sudden_impact": ("a sudden impact, well beyond any while learning", "SUDDEN IMPACT", "IMPACT {v:.1f}x NORMAL"),
     "sudden_sound": ("a sudden loud sound, well beyond any while learning", "SUDDEN LOUD SOUND", "{v:+.0f} dB OVER LOUDEST"),
     "sudden_twist": ("a sudden twist or jolt, well beyond any while learning", "SUDDEN TWIST", "TWIST {v:.1f}x NORMAL"),
-    "sudden_heat": ("suddenly hotter than at any time while learning", "SUDDEN HEAT", "{v:+.1f} C OVER HOTTEST"),
+    "sudden_heat": ("heating faster than at any time while learning", "SUDDEN HEAT", "{v:+.1f} C FASTER"),
 }
 
 # What each check means for people, in the same words as the model's fault types (effente.fault_types
@@ -432,7 +437,7 @@ class Safety:
             if math.isfinite(v):
                 m = margin(self.spike_margins)
                 over = 10 ** (v - float(tops[feature])) if how == "ratio" else v - float(tops[feature])
-                if over > m:
+                if over > m and not (feature == "gyr_peak" and 10 ** v < TWIST_MIN_DPS):
                     if t0 >= hold[0] or not over <= hold[1]:
                         hold[1] = over
                     hold[0] = t0 + IMPACT_HOLD_S
@@ -497,12 +502,13 @@ class Safety:
             if name in FROM_VIBRATION and "sensor_problem" in self.active:
                 over = False  # nothing judged from bad data: counts as clear until the sensor is fine
             if name in MOMENTS:  # no share of rows to wait for: on with the moment, off when its hold ends
+                peak = {"peak_g": _round(self.impact[1])} if name == "sudden_impact" else {}  # the impact's own, only
                 if over and name not in self.active:
                     self.active[name] = {"name": name, "symptom": SYMPTOM[name], "what": WHAT[name][0],
-                                         "value": _round(value), "peak_g": _round(self.impact[1]), "since": t0}
+                                         "value": _round(value), **peak, "since": t0}
                     started.append(self.active[name])
                 elif over:
-                    self.active[name].update(value=_round(value), peak_g=_round(self.impact[1]))
+                    self.active[name].update(value=_round(value), **peak)
                 elif name in self.active:
                     del self.active[name]
                     cleared.append(name)

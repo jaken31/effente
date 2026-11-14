@@ -50,6 +50,7 @@ from device.intake.recorder import Recorder
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
                 "watching": "DETECTING"}  # what the screen calls each mode, and status's "state"
+NO_DATA_S = 8.0  # no row for this long: the screen says NO DATA
 LIVE_EVERY_S, LIVE_WINDOW_S = 0.15, 1.0  # start_live_screen: how often (about 7 a second: 10 was a little too quick to read, the user), and from how much vibration
 SCREEN_EVERY_S = 0.2  # the layout goes to the screen with every row (4 a second): its arrival is the beat on which
 #                       all six tiles change (it was once a second, and the velocity and speed lagged the rest)
@@ -194,6 +195,8 @@ class DeviceApp:
         self._live_on, self._live, self._live_lock, self._live_acc = False, None, threading.Lock(), deque()
         self._stop = threading.Event()
         self._resumed_training = False  # training picked up after a power cut: if it fails, don't record
+        self.row_errors = 0  # rows or packets that raised; the pipeline carries on (status has the count)
+        self._row_at = None  # when the last row came, by this computer's own steady clock (for NO DATA)
         self._resume()
         if self.uploader is not None:
             self.uploader.on_settings = self.platform_settings
@@ -277,6 +280,7 @@ class DeviceApp:
             self._event("button", {"mode": self.mode})
 
     def _start_recording(self):
+        self._resumed_training = False  # a recording someone started: if its training fails, keep recording
         self.recording = self.dir / "recordings" / time.strftime("rec-%Y%m%d-%H%M%S", time.localtime(self.clock()))
         self.record_started = self.clock()
         self.result, self.message = None, ""
@@ -364,6 +368,7 @@ class DeviceApp:
                 self.model_path, self.watcher, self.mode = path, watcher, "watching"
                 self.model_version = version
                 self.sessions, self.fresh = [str(f) for f in folders], False  # what this model was learned from
+                self._resumed_training = False  # this training is over: the next one is judged on its own
                 self.safety.set_baseline(baseline)
                 self.message = ""
                 self.notes = list(baseline.get("warnings_screen", []))
@@ -415,15 +420,24 @@ class DeviceApp:
                 self._live_acc.append((p.t, p.values))
                 while len(self._live_acc) > 1 and self._live_acc[-1][0][-1] - self._live_acc[0][0][-1] > LIVE_WINDOW_S + 0.1:
                     self._live_acc.popleft()
-        rec = self.recorder
-        if rec is not None and self.mode == "recording":
-            rec.on_packet(p)
+        with self.lock:  # a command may be closing the recorder (idle, stop)
+            rec = self.recorder
+            if rec is not None and self.mode == "recording":
+                try:
+                    rec.on_packet(p)
+                except Exception:  # noqa: BLE001  a raw clip lost is better than the pipeline
+                    self.row_errors += 1
 
     def run(self):
         """Read sensors and process rows until stop() (or the source ends)."""
         try:
             for t0, x in feature_stream(self.source, hop_s=self.hop_s, tap=self._tap, history=self.history):
-                self._row(t0, x)
+                try:
+                    self._row(t0, x)
+                except Exception as e:  # noqa: BLE001  one bad row must never end the judging (the review, 14 Nov)
+                    self.row_errors += 1
+                    if self.row_errors <= 5 or self.row_errors % 100 == 0:
+                        self._event("row_error", {"error": f"{type(e).__name__}: {e}"[:200], "count": self.row_errors})
                 if self._stop.is_set():
                     break
         finally:
@@ -432,7 +446,7 @@ class DeviceApp:
             self.history.save(self.dir / "history.npz")
 
     def _row(self, t0, x):
-        self.latest, self.latest_t = x, t0
+        self.latest, self.latest_t, self._row_at = x, t0, time.monotonic()
         self._check_press_file()
         if getattr(self, "_clear_history", False):
             self._clear_history_now()
@@ -443,7 +457,8 @@ class DeviceApp:
         elif self._last_history_save is None or t0 - self._last_history_save >= HISTORY_SAVE_EVERY_S:
             self.history.save(self.dir / "history.npz")  # while recording, the recorder saves it
             self._last_history_save = t0
-        started, cleared = self.safety.update(t0, x)
+        with self.lock:  # a command on another thread may be setting the baseline (idle, detect, record)
+            started, cleared = self.safety.update(t0, x)
         for p in started:
             self._event("problem", p)
         for name in cleared:
@@ -519,7 +534,7 @@ class DeviceApp:
                                     "model_score_over": round(m["model"], 2),
                                     "sudden_impact_times_highest_while_learning": round(sp["vibration"], 2),
                                     "sudden_sound_db_over_loudest_while_learning": round(sp["sound"], 1),
-                                    "sudden_heat_degrees_over_hottest_while_learning": round(sp["temperature"] / 3.0, 1),
+                                    "sudden_heat_degrees_a_minute_over_fastest_while_learning": round(sp["temperature"] / 3.0, 1),
                                     "sudden_twist_times_highest_while_learning": round(sp["vibration"], 2),
                                     "model_spike_line_times": round(sp["model"], 2)},
                 "default": SF.DEFAULT_SENSITIVITY,
@@ -793,12 +808,15 @@ class DeviceApp:
                                    f"+{m0['sound']:g} dB over the loudest", f"+{sp['sound']:g} dB over the loudest",
                                    None if spikes.get("sound_max") is None else spikes["sound_max"] + sp["sound"]),
             "sudden_twist": moment("deg/s", "gyr_peak (the second's biggest turn)", gyr, f"{m0['vibration']:g}x the highest",
-                                   f"{sp['vibration']:g}x the highest", None if gyr is None else sp["vibration"] * gyr),
-            "sudden_heat": moment("degC", "imu_temp_c", tops.get("imu_temp_c"), f"+{m0['temperature'] / 3:g} degC over the hottest",
-                                  f"+{sp['temperature'] / 3:g} degC over the hottest", heat("imu_temp_c")),
-            "sudden_heat (camera, hottest point)": moment("degC", "th_max_c", tops.get("th_max_c"),
-                                                          f"+{m0['temperature'] / 3:g} degC over the hottest",
-                                                          f"+{sp['temperature'] / 3:g} degC over the hottest", heat("th_max_c")),
+                                   f"{sp['vibration']:g}x the highest",
+                                   None if gyr is None else max(sp["vibration"] * gyr, SF.TWIST_MIN_DPS),
+                                   {"never_below": SF.TWIST_MIN_DPS}),
+            "sudden_heat": moment("degC a minute", "trend_heat_rise_per_min (how fast the temperature is rising)",
+                                  tops.get("trend_heat_rise_per_min"), f"+{m0['temperature'] / 3:g} degC a minute over the fastest",
+                                  f"+{sp['temperature'] / 3:g} degC a minute over the fastest", heat("trend_heat_rise_per_min")),
+            "sudden_heat (camera)": moment("degC", "th_change_c (the fastest change of any pixel within the second)",
+                                           tops.get("th_change_c"), f"+{m0['temperature'] / 3:g} degC over the fastest",
+                                           f"+{sp['temperature'] / 3:g} degC over the fastest", heat("th_change_c")),
             "model_spike": {"reading": "spike_score in each result: one second's score over the spike line",
                             "default": f"{TR_SPIKE_TIMES:g}x the model's line", "margin_now": f"{sp['model']:g}x the spike line",
                             "fires_at": r(sp["model"]),
@@ -1037,7 +1055,10 @@ class DeviceApp:
             early = early_obj.screen() if early_obj is not None and mode == "watching" else None
         res = (self.result or {}) if mode == "watching" else None
         what = SF.verdict(res, problems)["what"]  # in plain words, the model's first, then the checks
-        if what:
+        stale = self._row_at is not None and time.monotonic() - self._row_at > NO_DATA_S
+        if stale:  # the sensors' rows have stopped: nothing is being judged, whatever the mode says
+            left = "!NO DATA"
+        elif what:
             left = "!" + SF.say(what)[0]
         elif mode == "watching" and early:
             left = early  # a small lasting change; never shown with a real problem
@@ -1103,6 +1124,9 @@ class DeviceApp:
                 s["learning_notes"] = list(self.watcher.m.d["baseline"]["warnings"])
         if hasattr(self.source, "stats"):
             s["sensors"] = dict(self.source.stats)
+        s["row_errors"] = self.row_errors
+        if self._row_at is not None:
+            s["last_row_age_s"] = round(time.monotonic() - self._row_at, 1)
         return s
 
     def _event(self, name, details):
@@ -1136,8 +1160,9 @@ HOW_TO_COMPUTE = {
     "one_moment": {
         "sudden_impact": "10 ** vib_peak_g > max(vibration_times * 10 ** highest_while_learning.vib_peak_g_log10, 0.05) g",
         "sudden_sound": "snd_level_db > highest_while_learning.snd_level_db + sound_dB",
-        "sudden_twist": "10 ** gyr_peak > vibration_times * 10 ** highest_while_learning.gyr_peak",
-        "sudden_heat": "imu_temp_c, th_max_c or th_change_c > highest_while_learning[reading] + temperature_degC / 3",
+        "sudden_twist": "10 ** gyr_peak > max(vibration_times * 10 ** highest_while_learning.gyr_peak, 30) deg/s",
+        "sudden_heat": "trend_heat_rise_per_min (degC a minute) or th_change_c > highest_while_learning[reading] "
+                       "+ temperature_degC / 3: a rise, never a level",
         "model_spike": "one second's score > model_spike_line * model margin (the result's spike_score is "
                        "score / model_spike_line)",
         "stays_s": 30},

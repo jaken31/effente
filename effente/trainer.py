@@ -302,6 +302,7 @@ SMOOTH_LONG, SMOOTH_SHORT = 10, 5  # periods the Watcher takes the median of bef
 # like): with 1-minute periods the model sees minute medians, which a 1-second spike cannot move, and system C's
 # false-alert numbers were measured without a second alarm path. Unverified: not yet run for long on a machine.
 SPIKE_LINE_TIMES = 2.5
+SPIKE_LINE_HEADROOM = 1.5
 # Readings a short recording (periods under a minute: under about a day) cannot learn the range of, so its model
 # leaves them out: the time of day, the device's tilt (gravity on x, y, z) and the temperature with its trends.
 # In 10 minutes each hardly moves, so its learned spread is tiny, and afterwards the clock moving on, the device
@@ -437,7 +438,9 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
     if not long:  # kept in the baseline (it already carries added keys), so the model file gets no new key
         single = s_int[calib]
         baseline["model_spike"] = {
-            "line": round(SPIKE_LINE_TIMES * d["threshold"], 4),
+            # never under SPIKE_LINE_HEADROOM x the highest single held-out period: where healthy seconds already
+            # came close to 2.5x the threshold, that multiple alone would alarm on a healthy one (the review, 14 Nov)
+            "line": round(max(SPIKE_LINE_TIMES * d["threshold"], SPIKE_LINE_HEADROOM * float(single.max())), 4),
             "highest_held_out": round(float(single.max()), 4),
             "tail_one_a_week": round(gamma_threshold(single, 7 * 86400 / period), 4),
             "note": f"one period's own score over this alarms at once: {SPIKE_LINE_TIMES:g}x the model's threshold "
