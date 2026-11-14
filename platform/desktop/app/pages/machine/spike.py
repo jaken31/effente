@@ -31,18 +31,23 @@ def main(argv=None) -> int:
     parser.add_argument("--check", metavar="PNG", help="load, draw, click the middle, save a picture, exit")
     args = parser.parse_args(argv)
 
-    from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
-
     from app.theme import apply_theme, schemes
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import (
+        QApplication,
+        QHBoxLayout,
+        QLabel,
+        QMainWindow,
+        QVBoxLayout,
+        QWidget,
+    )
 
     schemes.apply(schemes.saved())
     app = QApplication(sys.argv[:1])
     apply_theme(app)
 
-    from scan_glb import bounds, box_glb
-
     from app.pages.machine.view3d import ModelView, can_draw
+    from scan_glb import bounds, box_glb
 
     if args.model:
         model = Path(args.model)
