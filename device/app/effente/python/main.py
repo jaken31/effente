@@ -44,12 +44,15 @@ mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and sc
 
 
 def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors,
-                 oled_errors=None, frames=None):  # the last two only from sketches that send them
+                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None):
+    # The last four only from sketches that send them. mic_lines: lines received from the ESP32 microphone
+    # front end; mic_db10: its last level in tenths of a dB below full scale (screen only, not a feature yet).
     if mpu_ok:
         source.imu_who = int(who_am_i)  # the temperature formula depends on the chip (device.intake.source.imu_temp_c)
     mcu.update(beat=dict(up_s=round(ms / 1000), sensor=bool(mpu_ok), screen=bool(oled_ok), who_am_i=hex(who_am_i),
                          bus_clocks=bus_clocks, bus_tries=bus_tries, sda_high=bool(sda_high), scl_high=bool(scl_high),
-                         read_errors=read_errors, screen_errors=oled_errors, frames=frames), at=time.time())
+                         read_errors=read_errors, screen_errors=oled_errors, frames=frames,
+                         mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10), at=time.time())
 
 
 Bridge.provide("hb", on_heartbeat)
