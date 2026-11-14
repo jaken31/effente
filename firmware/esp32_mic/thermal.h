@@ -131,6 +131,8 @@ static void thServe(bool fresh) {
   WiFiClient c = thRaw.accept();
   if (c) {
     c.setNoDelay(true);
+    c.setTimeout(200);  // a write waits this long at most (not availableForWrite(): on this core it always says 0
+                        // for a network client, and with that as the test nothing was ever sent: found 13 Nov)
     bool kept = false;
     for (int i = 0; i < TH_CLIENTS && !kept; i++)
       if (!thRawClients[i] || !thRawClients[i].connected()) {
@@ -156,6 +158,7 @@ static void thServe(bool fresh) {
       for (int i = 0; i < TH_CLIENTS && !kept; i++)
         if (!thSseClients[i] || !thSseClients[i].connected()) {
           thSseClients[i].stop();
+          h.setTimeout(200);
           thSseClients[i] = h;
           kept = true;
         }
@@ -175,16 +178,14 @@ static void thServe(bool fresh) {
   for (int i = 0; i < TH_CLIENTS; i++) {
     WiFiClient &r = thRawClients[i];
     if (r && r.connected()) {
-      if (r.availableForWrite() >= (int)TH_FRAME) r.write(thFrame, TH_FRAME);  // behind: it misses this frame
+      if (r.write(thFrame, TH_FRAME) != TH_FRAME) r.stop();  // it could not take a frame in 200 ms: it may connect again
     } else if (r) r.stop();
     WiFiClient &s = thSseClients[i];
     if (s && s.connected()) {
       size_t len = strlen(thJson);
-      if (s.availableForWrite() >= (int)len + 16) {
-        s.print("data: ");
-        s.write((const uint8_t *)thJson, len);
-        s.print("\n\n");
-      }
+      s.print("data: ");
+      if (s.write((const uint8_t *)thJson, len) != len) s.stop();
+      else s.print("\n\n");
     } else if (s) s.stop();
   }
 }
@@ -201,6 +202,8 @@ static bool soundToWifi(const uint8_t *frame, size_t len) {
   WiFiClient c = thSound.accept();
   if (c) {
     c.setNoDelay(true);
+    c.setTimeout(200);  // a write waits this long at most (not availableForWrite(): on this core it always says 0
+                        // for a network client, and with that as the test nothing was ever sent: found 13 Nov)
     bool kept = false;
     for (int i = 0; i < TH_CLIENTS && !kept; i++)
       if (!thSoundClients[i] || !thSoundClients[i].connected()) {
@@ -214,7 +217,8 @@ static bool soundToWifi(const uint8_t *frame, size_t len) {
   for (int i = 0; i < TH_CLIENTS; i++) {
     WiFiClient &s = thSoundClients[i];
     if (s && s.connected()) {
-      if (s.availableForWrite() >= (int)len && s.write(frame, len) == len) sent = true;
+      if (s.write(frame, len) == len) sent = true;
+      else s.stop();  // it could not take a set in 200 ms: it may connect again
     } else if (s) s.stop();
   }
   return sent;
