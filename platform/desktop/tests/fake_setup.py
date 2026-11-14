@@ -81,6 +81,7 @@ class FakeSetup(Setup):
         self._wanted = None
         self._device_entry = None
         self._local = None
+        self._lookup_problem = ""
         self.started_runs: list = []  # (answers, mode) of each start_run call
 
     def fill(self) -> None:
@@ -118,6 +119,9 @@ class FakeSetup(Setup):
 
     def device_entry(self):
         return self._device_entry if self._here() else None
+
+    def lookup_problem(self) -> str:
+        return self._lookup_problem if self._here() else ""
 
     def profile_known(self) -> bool:
         return True  # the fake always knows which machines have a profile
@@ -172,6 +176,13 @@ class FakeSetup(Setup):
     def set_choice(self, choice) -> None:
         """Show another choice, or `None` for one that is being fetched."""
         self._choice = choice
+        self.profile_changed.emit()
+
+    def set_lookup_problem(self, problem: str) -> None:
+        """Show the lookup as failed with this reason ("" for none), and no choice."""
+        self._lookup_problem = problem
+        if problem:
+            self._choice = None
         self.profile_changed.emit()
 
     def set_entries(self, wanted, device) -> None:
