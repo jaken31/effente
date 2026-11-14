@@ -1,0 +1,16 @@
+{
+  "note": "An unbalance alarm answered as a false alarm, naming the drive roller. The finding says it does not need repair: the advice is no, citing the finding and the alarm.",
+  "part_id": "part-0007",
+  "state": "nothing_found",
+  "needs_repair": "no",
+  "cited_alarms": [
+    "alarm-1234"
+  ],
+  "cited_entries": [
+    "entry-000124"
+  ],
+  "how": "",
+  "since": "2026-11-14T18:30:00Z",
+  "sheet_entries": 2,
+  "sheet_alarms": 1
+}
