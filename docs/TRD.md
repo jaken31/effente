@@ -282,6 +282,7 @@ The agent currently lives in `device/agent/`. It moves under `platform/` as part
 | 2. Data and signal | Protocol, multi-session recordings, sensitivity sweep, IMS dataset | Microphone, thermal camera, variable speed |
 | 3. Model | Library entries (`conveyor`, `generic_rotating`), calibration on top of an entry, trainer, runtime, fault types, model file, validation | Fault test rig, more library entries |
 | 5. Platform, agent and business | Dashboard, agent fleet, validation slides, pitch | Alarm feedback, fleet view, log in flow (accounts kept on the laptop, no outside service), user onboarding |
+| 6. Phone scan | None: stretch only | The phone scan of a machine, and with track 5 the Machine page and the part log ([scan-and-log-plan.md](scan-and-log-plan.md)) |
 
 Track 4 was merged into track 3. The number is left unused so track 5 keeps its name.
 

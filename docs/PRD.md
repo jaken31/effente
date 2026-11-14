@@ -82,6 +82,7 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 | P12 | Day-0 rules: general vibration and temperature limits that work before any learning ([model-lifecycle.md](model-lifecycle.md)). |
 | P13 | Variable motor speed. |
 | P14 | Alarm feedback on the dashboard: "real problem" or "false alarm". |
+| P15 | A 3D scan of each machine, made with a phone and kept on the laptop, and a log for each part that replaces the maintenance spreadsheet ([scan-and-log-plan.md](scan-and-log-plan.md)). |
 
 ## Demo script
 
