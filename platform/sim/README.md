@@ -173,7 +173,7 @@ If a run stops part way, what was sent stays. A later run reuses the parts it ma
 
 After writing it prints each part's readings count and projection status from `GET /api/parts/<part_id>/readings`, or says the route is not available yet.
 
-Part states after a run follow contract 8.7 as written: the parts are made at run time and every record is older, so a part with no repair since stays `not_checked` until a newer record arrives.
+Each part is made with a past `at`, 00:00 UTC of the first day, so it is older than every record and all four parts show `nothing_found` after a run (contract 8.7). Parts left by an earlier run that stopped part way keep the date they were made with.
 
 ## Testing a real device against this
 

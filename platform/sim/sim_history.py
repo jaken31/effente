@@ -256,9 +256,11 @@ def write(link: Link, plan: Plan, parts: list[dict], say) -> dict[str, str]:
     """Send the plan. Returns part name to part_id."""
     ids = {p["name"]: p["part_id"] for p in parts if not p.get("removed")}
     _send(link, "POST", "/api/model", sim_model.model_announcement(HISTORY_DEVICE, SAMPLE_MACHINE))
+    made_at = sim_model.iso(plan.first_day)  # no later than the oldest record, so records count for part state (8.7)
     for spec in PARTS:
         if spec["name"] not in ids:
-            body = _send(link, "POST", f"/api/machines/{SAMPLE_MACHINE}/parts", dict(spec, by=BY, simulated=True))
+            body = _send(link, "POST", f"/api/machines/{SAMPLE_MACHINE}/parts",
+                         dict(spec, by=BY, simulated=True, at=made_at))
             ids[spec["name"]] = body["part"]["part_id"]
     sent = 0
     for batch in batches(plan.records):

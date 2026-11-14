@@ -228,3 +228,12 @@ def test_the_readings_it_makes_are_simulated_and_shaped(receiver):
     assert replies["Drive roller"]["projection"]["status"] == "rising"
     assert replies["Belt"]["projection"]["status"] in ("no_clear_rise", "not_rising")
     assert replies["Motor mount"]["projection"]["status"] == "not_enough_history"
+
+
+def test_parts_are_dated_before_their_records_so_the_probe_counts(receiver):
+    assert run(receiver, "--yes").returncode == 0
+    parts = get(receiver, "/api/machines/sample-machine/parts").body["parts"]
+    oldest = h.read_records(Link(receiver, "test", timeout=10))[0]["at"]
+    for p in parts:
+        assert p["created"]["at"] <= oldest, p["name"]
+        assert p["state"]["name"] == "nothing_found", p["name"]
