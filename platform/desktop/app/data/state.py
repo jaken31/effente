@@ -546,8 +546,8 @@ class DashboardState(StateReads):
             records, runs = result
             logic.set_history(self._s, machine, records, slim=False)
             logic.add_runs(self._s, runs)
-            self._loaded_machine = machine
-            if machine == self.current_machine():
+            if machine == self.current_machine():  # a late reply for a machine left behind loads nothing shown
+                self._loaded_machine = machine
                 self.snapshot_changed.emit()
                 self.runs_changed.emit()
 

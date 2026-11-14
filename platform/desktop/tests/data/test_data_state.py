@@ -227,6 +227,31 @@ def test_set_machine_switches_everything(qtbot, host, client, make_state):
     assert state.current_machine() == MACHINE  # picked by hand: stays
 
 
+def test_a_late_history_reply_for_the_machine_left_does_not_count_as_loaded(qtbot, host, client, make_state):
+    """The snapshot fetches the machine shown, then a machine is picked by hand and
+    fetched too. When the first reply lands last, the picked machine still counts as
+    loaded, so the next stream event does not fetch it again."""
+    client.json("POST", "/api/records", normal())
+    client.json("POST", "/api/model", dict(MODEL, device_id="effente-02", machine_id="fan-02", model_version="fan-02-v1"))
+    client.json("POST", "/api/records", normal(device_id="effente-02", machine_id="fan-02", model_version="fan-02-v1"))
+    state = make_state(host)
+    qtbot.waitUntil(lambda: state._loaded_machine == "fan-02", timeout=5000)
+    held = []  # (what it fetches, work, done), run by hand in the order the test picks
+    state._background = lambda work, done: held.append((state.current_machine(), work, done))
+
+    state._load_machine(force=True)  # as a snapshot does, for fan-02
+    state.set_machine(MACHINE)  # picked by hand: its own fetch
+    assert [m for m, _, _ in held] == ["fan-02", MACHINE]
+    for _, work, done in reversed(held):  # the newer reply first, the late one last
+        done(work(), None)
+    assert [r["machine_id"] for r in state.records()] == [MACHINE]
+
+    held.clear()
+    with qtbot.waitSignal(state.record_added, timeout=5000):
+        client.json("POST", "/api/records", normal(at="2026-11-14T16:03:00Z"))
+    assert [m for m, _, _ in held] == []  # nothing fetched again
+
+
 def test_fake_state_has_the_same_interface():
     from app.data.state import DashboardState
     from fakes import FakeState
