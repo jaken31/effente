@@ -1,8 +1,9 @@
-"""The Machine page's right column: the parts list, the selected part, and the New scan panel.
+"""The Machine page's smaller panels: the parts list, the New scan card that sits over the model, the
+part review, and the part's log.
 
 The panels only show what the page hands them and report clicks and typing. The page turns those
-into `state.log` and `state.scans` calls. The list is rebuilt only when its rows differ, so a record
-a second does not make it flicker.
+into `state.log` and `state.scans` calls. A list is rebuilt only when its rows differ, so a record a
+second does not make it flicker.
 """
 
 from __future__ import annotations
@@ -10,8 +11,8 @@ from __future__ import annotations
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
-from app.widgets import Button, Panel, SimChip
-from PySide6.QtCore import Qt, Signal
+from app.widgets import Button, Panel, Segmented, SimChip
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QTextOption
 from PySide6.QtWidgets import (
     QFrame,
@@ -19,29 +20,34 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from . import logic, qr
-from .marks import PinMark, keep_place, label
+from . import readings as rd
+from .marks import PinMark, Strip, keep_place, label
 
 PAD_V, PAD_H = t.PANEL_BODY_PAD
 
 ADD_PART = "Add part"
 PLACE = "Place"
 OPEN_LOG = "Open log"
-NO_SELECTION = "Select a part in the list or on the model to see its state and its last entries."
 IMPORT = "Import file"
 IMPORT_NOTE = "A USDZ or GLB file on this laptop, for when the phone cannot send its scan."
 COPY = "Copy line"
 COPIED = "Copied"
 CLOSE = "Close"
 SCAN_HOW = "Scan this code with the effente phone app, or paste the line under it into the app."
+ADD_ENTRY = "Add entry"
+CANCEL = "Cancel"
+NO_ENTRIES = "No entries for this part yet."
+NEEDS = [("yes", "Needs repair"), ("no", "Does not")]
 
 
-def _scroll() -> QScrollArea:
-    area = QScrollArea()
+def _scroll(cls=QScrollArea) -> QScrollArea:
+    area = cls()
     area.setWidgetResizable(True)
     area.setFrameShape(QFrame.Shape.NoFrame)
     area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -55,6 +61,36 @@ def _column(parent: QWidget, spacing: int = 0, margins=(0, 0, 0, 0)) -> QVBoxLay
     return lay
 
 
+def _swap(area: QScrollArea, inner: QWidget) -> None:
+    old = area.takeWidget()
+    area.setWidget(inner)
+    if old is not None:  # deleted later: a click on one of its rows may be what asked for this
+        old.hide()
+        old.deleteLater()
+
+
+class _Fit(QScrollArea):
+    """A scroll area that asks for the height of what it holds, so a short list takes no more room than
+    it needs. It scrolls only when the window leaves less room than that."""
+
+    def sizeHint(self) -> QSize:
+        inner = self.widget()
+        h = 0
+        if inner is not None:
+            w = self.viewport().width()
+            h = inner.heightForWidth(w) if inner.hasHeightForWidth() and w > 0 else -1
+            h = h if h > 0 else inner.sizeHint().height()
+        return QSize(super().sizeHint().width(), h + 2)
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        if e.size().width() != e.oldSize().width():
+            self.updateGeometry()  # wrapped text is taller in a narrower panel
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, 0)
+
+
 class PartRow(QFrame):
     clicked = Signal(str)  # the part's id
     place = Signal(str)
@@ -66,9 +102,9 @@ class PartRow(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         bg = css(t.ACCENT_BG) if row["selected"] else "transparent"
         self.setStyleSheet(f"#machinePartRow {{ background: {bg}; border: 0; "
-                           f"border-bottom: 1px solid {css(t.GRID)}; }}")
+                           f"border-top: 1px solid {css(t.GRID)}; }}")
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(PAD_H, t.CELL_PAD_V, PAD_H - 4, t.CELL_PAD_V)
+        lay.setContentsMargins(PAD_H, 6, PAD_H - 4, 6)
         lay.setSpacing(10)
         self.mark = PinMark(row["state"])
         lay.addWidget(self.mark, 0, Qt.AlignmentFlag.AlignTop)
@@ -87,6 +123,10 @@ class PartRow(QFrame):
             self.place_button.setToolTip("Then click the model where this part is")
             self.place_button.clicked.connect(lambda: self.place.emit(row["part_id"]))
             lay.addWidget(self.place_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        # the newest reading in mm/s, with "simulated" after it when it is (contract 9.6)
+        self.number = label(row.get("number", rd.DASH), "soft")
+        self.number.setToolTip("The newest reading, in mm/s")
+        lay.addWidget(self.number, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def mouseReleaseEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.position().toPoint()):
@@ -95,7 +135,7 @@ class PartRow(QFrame):
 
 
 class PartsPanel(Panel):
-    """The current machine's parts, each with the mark its pin has on the model."""
+    """The current machine's parts, each with the mark its pin has on the model and its newest reading."""
 
     selected = Signal(str)
     place = Signal(str)
@@ -111,7 +151,7 @@ class PartsPanel(Panel):
         self.note = label("", "empty", wrap=True)
         self.note.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add(self.note)
-        self.area = _scroll()
+        self.area = _scroll(_Fit)
         self.add(self.area, 1)
         self.set_rows([], False, "")
 
@@ -129,136 +169,41 @@ class PartsPanel(Panel):
                 col.addWidget(w)
                 self.rows.append(w)
             col.addStretch(1)
-            old = self.area.takeWidget()
-            self.area.setWidget(inner)
-            if old is not None:  # deleted later: a click on one of its rows may be what asked for this
-                old.hide()
-                old.deleteLater()
+            _swap(self.area, inner)
+            self.area.updateGeometry()
         self.note.setText(note)
         self.note.setVisible(bool(note))
-        self.set_hint(f"{len(rows)}" if rows else "")
+        self.set_hint("newest reading, mm/s" if rows else "")
 
 
-class DetailPanel(Panel):
-    """The selected part: its state in the contract's words, its last entries, and the way to its log."""
-
-    open_log = Signal()
-    move_pin = Signal()
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__("Part", parent=parent)
-        self.sim_chip = SimChip()
-        self.sim_chip.setToolTip("Some of these entries are about simulated alarms, or were written with no "
-                                 "real model call.")
-        self.header_end.addWidget(self.sim_chip)
-
-        self.empty = label(NO_SELECTION, "empty", wrap=True)
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add(self.empty, 1)
-
-        self.content = QWidget()
-        col = _column(self.content, 0, (PAD_H, PAD_V, PAD_H, PAD_V))
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(10)
-        self.mark = PinMark()
-        self.headline = label("", "strong", fonts.font(t.FONT_BASE, 600), wrap=True)
-        head.addWidget(self.mark, 0, Qt.AlignmentFlag.AlignTop)
-        head.addWidget(self.headline, 1)
-        self.means = label("", "muted", fonts.small(), wrap=True)
-        self.pin_note = label("", "muted", fonts.small(), wrap=True)
-        self.entries = QWidget()
-        self.entries_col = _column(self.entries, 6, (0, 0, 0, 0))
-        self.more = label("", "muted", fonts.small())
-        buttons = QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(8)
-        self.log_button = Button(OPEN_LOG, small=True)
-        self.log_button.setToolTip("This part's whole history, on the Log page")
-        self.log_button.clicked.connect(self.open_log)
-        self.pin_button = Button("", "ghost", small=True)
-        self.pin_button.setToolTip("Then click the model where this part is")
-        self.pin_button.clicked.connect(self.move_pin)
-        buttons.addWidget(self.log_button)
-        buttons.addWidget(self.pin_button)
-        buttons.addStretch(1)
-        col.addLayout(head)
-        col.addSpacing(4)
-        col.addWidget(self.means)
-        col.addWidget(self.pin_note)
-        col.addSpacing(12)
-        col.addWidget(self.entries)
-        col.addWidget(self.more)
-        col.addStretch(1)
-        col.addSpacing(12)
-        col.addLayout(buttons)
-        self.add(self.content, 1)
-        self._detail = "unset"
-        self.set_detail(None)
-
-    def detail(self):
-        return self._detail
-
-    def set_detail(self, detail: dict | None) -> None:
-        if detail == self._detail:
-            return
-        self._detail = detail
-        self.empty.setVisible(detail is None)
-        self.content.setVisible(detail is not None)
-        self.sim_chip.setVisible(bool(detail and detail["simulated"]))
-        if detail is None:
-            self.set_title("Part")
-            self.set_hint("")
-            return
-        self.set_title(detail["name"])
-        self.set_hint(detail["kind"].lower())
-        self.mark.set_state(detail["state"])
-        self.headline.setText(detail["headline"])
-        self.means.setText(detail["means"])
-        self.pin_note.setText(detail["pin_note"])
-        self.pin_note.setVisible(bool(detail["pin_note"]))
-        while self.entries_col.count():
-            item = self.entries_col.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        for entry in detail["entries"]:
-            self.entries_col.addWidget(self._entry(entry))
-        if detail["no_entries"]:
-            self.entries_col.addWidget(label(detail["no_entries"], "muted", fonts.small(), wrap=True))
-        self.more.setText(detail["more"])
-        self.more.setVisible(bool(detail["more"]))
-        self.pin_button.setText(detail["pin_action"])
-        self.pin_button.setVisible(bool(detail["pin_action"]))
-
-    @staticmethod
-    def _entry(entry: dict) -> QWidget:
-        w = QWidget()
-        col = _column(w, 1)
-        head = " · ".join(x for x in (entry["when"], entry["kind"]) if x)
-        col.addWidget(label(head, "muted", fonts.small()))
-        if entry["text"]:
-            col.addWidget(label(entry["text"], "soft", wrap=True))
-        return w
-
-
-class ScanPanel(Panel):
-    """How a new scan gets here: the pairing code for the phone app, the same line as text, and a
-    file from this laptop's disk."""
+class ScanPanel(QFrame):
+    """How a new scan gets here, shown over the model: the pairing code for the phone app, the same line as
+    text, and a file from this laptop's disk."""
 
     changed = Signal()  # the machine id or the name was typed
     import_file = Signal()
     closed = Signal()
 
-    QR_SIDE = 172
+    QR_SIDE = 150
 
     def __init__(self, parent: QWidget | None = None):
-        super().__init__("New scan", "pair the phone app", parent=parent)
+        super().__init__(parent)
+        self.setObjectName("machineScanCard")
+        self.setStyleSheet(f"#machineScanCard {{ background: {t.BG}; border: 1px solid {css(t.BORDER)}; "
+                           f"border-radius: 8px; }}")
+        inner = QWidget()
+        inner.setObjectName("machineScanInner")
+        inner.setStyleSheet("#machineScanInner { background: transparent; }")
+        col = _column(inner, 10, (PAD_H, PAD_V, PAD_H, PAD_V))
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        self.heading = label("New scan from the phone", "strong", fonts.font(t.FONT_PANEL_TITLE, 600))
         self.close_button = Button(CLOSE, "ghost", small=True)
         self.close_button.clicked.connect(self.closed)
-        self.header_end.addWidget(self.close_button)
+        head.addWidget(self.heading, 1)
+        head.addWidget(keep_place(self.close_button))
+        col.addLayout(head)
 
-        inner = QWidget()
-        col = _column(inner, 10, (PAD_H, PAD_V, PAD_H, PAD_V))
         fields = QHBoxLayout()
         fields.setContentsMargins(0, 0, 0, 0)
         fields.setSpacing(8)
@@ -274,11 +219,16 @@ class ScanPanel(Panel):
             fields.addWidget(field, 1)
         col.addLayout(fields)
 
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(14)
         self.code = qr.QrCode(self.QR_SIDE)
-        col.addWidget(self.code, 0, Qt.AlignmentFlag.AlignHCenter)
+        body.addWidget(self.code, 0, Qt.AlignmentFlag.AlignTop)
+        text = QVBoxLayout()
+        text.setContentsMargins(0, 0, 0, 0)
+        text.setSpacing(8)
         self.note = label("", "muted", fonts.small(), wrap=True)
-        col.addWidget(self.note)
-
+        text.addWidget(self.note)
         self.line = QPlainTextEdit()
         self.line.setReadOnly(True)
         self.line.setFont(fonts.mono())
@@ -288,9 +238,12 @@ class ScanPanel(Panel):
         self.line.setFixedHeight(self.line.fontMetrics().lineSpacing() * 4 + 14)
         self.line.setAccessibleName("Pairing line")
         self.line.setObjectName("machinePairingLine")
-        self.line.setStyleSheet(f"#machinePairingLine {{ background: {t.BG}; color: {t.SOFT}; "
+        self.line.setStyleSheet(f"#machinePairingLine {{ background: {t.PANEL}; color: {t.SOFT}; "
                                 f"border: 1px solid {css(t.BORDER)}; border-radius: {t.R_SM}px; padding: 4px 6px; }}")
-        col.addWidget(self.line)
+        text.addWidget(self.line)
+        text.addStretch(1)
+        body.addLayout(text, 1)
+        col.addLayout(body)
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
@@ -305,9 +258,11 @@ class ScanPanel(Panel):
         buttons.addWidget(keep_place(self.copy_button))
         col.addLayout(buttons)
         col.addStretch(1)
-        area = _scroll()  # in the smallest window the panel is shorter than its content
+        area = _scroll()  # in a short window the card is shorter than its content
+        area.viewport().setAutoFillBackground(False)
         area.setWidget(inner)
-        self.add(area, 1)
+        outer = _column(self, 0, (1, 1, 1, 1))
+        outer.addWidget(area)
 
     def machine_id(self) -> str:
         return self.machine.text().strip()
@@ -337,3 +292,219 @@ class ScanPanel(Panel):
         if text:
             QGuiApplication.clipboard().setText(text)
             self.copy_button.setText(COPIED)
+
+
+class Fields(QWidget):
+    """Label over value, one pair under another."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.col = _column(self, 6)
+        self._rows: tuple = ()
+
+    def set_rows(self, rows: tuple) -> None:
+        if rows == self._rows:
+            return
+        self._rows = rows
+        while self.col.count():
+            item = self.col.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        for key, value in rows:
+            pair = QWidget()
+            pc = _column(pair, 0)
+            pc.addWidget(label(key, "muted", fonts.small()))
+            pc.addWidget(label(value, "strong", fonts.font(t.FONT_BASE, 500), wrap=True))
+            self.col.addWidget(pair)
+
+    def rows(self) -> tuple:
+        return self._rows
+
+
+class ReviewPanel(Panel):
+    """The part's newest review, as advice. Agreeing only fills the log's add-entry form."""
+
+    run = Signal()
+    agree = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__("Review", parent=parent)
+        self.sim_chip = SimChip("Simulated")
+        self.sim_chip.setToolTip("This review was not written by a real model call, or is about simulated data.")
+        self.sim_chip.hide()
+        self.run_button = Button(rd.RUN_REVIEW, small=True)
+        self.run_button.setToolTip("The stand-in part review. It reads only this part's own history.")
+        self.run_button.clicked.connect(self.run)
+        self.header_end.addWidget(self.sim_chip)
+        self.header_end.addWidget(self.run_button)
+        inner = QWidget()
+        col = _column(inner, 10, (PAD_H, 2, PAD_H, PAD_V))
+        self.message = label("", "muted", fonts.small(), wrap=True)
+        self.fields = Fields()
+        self.agree_button = Button(rd.AGREE, small=True)
+        self.agree_button.clicked.connect(self.agree)
+        col.addWidget(self.message)
+        col.addWidget(self.fields)
+        col.addWidget(self.agree_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.area = _scroll(_Fit)
+        self.area.setWidget(inner)
+        self.add(self.area, 1)
+        self.shown: rd.Review | None = None
+        self.show_review(None, False)
+
+    def show_review(self, review: rd.Review | None, running: bool) -> None:
+        self.run_button.setText(rd.REVIEWING if running else rd.RUN_REVIEW)
+        self.run_button.setEnabled(review is not None and not running)
+        if review == self.shown and self.message.text():
+            return
+        self.shown = review
+        review = review or rd.Review("Pick a part to read its review.")
+        self.message.setText(review.message)
+        self.fields.set_rows(review.rows)
+        self.fields.setVisible(bool(review.rows))
+        self.sim_chip.setVisible(review.simulated)
+        self.agree_button.setVisible(review.can_agree)
+        self.area.widget().adjustSize()
+        self.area.updateGeometry()
+
+
+class Compose(Strip):
+    """Add an entry about the part: pick a kind, type, press Enter. A finding or an inspection must say
+    whether the part needs repair (contract 8.6): there is no default for it."""
+
+    submitted = Signal(str, str, object)  # kind, text, needs_repair (True, False or None)
+    cancelled = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__("machineCompose", parent, tinted=True)
+        col = _column(self, 8, (PAD_H, 10, PAD_H, 10))
+        self.kind = Segmented([(k, k.capitalize()) for k in rd.PERSON_KINDS], current="note", small=True)
+        self.kind.changed.connect(self._draw)
+        self.text = QLineEdit()
+        self.text.setFont(fonts.body())
+        self.text.setPlaceholderText("What happened")
+        self.text.textChanged.connect(self._draw)
+        self.text.returnPressed.connect(self.submit)
+        self.needs = Segmented(NEEDS, small=True)
+        self.needs.set_current(None)
+        self.needs.changed.connect(self._draw)
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(8)
+        self.add_button = Button(ADD_ENTRY, "primary", small=True)
+        self.add_button.clicked.connect(self.submit)
+        self.cancel_button = Button(CANCEL, "ghost", small=True)
+        self.cancel_button.clicked.connect(self.cancelled)
+        buttons.addWidget(self.add_button)
+        buttons.addWidget(self.cancel_button)
+        buttons.addStretch(1)
+        col.addWidget(self.kind)
+        col.addWidget(self.text)
+        col.addWidget(self.needs)
+        col.addLayout(buttons)
+        self._draw()
+
+    def needs_repair(self):
+        if self.kind.current() not in rd.NEEDS_ANSWER:
+            return None
+        return {"yes": True, "no": False}.get(self.needs.current())
+
+    def problem(self) -> str:
+        return rd.entry_problem(self.kind.current(), self.text.text(), self.needs_repair())
+
+    def _draw(self, *_args) -> None:
+        self.needs.setVisible(self.kind.current() in rd.NEEDS_ANSWER)
+        problem = self.problem()
+        self.add_button.setEnabled(not problem)
+        self.add_button.setToolTip(problem)
+
+    def submit(self) -> None:
+        if not self.problem():
+            self.submitted.emit(self.kind.current(), self.text.text().strip(), self.needs_repair())
+
+    def fill(self, kind: str, text: str, needs_repair) -> None:
+        """Put a draft in the form for the person to edit. Adds nothing."""
+        self.kind.set_current(kind)
+        self.needs.set_current({True: "yes", False: "no"}.get(needs_repair))
+        self.text.setText(text)
+        self.text.setCursorPosition(0)
+        self._draw()
+
+    def clear(self) -> None:
+        self.text.clear()
+        self.needs.set_current(None)
+        self.kind.set_current("note")
+        self._draw()
+
+
+class EntryRow(QFrame):
+    def __init__(self, entry: rd.Entry):
+        super().__init__()
+        self.entry = entry
+        self.setObjectName("machineEntry")
+        self.setStyleSheet(f"#machineEntry {{ border: 0; border-top: 1px solid {css(t.GRID)}; }}")
+        col = _column(self, 2, (PAD_H, 8, PAD_H, 8))
+        self.head = label(entry.head, "muted", fonts.small(), wrap=True)
+        col.addWidget(self.head)
+        self.text = label(entry.text, "soft", wrap=True)
+        self.text.setVisible(bool(entry.text))
+        col.addWidget(self.text)
+
+
+class LogPanel(Panel):
+    """This part's entries, newest first. The one list on the page that scrolls."""
+
+    open_log = Signal()
+    submitted = Signal(str, str, object)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__("Log", parent=parent)
+        self.log_button = Button(OPEN_LOG, "ghost", small=True)
+        self.log_button.setToolTip("This part's whole history, on the Log page")
+        self.log_button.clicked.connect(self.open_log)
+        self.add_button = Button(ADD_ENTRY, small=True)
+        self.add_button.clicked.connect(self.toggle_form)
+        self.header_end.addWidget(self.log_button)
+        self.header_end.addWidget(self.add_button)
+        self.form = Compose()
+        self.form.submitted.connect(self.submitted)
+        self.form.cancelled.connect(self.close_form)
+        self.form.hide()
+        self.add(self.form)
+        self.empty = label(NO_ENTRIES, "empty", wrap=True)
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add(self.empty)
+        self.area = _scroll()
+        self.area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
+        self.add(self.area, 1)
+        self.rows: list[EntryRow] = []
+        self._shown = None
+        self.set_entries([])
+
+    def form_open(self) -> bool:
+        return self.form.isVisibleTo(self)
+
+    def toggle_form(self) -> None:
+        if self.form_open():
+            self.close_form()
+        else:
+            self.form.setVisible(True)
+            self.form.text.setFocus()
+
+    def close_form(self) -> None:
+        self.form.clear()
+        self.form.setVisible(False)
+
+    def set_entries(self, entries: list[rd.Entry]) -> None:
+        if entries == self._shown:
+            return
+        self._shown = list(entries)
+        inner = QWidget()
+        col = _column(inner)
+        self.rows = [EntryRow(e) for e in entries]
+        for row in self.rows:
+            col.addWidget(row)
+        col.addStretch(1)
+        _swap(self.area, inner)
+        self.empty.setVisible(not entries)
+        self.area.setVisible(bool(entries))

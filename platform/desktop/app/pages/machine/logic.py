@@ -372,6 +372,7 @@ def detail(part: dict | None, entries: list[dict], scan: dict | None, model_show
         "kind": kind_label(part.get("kind")),
         "state": name,
         "headline": headline,
+        "short": capitalise(state_line(part, now)),  # where the headline does not fit: "Needs repair, 40 min"
         "means": STATE_MEANS[name],
         "pin_note": pin_note,
         "pin_action": pin_action,
