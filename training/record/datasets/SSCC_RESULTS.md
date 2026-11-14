@@ -174,7 +174,7 @@ classifier). `results\timing2.json`.
 ### What I would do with it
 
 1. For the demo: nothing changes (the device as it is). Learn in the demo's own conditions.
-2. Next model: either preset, chosen by the room. In a loud room (machines, fans, music) `lin50`; in a quiet room,
+2. Next model: **`lin50` (decided 14 Nov: the device will usually not run in a quiet room).** Its known cost is the quiet room (87 % against 98 % of real faults on the confirmation set). Background to the choice: either preset, chosen by the room. In a loud room (machines, fans, music) `lin50`; in a quiet room,
    or with one model across several belt speeds, `log64` (the previous recommendation, normaliser fixed). Both run
    in `effente/band_model.py`. Not confirmed, a hypothesis for the team's own recordings: both sound layouts as two
    groups (`a64+alin@snd2` in `explore.py`; selection set: 99 % without screwdrop at 1/350, vibration left out). It
