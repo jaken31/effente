@@ -81,14 +81,16 @@ One implementation of this pipeline, in Python, is used for recording, training 
 
 The library is what makes the device quick to use: a set of pretrained networks, one per machine type, stored on the device. Each entry is an `effente-model-1` model file built on the device's exact feature list.
 
-Status on Nov 13: the library and calibration are in review and not yet on master. Every number in this section comes from simulated machines. No recording from our own device exists yet.
+Status on Nov 14: the library is on master. Calibration is in review (PR 42) and not yet on master. Every number in this section comes from simulated machines. No recording from our own device exists yet.
 
 - **Hackathon library:** `conveyor`, to be trained on our own recordings of the demo conveyor plus the conveyor simulator, and `generic_rotating`, trained on the simulators. Until device recordings exist, both are simulator-only and labelled demo or unverified. Public data converted from another sensor is used for evaluation only, never training. The `conveyor` entry is trained on the same conveyor it is demoed on, so the demo proves the flow, not that the entry generalises to other conveyors. Say so if asked.
 - **What an entry is built on:** accelerometer and gyro readings only, a long recording (hours to days, not 30 minutes), and a 1-second summary period. With sound, heat and room readings included, the pooled alarm threshold came out so high that no simulated fault alarmed. An entry trained on 30 minutes has spreads as narrow as a short calibration's, which makes calibration noisy.
 - **Calibration:** keeps the entry's network and fits this machine's preparation statistics (`Prep`: median and spread of each reading). Two rules are starting values:
     - No reading's spread goes below the entry's.
-    - The alarm threshold is not refit freely from the calibration data. Refit freely from 5 minutes, it dropped well below the entry's and alarmed on most normal running (76 to 92 % of the time on unseen simulated conveyors). Held at the entry's value, false alarms stopped but a looseness fault was caught far less often (0.18 to 0.27 of the watch period, against 0.83 with only the spread rule). The rule between those two is being measured.
-- **Calibration length:** starting value 10 minutes of running. Five minutes looked too short in simulation. The 10-minute trend readings have no data for the first 8 minutes of a recording, so a shorter calibration keeps the entry's values for them.
+    - The alarm threshold is this machine's own: 5 times the median of its held-out calibration scores (the last 15 % of the running rows, smoothed as the runtime smooths them). The entry's threshold plays no part.
+    - Why not the two earlier rules: refit freely from 5 minutes, the threshold dropped well below the entry's and alarmed on most normal running (76 to 92 % of the time on unseen simulated conveyors). Held at the entry's value, false alarms stopped but a looseness fault was caught far less often (0.18 to 0.27 of the watch period, against 0.83 with only the spread rule).
+    - The multiple of 5 comes from a simulated sweep over 2 to 10 (`training/calibration/README.md`, "Choosing the multiple"). At 5, 4 of 16793 seconds alarmed in the 40 minutes after calibration, with either entry. It does not do both jobs well: fewer than half of the simulated sudden faults alarmed (20 of 44 obvious ones with `conveyor`, 21 of 44 with `generic_rotating`), and over a 24-hour day the run-down after shift end alarmed for 5581 seconds per machine at every multiple. Set it from recordings.
+- **Calibration length:** starting value 10 minutes of running. Five minutes looked too short in simulation. The 10-minute trend readings have no data for the first 8 minutes of a recording, so a shorter calibration does not judge them at all: a reading with no value during calibration is never judged afterwards. On simulated conveyors, 17 of the `conveyor` entry's 22 clock, trend and temperature readings were not judged after a 5 or 10 minute calibration, and 15 after 20 minutes.
 - **Fit check:** if the calibration data scores far worse on the entry than the entry's own held-out data did, the screen says the machine does not look like that type and suggests `generic_rotating` or a long stay. The rule is open; set it from recordings. In simulation the check did not separate a server rack from a conveyor, so a pass is not proof that the right entry was picked.
 - **Fault classifier:** retrained during calibration on fault patterns added to this machine's own normal variation, as in full training.
 
@@ -214,7 +216,7 @@ The two entries on master (`conveyor`, `generic_rotating`) use 79 of the 285 rea
 **Calibration interface** (`effente/calibration.py`, in review, not yet on master):
 
 ```
-calibrate(entry_model: dict, t, X, names, *, min_running_s=300, seed=0) -> (model: dict, report: dict)
+calibrate(entry_model: dict, t, X, names, *, min_running_s=300, seed=0, threshold_median_multiple=5.0) -> (model: dict, report: dict)
 fit_check(report: dict, manifest: dict) -> {"ok": bool, "ratio": float, "reason": str}
 ```
 
@@ -315,7 +317,7 @@ The university cluster is used only for stretch work. Nothing in the demo depend
 | Fault names wrong on real faults | Shown as "possible"; group and readings that moved shown with them |
 | Too little conveyor data to build the library entry | Record well before Saturday; the trainer refuses under 5 minutes |
 | Calibration too short to set a good threshold | Measure on recordings; lengthen calibration rather than ship false alarms |
-| Keeping the entry's alarm threshold makes a calibrated device miss faults | Measure false alarms and faults caught together before choosing the threshold rule |
+| The calibrated threshold misses faults, or alarms on normal running such as the run-down after shift end (both seen in simulation at the multiple of 5) | Measure false alarms and faults caught together on recordings, then set the multiple |
 | A pass on the fit check is read as proof of machine type | It is not; the screen and the pitch do not say so |
 | A local model writes advice the readings do not support | Checks in code reject what they can; a person reads the reports in the model comparison |
 | Conveyor roller speed below the speed search range | See the signal pipeline open question |
