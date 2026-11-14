@@ -1,8 +1,7 @@
 """Step 0 of docs/scan-and-log-plan.md: the routes, hooks and helpers of contract
-section 8 are wired in, with stubs behind them. Nothing here works yet, and
-nothing that worked before may change."""
+section 8 are wired in. What is behind them is tested in test_receiver_partlog.py
+and test_receiver_scans.py. Nothing that worked before may change."""
 
-import http.client
 import json
 
 import pytest
@@ -10,40 +9,6 @@ import scan_api
 from receiver_server import Handler
 from receiver_store import BadRequest
 from receiver_testkit import make_record
-
-ROUTES = [
-    ("GET", "/api/hello"),
-    ("POST", "/api/machines/conveyor-07/scans?client_id=test-0001"),
-    ("GET", "/api/machines/conveyor-07/scans"),
-    ("GET", "/api/scans/scan-1"),
-    ("GET", "/api/scans/scan-1/model.glb"),
-    ("GET", "/api/scans/scan-1/file"),
-]  # the part and log routes are built: test_receiver_partlog.py
-
-
-@pytest.mark.parametrize("method,path", ROUTES)
-def test_every_new_route_answers_not_built_yet(client, method, path):
-    body = None if method == "GET" else {"name": "Drive roller"}
-    assert client.json(method, path, body) == (400, {"ok": False, "error": "not built yet"})
-
-
-def test_a_stubbed_route_leaves_the_connection_usable(client):
-    """The stub drops the body it did not read, so the next request on the same connection is read whole."""
-    conn = http.client.HTTPConnection("127.0.0.1", client.port, timeout=10)
-    try:
-        conn.request("POST", "/api/machines/conveyor-07/scans?client_id=test-0001", body=json.dumps({"name": "scan.usdz"}))
-        first = conn.getresponse()
-        assert (first.status, json.loads(first.read())["error"]) == (400, "not built yet")
-        conn.request("GET", "/api/state")
-        second = conn.getresponse()
-        assert second.status == 200 and json.loads(second.read())["ok"] is True
-    finally:
-        conn.close()
-
-
-def test_state_is_unchanged_while_the_stores_are_stubs(client):
-    _, state = client.json("GET", "/api/state")
-    assert set(state) == {"ok", "now", "devices", "models", "machines", "alarms", "parts"}  # `parts` is built, `scans` not yet
 
 
 def test_state_takes_each_stores_part_and_its_machines(make_receiver):
