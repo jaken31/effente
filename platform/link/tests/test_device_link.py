@@ -182,9 +182,50 @@ def test_a_row_that_cannot_be_trusted_adds_nothing():
     assert "spectrum" not in dl.check_in(status, dict(ROW, values=[None, -4.9, 0.41, 26.6, None, 186.5]), ROW_TABLE)  # a band missing
     assert dl.row_extras(dict(ROW, features_version="v2"), ROW_TABLE) == {}  # names for another version
     assert dl.row_extras(None, ROW_TABLE) == {} and dl.row_extras(ROW, None) == {}
-    assert "heat" not in dl.row_extras(dict(ROW, values=[-5.1, -4.9, 0.41, 26.6, 61.2, 186.5]), ROW_TABLE)  # a camera reading: not ours to shape
     stopped = dl.check_in(dict(STATUS, readings={"vib_mg": None}), ROW, ROW_TABLE)  # no samples: the row is old
     assert "spectrum" not in stopped and "heat" not in stopped
+
+
+def camera_row(**changed):
+    """A feature table and row with the thermal camera's readings: block RC averages 0.RC above the
+    background and its hottest point 1.RC."""
+    row = {"imu_temp_c": 26.604, "th_max_c": 61.234, "th_hot_row": 9.0, "th_hot_col": 21.0, "th_background_c": 25.0,
+           "th_frozen": 0.0, "trend_scene_match": 0.931}
+    for b in dl.HEAT_BLOCKS:
+        row["th_cell_" + b], row["th_spot_" + b] = int(b) / 100, 1 + int(b) / 100
+    row.update(changed)
+    table = {"features_version": "v1", "features": [{"index": i, "name": n} for i, n in enumerate(row)]}
+    return {"features_version": "v1", "values": list(row.values())}, table
+
+
+def test_a_row_with_the_thermal_camera_gives_the_contracts_camera_heat():
+    heat = dl.row_extras(*camera_row())["heat"]
+    assert {k: v for k, v in heat.items() if k not in ("cells", "spots")} == {
+        "source": "camera", "imu_temp_c": 26.6, "max_c": 61.23, "hot_row": 9, "hot_col": 21, "background_c": 25.0,
+        "frozen": False, "scene_match": 0.93}
+    assert len(heat["cells"]) == len(heat["spots"]) == 48
+    assert heat["cells"][:9] == [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.1]  # row 0, then row 1
+    assert heat["spots"][-1] == 1.57
+    assert "frames" not in heat  # the device's port serves no images
+
+
+def test_camera_heat_says_null_for_what_the_row_lacks():
+    heat = dl.row_extras(*camera_row(th_cell_23=None, th_hot_row=24.0, trend_scene_match=None, th_frozen=1.0))["heat"]
+    assert heat["cells"] is None and len(heat["spots"]) == 48  # 47 blocks are not a grid
+    assert heat["hot_row"] is None and heat["hot_col"] == 21  # there is no row 24
+    assert heat["scene_match"] is None and heat["frozen"] is True
+    assert dl.row_extras(*camera_row(th_max_c=None))["heat"] == {"source": "imu", "imu_temp_c": 26.6}
+    assert "heat" not in dl.row_extras(*camera_row(th_max_c=None, imu_temp_c=None))
+
+
+def test_a_record_carries_the_heat_of_the_newest_row():
+    line = {"device_id": "effente-01", "machine_id": "machine-1", "model_version": "m1", "at": "2026-11-14T16:02:11Z"}
+    status = dict(STATUS, readings={"vib_mg": 4.5})
+    row, table = camera_row()
+    assert dl.record(line, status, row, table)["heat"]["source"] == "camera"
+    assert dl.record(line, status, ROW, ROW_TABLE)["heat"] == {"source": "imu", "imu_temp_c": 26.6}
+    assert "heat" not in dl.record(line, status)  # no row
+    assert "heat" not in dl.record(line, dict(STATUS, readings={"vib_mg": None}), row, table)  # an old row
 
 
 def test_the_platform_keeps_an_idle_devices_spectrum_and_heat(link, device, receiver):
