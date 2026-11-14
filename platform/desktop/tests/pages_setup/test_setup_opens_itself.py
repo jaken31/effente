@@ -64,3 +64,25 @@ def test_another_machine_with_no_profile_opens_it_again(qtbot, state):
     state.current_machine = lambda: machine
     w.refresh()
     assert w.current == "live"
+
+
+def test_with_the_real_pages_it_leaves_the_machine_page_alone_once_shown(qtbot, state):
+    """The Machine page and the Setup page sit side by side in the stack: after the
+    one opening, going to the Machine page and back again keeps it there."""
+    state.setup.clear()
+    w = MainWindow(state)
+    qtbot.addWidget(w)
+    w.show()
+    assert w.current == "setup"
+    w.navigate("machine")
+    w.refresh()
+    state.setup.profile_changed.emit()
+    assert w.current == "machine"
+
+
+def test_an_alarm_notice_still_lands_on_history(qtbot, state):
+    """"Answer in History" picks the alarm's machine; one with no profile does not take the click."""
+    w = window(qtbot, state)
+    state.current_machine = lambda: "another-machine"
+    w._open_alarm("another-machine")
+    assert w.current == "history"

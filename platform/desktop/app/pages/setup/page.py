@@ -67,6 +67,7 @@ class SetupPage(QWidget):
         s.entry_changed.connect(self.refresh)
         s.local_profile_changed.connect(self._local_changed)
         state.snapshot_changed.connect(self.refresh)
+        state.runs_changed.connect(self.refresh)  # runs read back for a machine just picked
         state.action_failed.connect(self._action_failed)
         if hasattr(state, "model_changed"):
             state.model_changed.connect(self.refresh)
@@ -113,6 +114,7 @@ class SetupPage(QWidget):
     def _use_problem(self) -> str:
         s = self.state.setup
         return view.use_problem(machine=self.state.current_machine(), choice=s.choice(), running=s.run_running(),
+                                lookup_problem=s.lookup_problem(),
                                 speed_problem=self.profile.problem, profile=s.profile(), draft=s.draft())
 
     def refresh(self, *_args) -> None:
@@ -132,7 +134,7 @@ class SetupPage(QWidget):
 
         self.profile.set_draft(draft, view.profile_hint(profile, draft), enabled=bool(machine) and not running)
 
-        self.model.set_choice(s.choice())
+        self.model.set_choice(s.choice(), s.lookup_problem())
         self.model.set_confirm(view.confirm_line(profile, draft), self._use_problem())
         self.model.set_confirmed(view.profile_hint(profile, draft) == view.CONFIRMED)
 

@@ -142,13 +142,15 @@ def test_there_is_no_password_and_no_login_words(page, fresh):
 
 
 def test_fill_sends_the_answers_with_dont_know_as_none(qtbot, page, fresh):
-    answer(page, kind="a belt conveyor", drive="through a belt", speed=None, sensor=None)
+    answer(page, machine_type="a belt conveyor", drive="through a belt", speed_rpm=None, sensor_location=None)
     assert page.questions.count.text() == "2 answered, 3 not known"
     click(qtbot, page.questions.fill_button)
     (answers, mode), = fresh.setup.started_runs
     assert mode == "standin"
-    assert {a["id"]: a["answer"] for a in answers} == {
-        "kind": "a belt conveyor", "drive": "through a belt", "speed": None, "mounting": None, "sensor": None}
+    assert {a["about"]: a["answer"] for a in answers} == {
+        "machine_type": "a belt conveyor", "drive": "through a belt", "speed_rpm": None, "mounting": None,
+        "sensor_location": None}
+    assert all(set(a) == {"about", "question", "answer"} for a in answers)
 
 
 def test_i_dont_know_clears_and_locks_the_line(qtbot, page):
@@ -264,6 +266,14 @@ def test_the_choice_in_the_contracts_words(page):
     assert m.by_code.text() == view.PICKED_BY_CODE
 
 
+def test_a_failed_lookup_says_why_and_use_waits(page, state):
+    state.setup.set_lookup_problem("The starting model could not be looked up: no entry could be read")
+    assert page.model.entry.text() == view.NO_CHOICE
+    assert page.model.problem.isVisible() and "no entry could be read" in page.model.problem.text()
+    assert not page.model.use_button.isEnabled()
+    assert "no entry could be read" in page.model.use_button.toolTip()
+
+
 def test_no_choice_yet_reads_looking_up_and_use_waits(page, fresh):
     assert page.model.entry.text() == view.LOOKING_UP
     assert not page.model.rows.isVisible()
@@ -271,7 +281,7 @@ def test_no_choice_yet_reads_looking_up_and_use_waits(page, fresh):
 
 
 def test_nothing_is_sent_before_use(qtbot, page, fresh):
-    answer(page, kind="a belt conveyor")
+    answer(page, machine_type="a belt conveyor")
     click(qtbot, page.questions.fill_button)
     fresh.setup.finish_run(ok=True)
     combo = page.profile.inputs["mounting"]
@@ -309,27 +319,27 @@ def test_a_change_after_confirming_can_be_used_again(page, state):
 
 def test_wanted_and_in_use_differ(page, state):
     assert (state.setup.wanted_entry(), state.setup.device_entry()) == (WANTED_ENTRY, DEVICE_ENTRY)
-    assert page.device.line.text() == "Wanted: conveyor. Device is using: generic_rotating."
+    assert page.device.line.text() == "Chosen: conveyor. Device is using: generic_rotating."
     assert page.device.mark.status == view.DIFFERS
-    assert "button" in page.device.note.text()
+    assert page.device.note.text() == view.NOT_ACTED
 
 
 def test_the_device_has_not_answered(page, state):
     state.setup.set_entries(WANTED_ENTRY, None)
     assert page.device.status == view.WAITING
-    assert "Device is using" not in page.device.line.text()
+    assert page.device.line.text() == "Chosen: conveyor, not yet loaded on the device."
 
 
 def test_no_device_for_this_machine(page, state):
     state.device_id = lambda: None
     page.refresh()
     assert page.device.status == view.NO_DEVICE
-    assert "Device is using" not in page.device.line.text()
+    assert page.device.line.text() == "Chosen: conveyor, not yet loaded on the device."
 
 
 def test_the_device_took_it(page, state):
     state.setup.set_entries(WANTED_ENTRY, WANTED_ENTRY)
-    assert page.device.line.text() == "Device is using: conveyor, as wanted."
+    assert page.device.line.text() == "Device is using: conveyor, the chosen one."
     assert page.device.mark.status == view.TAKEN
 
 

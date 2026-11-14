@@ -29,28 +29,29 @@ DONT_KNOW = "I don't know"
 
 @dataclass(frozen=True)
 class Question:
-    id: str
+    id: str  # the field it asks about: the answer's `about` (platform/setup/agent/README.md)
     text: str
     example: str  # the placeholder
 
 
 # Plain words, one for each field of the machine profile. None asks for a library entry.
 QUESTIONS = (
-    Question("kind", "What kind of machine is it?", "For example: a belt conveyor, a fan, a pump"),
+    Question("machine_type", "What kind of machine is it?", "For example: a belt conveyor, a fan, a pump"),
     Question("drive", "How does the motor turn it?", "Straight on the shaft, through a belt, or through a gearbox"),
-    Question("speed", "How fast does it turn, in turns a minute?", "For example: 1450, or 1400 to 1500"),
+    Question("speed_rpm", "How fast does it turn, in turns a minute?", "For example: 1450, or 1400 to 1500"),
     Question("mounting", "How is it held in place?", "Bolted down hard, or on rubber feet or springs"),
-    Question("sensor", "Where is the sensor fixed?", "On the motor at the drive end, on the gearbox, or on the frame"),
+    Question("sensor_location", "Where is the sensor fixed?", "On the motor at the drive end, on the gearbox, or on the frame"),
 )
 
 
 def answers(typed: dict, dont_know: set) -> list[dict]:
-    """What start_run gets: each question with what was typed. "I don't know", or
-    nothing typed, is `None`: the agent then leaves that field empty."""
+    """What start_run gets: [{"about", "question", "answer"}], the setup agent's
+    format. "I don't know", or nothing typed, is `None`: the agent then leaves
+    that field empty."""
     out = []
     for q in QUESTIONS:
         text = " ".join(str(typed.get(q.id) or "").split())
-        out.append({"id": q.id, "question": q.text, "answer": None if q.id in dont_know or not text else text})
+        out.append({"about": q.id, "question": q.text, "answer": None if q.id in dont_know or not text else text})
     return out
 
 
@@ -233,6 +234,7 @@ def choice_rows(choice) -> list[tuple[str, str]]:
 
 PICKED_BY_CODE = "Picked by code from a table, not by the agent. Nothing here is the agent's."
 LOOKING_UP = "Looking up the starting model…"
+NO_CHOICE = "No starting model"
 USE = "Use this model"
 SAVING_LINE = "Not confirmed yet. Nothing has been sent to the device."
 
@@ -277,7 +279,8 @@ def confirm_line(profile, draft: dict, tz=None) -> str:
     return "Confirmed" + (f" by {who}" if who else "") + (f" on {at}" if at else "") + "."
 
 
-def use_problem(*, machine, choice, running: bool, speed_problem: str, profile, draft: dict) -> str:
+def use_problem(*, machine, choice, running: bool, speed_problem: str, profile, draft: dict,
+                lookup_problem: str = "") -> str:
     """Why "Use this model" cannot be pressed now, or ""."""
     if not machine:
         return NO_MACHINE
@@ -286,7 +289,7 @@ def use_problem(*, machine, choice, running: bool, speed_problem: str, profile, 
     if speed_problem:
         return f"Speed: {speed_problem}."
     if choice is None:
-        return LOOKING_UP
+        return lookup_problem or LOOKING_UP
     if profile_hint(profile, draft) == CONFIRMED:
         return "This profile is already confirmed."
     return ""
@@ -304,21 +307,25 @@ class Device:
     note: str
 
 
+# The device does not act on the chosen entry yet: plan row D1 is a design note only.
+NOT_ACTED = ("The device does not act on the chosen entry yet. To change the one it runs, pick it on the "
+             "device with its button.")
+
+
 def device(wanted, in_use, has_device: bool) -> Device:
+    """What the device reports, beside what was chosen. The chosen entry is never shown as running."""
     if not wanted:
         return Device(NOTHING_SENT, "Nothing has been sent to the device.",
                       "The device is told the starting model only after you use it in step 3.")
     if not has_device:
-        return Device(NO_DEVICE, f"Wanted: {wanted}. No device reports for this machine yet.",
-                      "A device gets the wanted entry the next time it reports for this machine.")
+        return Device(NO_DEVICE, f"Chosen: {wanted}, not yet loaded on the device.",
+                      "No device reports for this machine yet. " + NOT_ACTED)
     if not in_use:
-        return Device(WAITING, f"Wanted: {wanted}. The device has not said which entry it is using yet.",
-                      "It says so when it next sends its model. Until then nothing shows it took the wanted one.")
+        return Device(WAITING, f"Chosen: {wanted}, not yet loaded on the device.",
+                      "The device has not said which entry it runs. " + NOT_ACTED)
     if in_use != wanted:
-        return Device(DIFFERS, f"Wanted: {wanted}. Device is using: {in_use}.",
-                      "The device has not taken the wanted entry. The device side of this is not built yet, so "
-                      "it keeps its own. To change it now, pick the entry on the device with its button.")
-    return Device(TAKEN, f"Device is using: {in_use}, as wanted.", "")
+        return Device(DIFFERS, f"Chosen: {wanted}. Device is using: {in_use}.", NOT_ACTED)
+    return Device(TAKEN, f"Device is using: {in_use}, the chosen one.", "")
 
 
 # ---- the local profile ---------------------------------------------------------

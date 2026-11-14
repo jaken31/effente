@@ -412,6 +412,8 @@ class StartingModel(Panel):
             rg.addWidget(v, i, 1)
             self.values[key] = v
         self.warning = label("", "soft", wrap=True)
+        self.problem = label("", "strong", wrap=True)
+        self.problem.hide()
         self.by_code = label(view.PICKED_BY_CODE, "muted", fonts.small(), wrap=True)
         bar = QHBoxLayout()
         bar.setSpacing(12)
@@ -420,15 +422,17 @@ class StartingModel(Panel):
         self.confirm_line = label("", "soft", wrap=True)
         bar.addWidget(self.use_button)
         bar.addWidget(self.confirm_line, 1)
-        for w in (self.entry, self.rows, self.warning, self.by_code):
+        for w in (self.entry, self.problem, self.rows, self.warning, self.by_code):
             col.addWidget(w)
         col.addSpacing(4)
         col.addLayout(bar)
         self.add(inner)
 
-    def set_choice(self, choice) -> None:
-        self.entry.setText(view.choice_title(choice) if choice else view.LOOKING_UP)
+    def set_choice(self, choice, problem: str = "") -> None:
+        self.entry.setText(view.choice_title(choice) if choice else view.NO_CHOICE if problem else view.LOOKING_UP)
         _restyle(self.entry, "strong" if choice else "muted")
+        self.problem.setText(problem if not choice else "")
+        self.problem.setVisible(bool(self.problem.text()))
         rows = dict(view.choice_rows(choice))
         for key, v in self.values.items():
             v.setText(rows.get(key, ""))

@@ -34,7 +34,7 @@ def _first_time(state, page):
 def _answered(state, page):
     state.setup.clear()
     state.setup.set_local_profile("Sam", "technician")
-    typed = {"kind": "a belt conveyor", "mounting": "bolted to the floor"}
+    typed = {"machine_type": "a belt conveyor", "mounting": "bolted to the floor"}
     for a in page.questions.items:
         if a.q.id in typed:
             a.text.setText(typed[a.q.id])
@@ -90,6 +90,10 @@ def _taken(state, page):
     state.setup.set_entries("conveyor", "conveyor")
 
 
+def _lookup_failed(state, page):
+    state.setup.set_lookup_problem("The starting model could not be looked up: no library entry could be read")
+
+
 def _local_model(state, page):
     _answered(state, page)
     state.set_model_status("ready", "Running with small.gguf.", True, "small.gguf")
@@ -108,6 +112,7 @@ SHOTS = {
     "setup-device-not-answered": _not_answered,
     "setup-device-differs": _differs,
     "setup-device-taken": _taken,
+    "setup-lookup-failed": _lookup_failed,
 }
 
 

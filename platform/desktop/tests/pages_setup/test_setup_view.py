@@ -20,10 +20,12 @@ def test_no_question_asks_for_a_library_entry():
 
 
 def test_dont_know_and_nothing_typed_are_none():
-    typed = {"kind": "  a belt   conveyor ", "drive": "belt", "speed": ""}
+    typed = {"machine_type": "  a belt   conveyor ", "drive": "belt", "speed_rpm": ""}
     items = view.answers(typed, {"drive"})
-    by_id = {a["id"]: a["answer"] for a in items}
-    assert by_id == {"kind": "a belt conveyor", "drive": None, "speed": None, "mounting": None, "sensor": None}
+    by_id = {a["about"]: a["answer"] for a in items}
+    assert by_id == {"machine_type": "a belt conveyor", "drive": None, "speed_rpm": None, "mounting": None,
+                     "sensor_location": None}
+    assert tuple(by_id) == FIELDS  # each question asks about one field, in the profile's order
     assert [a["question"] for a in items] == [q.text for q in view.QUESTIONS]
     assert view.answered_text(items) == "1 answered, 4 not known"
     assert view.answered_text(view.answers({}, set())) == "Nothing answered yet"
@@ -97,6 +99,7 @@ def test_use_problem():
     assert view.use_problem(**kw) == ""
     assert view.use_problem(**dict(kw, machine=None)) == view.NO_MACHINE
     assert view.use_problem(**dict(kw, choice=None)) == view.LOOKING_UP
+    assert view.use_problem(**dict(kw, choice=None, lookup_problem="no entry")) == "no entry"
     assert view.use_problem(**dict(kw, running=True))
     assert view.use_problem(**dict(kw, speed_problem=view.SPEED_HINT)).startswith("Speed:")
 
@@ -116,9 +119,10 @@ def test_the_wanted_entry_is_never_shown_as_in_use():
     assert [d.status for d in (no_device, waiting, differs, taken)] == [
         view.NO_DEVICE, view.WAITING, view.DIFFERS, view.TAKEN]
     for d in (no_device, waiting):
-        assert "Device is using" not in d.line
-    assert differs.line == "Wanted: conveyor. Device is using: generic_rotating."
-    assert taken.line == "Device is using: conveyor, as wanted."
+        assert d.line == "Chosen: conveyor, not yet loaded on the device."
+        assert view.NOT_ACTED in d.note
+    assert differs.line == "Chosen: conveyor. Device is using: generic_rotating."
+    assert taken.line == "Device is using: conveyor, the chosen one."
 
 
 def test_local_profile_words():
