@@ -7,9 +7,6 @@ from receiver_testkit import make_check_in, make_record
 
 NOT_BUILT = (400, {"ok": False, "error": "not built yet"})
 ROUTES = [
-    ("PUT", "/api/machines/conveyor-07/probe", {"part_id": "part-0007", "by": "Sam"}),
-    ("GET", "/api/parts/part-0007/readings?since=2026-09-15T00:00:00Z&limit=300", None),
-    ("GET", "/api/machines/conveyor-07/normal-spectrum?part=part-0007", None),
     ("PUT", "/api/machines/conveyor-07/profile", {"machine_type": "conveyor", "by": "Sam"}),
     ("GET", "/api/machines/conveyor-07/profile", None),
     ("POST", "/api/library/lookup", {"machine_type": "conveyor"}),
@@ -27,7 +24,7 @@ def test_until_built_the_state_and_the_replies_are_as_before(client):
     assert (status, reply) == (200, {"ok": True, "stored": 1, "need_model": True})
     assert client.json("POST", "/api/devices/effente-01", make_check_in()) == (200, {"ok": True})
     _, state = client.json("GET", "/api/state")
-    assert "probe" not in state and "profiles" not in state
+    assert state["probe"] == {} and "profiles" not in state
     device = state["devices"]["effente-01"]
     assert device["settings"] is None and "library_entry" not in device
     assert "part_id" not in client.json("GET", "/api/machines/conveyor-07/records")[1]["records"][0]
