@@ -1,0 +1,12 @@
+{
+  "note": "A part made after the probe's newest record. No entry and no alarm: the advice is not_sure and nothing is cited.",
+  "part_id": "part-0004",
+  "state": "not_checked",
+  "needs_repair": "not_sure",
+  "cited_alarms": [],
+  "cited_entries": [],
+  "how": "",
+  "since": null,
+  "sheet_entries": 0,
+  "sheet_alarms": 0
+}

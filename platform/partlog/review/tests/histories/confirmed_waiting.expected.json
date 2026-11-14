@@ -1,0 +1,16 @@
+{
+  "note": "An unbalance alarm answered as a real problem, naming the drive roller, and no repair since. The advice is yes, citing the alarm and the finding. The belt's entry and the unanswered looseness alarm belong to other parts and must not reach the fact sheet.",
+  "part_id": "part-0007",
+  "state": "needs_repair",
+  "needs_repair": "yes",
+  "cited_alarms": [
+    "alarm-1234"
+  ],
+  "cited_entries": [
+    "entry-000123"
+  ],
+  "how": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)",
+  "since": "2026-11-14T19:12:03Z",
+  "sheet_entries": 2,
+  "sheet_alarms": 1
+}
