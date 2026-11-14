@@ -272,7 +272,7 @@ def test_a_fault_after_calibration_alarms_and_is_named():
     assert res[-1]["unknown_score"] > 1 and "vib_1x" in res[-1]["features"]
 
 
-def test_a_reading_this_machine_lacks_or_never_changes_keeps_the_entrys_spread():
+def test_a_reading_this_machine_lacks_is_not_judged_and_one_that_never_changes_keeps_the_entrys_spread():
     d, _ = entry()
     t, X = seconds(300, seed=11, start=30_000, vib=0.2)
     for n in ("snd_level_db", "snd_tone_mod_db", "snd_kurt_hf"):
@@ -478,7 +478,7 @@ def test_the_laptop_command_runs_on_the_committed_entry_folder():
         out = Path(tmp) / "model.json"
         code = main(["--entry", str(entry_folder), "--rows", str(Path(tmp) / "rows.npz"), "--seconds", "300",
                      "--out", str(out)])
-        assert code in (0, 2) and RT.Model.load(out).d["training_report"]["calibrated"] is True
+        assert code == 0 and RT.Model.load(out).d["training_report"]["calibrated"] is True  # 0: the fit check passed
 
 
 def test_the_measurements_hold_variant_copies_the_manifests_list_into_a_copy():
