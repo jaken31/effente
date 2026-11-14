@@ -142,6 +142,73 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
    - One finished part review for "Drive roller".
    - Actions change only the fake. They do not work a part's state out again: `FakeLog.set_part_state` and `FakeScans.set_status` show another state.
 21. **General API calls.** `ApiClient.get(path, **query)`, `post(path, body, file=, content_type=, **query)`, `put(path, body)` and `get_bytes(path, to=)`, with `quote()` for ids put into a path, so `scans.py` and `partlog.py` need no further change to `api.py`. `post(file=...)` sends a file's raw bytes and `get_bytes(to=...)` writes a reply to a file, both a piece at a time.
+22. **`state.log`, for part readings** (`app/data/partlog.py`, contract section 9; plan section 15.3). Agreed by the whole team on Sat 14 Nov 2026. Stubs until built, as the rest of `state.log` was.
+
+   | Kind | Name | Meaning |
+   |------|------|---------|
+   | signal | `probe_changed()` | The probe's part was set, changed or cleared, by a person or by the platform |
+   | signal | `readings_changed(str)` | This part's readings, summary or projection moved |
+   | read | `probe_part()` | The `part_id` the probe is on for the current machine, or `None` |
+   | read | `readings(part_id, since=None)` | The reply of the part's readings route (contract 9.3), or `None` while it is being fetched. Asking starts the fetch. |
+   | read | `normal_spectrum(part_id=None)` | The reply of contract 9.4, or `None` while it is being fetched |
+   | action | `set_probe_part(part_id)` | Say the probe is on this part. `None` clears it. |
+
+   Sample data in `FakeLog`, so the page can be built before the receiver works: the four parts of addition 20, with readings on 20 days for "Drive roller" (`rising`), on 20 days for "Belt" (`no_clear_rise`), on one day for "Motor mount" (`not_enough_history`), and none for "Idle roller". Every one `simulated: true`, so the marks get built and tested from the first hour. One normal spectrum that is ready and one that is not.
+
+   Two things the agreed contract adds to what a page does with these. The chart plots a reading's `velocity_mm_s` and draws the 11 mm/s line labelled "limit for any machine, 11 mm/s"; the projection fits the model's score and is shown as its sentence, never drawn on the mm/s axis (contract 9.5). When the projection's `show_days` is `false` the page says "Trend" and shows no days and no date.
+23. **A tenth page, `setup`** (contract section 10; plan section 16.3). Not built. This file does not record the whole team agreeing it (unverified). It comes after the first nine, so shortcuts 1 to 9 are unchanged; its own key is not chosen yet. Until its package exists under `app/pages/`, it shows the "not built yet" placeholder.
+
+   ```
+    +-------------------------------------+-------------------------------------------+
+    | Questions                           | Machine profile         not confirmed yet |
+    |  What kind of machine is it?        |  Machine type     [conveyor       v]      |
+    |  [a belt conveyor                 ] |  Drive            [belt           v]      |
+    |  How is it driven?                  |  Speed, rpm       [               ] empty |
+    |  [                 ] [I don't know] |  Mounting         [rigid          v]      |
+    |  ...                                |  Sensor location  [               ] empty |
+    | [Fill the profile]                  +-------------------------------------------+
+    +-------------------------------------+ Starting model: conveyor (demo)           |
+    | What the agent understood           |  Why: machine type is conveyor            |
+    |  "You said it is a belt conveyor    |  Trained on: sim_conveyor (simulated)     |
+    |   bolted to the floor. You did      |  Checked on: nothing yet                  |
+    |   not know its speed ..."           |  Not checked on: sim_server_rack          |
+    |  Stand-in, simulated: marked here   |  Fault types validated: 0 of 21           |
+    |                                     | [Confirm and send to the device]          |
+    +-------------------------------------+-------------------------------------------+
+     Local profile: Sam, technician [Change]    Wanted: conveyor. Device is using: generic_rotating
+   ```
+
+   - **Questions.** A few, in plain words, each with "I don't know". Their wording is this page's to write. No question asks for a library entry.
+   - **Fill the profile.** Starts one setup run through `state.setup.start_run`. Disabled while a run is running for this machine.
+   - **The five fields.** Filled from the run, or by hand with no run at all. A field nobody knows shows "empty", never a guess and never a default. Changing a field asks the lookup again.
+   - **Starting model.** The lookup's choice, with its reason, its status and its lists, in the contract's words. Nothing here comes from the agent.
+   - **Confirm.** The only thing that stores the profile and sends the wanted entry. Until then the page says "not confirmed yet" and "nothing has been sent to the device".
+   - **Wanted against in use.** After confirming, both entries are shown until they match. The page never shows the wanted entry as the one in use.
+   - **The local profile.** Its name and role, and a "Change" form. The words on screen are "local profile". Never "log in", "account", "sign in" or "security".
+   - **States to design, not leave blank:** no profile yet, a run running, a run failed with its reason, the stand-in's result with its label, every field empty, a profile confirmed with no device connected, wanted and in use differing, no local profile set.
+24. **`state.setup`** (`app/data/setup.py`, contract section 10). A stub until built, as `state.scans` was: reads are empty and actions report "not built yet" through `action_failed`. The state passes it every snapshot and every stream event, as it does the other two.
+
+   | Kind | Name | Meaning |
+   |------|------|---------|
+   | signal | `profile_changed()` | The current machine's stored profile, the draft or the choice moved |
+   | signal | `run_changed()` | A setup run started, moved or ended |
+   | signal | `entry_changed()` | The wanted entry, or the one the device reports, moved |
+   | signal | `local_profile_changed()` | The local profile was set or changed |
+   | read | `profile()` | The current machine's confirmed machine profile (contract 10.1), or `None` |
+   | read | `draft()` | The five fields as they stand on the page, not yet confirmed. Starts from `profile()`, or all empty. |
+   | read | `choice()` | The lookup's reply for the draft (contract 10.2), or `None` while it is being fetched |
+   | read | `run()` | The newest setup run for the current machine, or `None` |
+   | read | `run_running()` | `True` while one runs |
+   | read | `wanted_entry()` | The library entry wanted for the current machine, or `None` |
+   | read | `device_entry()` | The entry the shown device reports, or `None` |
+   | read | `local_profile()` | `{"name", "role"}`, or `None` if none is set |
+   | action | `start_run(answers, mode="standin")` | Run the setup agent on these answers. `mode` is `standin` or `local`, as for the report agent. A run that passes fills the draft. |
+   | action | `set_draft(**fields)` | Change fields of the draft by hand. Asks the lookup again. |
+   | action | `confirm()` | Store the draft as the machine profile. The only action that sends anything toward the device. |
+   | action | `set_local_profile(name, role)` | Keep the local profile in the store from `app/settings.py`. No password. |
+
+   `answerer()` (addition 2) gives the local profile's name first, then what it gave before: `EFFENTE_ANSWERER`, else the laptop's login name. The role is not sent. The local profile is not security, and no code, comment, screen or doc may call it a login, an account or security.
+25. **Sample data in the setup fake.** `FakeState().setup` is a `FakeSetup` (`tests/fake_setup.py`). Written by hand, not by real code: a machine with no profile, a finished stand-in run that filled three fields and left two empty, a choice of `conveyor` with the lists of contract 10.2's example, a confirmed profile whose wanted entry differs from the one the device reports, and a local profile "Sam, technician". Actions change only the fake.
 
 ## Rules
 
