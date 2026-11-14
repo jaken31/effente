@@ -267,6 +267,8 @@ uint8_t micLen = 0;
 bool micOk = false;
 float micDb = NAN, micToneHz = NAN;
 uint32_t micLines = 0, micAt = 0;
+uint32_t micFastAt = 0;  // when the last LVL line came: the ESP32's quick level, about 11 a second (its full
+                         // firmware only), so the SND tile moves as fast as the IMU's tiles do
 
 float parseNum(const char *&p) {  // a number, then past the comma after it (by hand: no strtod on this core)
   bool neg = *p == '-';
@@ -285,8 +287,8 @@ float parseNum(const char *&p) {  // a number, then past the comma after it (by 
 // line: 0xEF 0x53 | sequence (u16) | age in ms (u16) | count (u8) = 45 | 45 float32 | CRC-16/CCITT-FALSE of
 // everything after the two start bytes (u16), little-endian, 189 bytes, sent 8 bytes every 4 ms so the serial
 // buffer never has to hold much. A whole frame with a good CRC goes to the Linux side as a notification
-// "snd": (micros() when its last byte came, age, sequence, the 180 bytes of readings); device/intake/source.py
-// on_sound takes it from there. 0xEF never occurs in a text line, so the two share the wire. With the test
+// "snd" (see sndSend): (micros() when its last byte came, age, sequence, the readings as 45 half-precision
+// floats); device/intake/source.py on_sound takes it from there. 0xEF never occurs in a text line, so the two share the wire. With the test
 // firmware (text lines only) nothing here ever fires. Added 13 Nov; not yet run with the full firmware.
 const uint8_t SND_COUNT = 45;
 const uint16_t SND_PAYLOAD = 4 * SND_COUNT, SND_FRAME = 7 + SND_PAYLOAD + 2;
@@ -335,13 +337,50 @@ bool sndByte(uint8_t b) {  // true: the byte belonged to a binary frame
   return true;
 }
 
-void sndSend() {  // from loop() only: a Bridge call takes a while, and must not sit between two sensor reads
-  if (!sndReady) return;
+// One set a second goes on to the Linux side, the newest, as half-precision floats (90 bytes): the Linux side
+// makes one row a second, and the Bridge line has no room to spare. Every byte on it is time the loop is not
+// reading the sensor, whose FIFO is 40 ms deep. Measured on the board, 13 Nov, in accelerometer samples a
+// second: 992 with no sets; about 905 with all four sets a second at full size (about 1 kB/s; nearly 3 FIFO
+// overflows a second); about 954 with one a second at full size. Half precision keeps 3 to 4 figures
+// (0.03 dB on a level, 4 Hz on a tone above 4 kHz).
+const uint32_t SND_EVERY_MS = 1000;
+uint32_t sndSentMs = 0;
+
+uint16_t halfFloat(float f) {  // IEEE 754 single to half precision, rounded
+  uint32_t x;
+  memcpy(&x, &f, 4);
+  uint16_t sign = (x >> 16) & 0x8000;
+  int32_t e = (int32_t)((x >> 23) & 0xFF) - 127 + 15;
+  uint32_t man = x & 0x7FFFFF;
+  if (((x >> 23) & 0xFF) == 0xFF) return sign | 0x7C00 | (man ? 0x200 : 0);  // infinity or not a number
+  if (e >= 31) return sign | 0x7C00;                                          // too big: infinity
+  if (e <= 0) {                                                               // too small for a normal half
+    if (e < -10) return sign;
+    man |= 0x800000;
+    uint32_t shift = 14 - e;
+    uint16_t h = man >> shift;
+    if ((man >> (shift - 1)) & 1) h++;
+    return sign | h;
+  }
+  uint16_t h = sign | (uint16_t)(e << 10) | (uint16_t)(man >> 13);
+  if (man & 0x1000) h++;  // a carry runs on into the exponent, which is right
+  return h;
+}
+
+void sndSend() {  // called after a read of the sensor's FIFO, when there is the most time before it fills
+  if (!sndReady || millis() - sndSentMs < SND_EVERY_MS) return;
+  sndSentMs = millis();
   sndReady = false;
   MsgPack::bin_t<uint8_t> v;
-  v.reserve(SND_PAYLOAD);
-  for (uint16_t i = 0; i < SND_PAYLOAD; i++) v.push_back(sndOut[i]);
-  Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);  // 180 + about 25 bytes: inside the RPC buffer
+  v.reserve(2 * SND_COUNT);
+  for (uint8_t i = 0; i < SND_COUNT; i++) {
+    float f;
+    memcpy(&f, sndOut + 4 * i, 4);
+    uint16_t h = halfFloat(f);
+    v.push_back(h & 0xFF);
+    v.push_back(h >> 8);
+  }
+  Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);
 }
 
 void micPoll() {
@@ -358,11 +397,18 @@ void micPoll() {
         const char *p = micLine + 4;
         parseNum(p);                 // the line's number
         micOk = parseNum(p) > 0.5f;  // the ESP32 saw a real microphone
-        micDb = parseNum(p);
+        float db = parseNum(p);      // over the last second; the LVL lines' level is fresher when they come
+        if (!micFastAt || millis() - micFastAt > 500) micDb = db;
         parseNum(p);                 // peak
         micToneHz = parseNum(p);
         micLines++;
         micAt = millis();
+      } else if (!strncmp(micLine, "LVL,", 4)) {
+        const char *p = micLine + 4;
+        float db = parseNum(p);
+        // half the new reading, half the old: quick, without every number flickering
+        micDb = (micFastAt && millis() - micFastAt < 500 && micDb == micDb) ? 0.5f * micDb + 0.5f * db : db;
+        micFastAt = millis();
       }
     } else if (c != '\r') {
       if (micLen < 63) micLine[micLen++] = c;
@@ -699,7 +745,7 @@ void readFifo() {
 
 void loop() {
   micPoll();
-  sndSend();
+  if (!mpuOk) sndSend();  // with the sensor running, parts go out after its reads (below)
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
   // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
   // its power-on state (asleep, FIFO off) and reports an empty FIFO for ever (13 Nov, on the board: the
@@ -730,6 +776,7 @@ void loop() {
   if (mpuOk && now - lastRead >= READ_EVERY_US) {
     lastRead = now;
     readFifo();
+    sndSend();
   }
   static uint8_t nextPage = 8;  // 8: no frame being drawn
   if (oledOk && nextPage >= 8 && micros() - lastFrameAt >= FRAME_EVERY_MS * 1000) {  // a frame every FRAME_EVERY_MS

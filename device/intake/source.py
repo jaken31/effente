@@ -234,21 +234,28 @@ class UnoQSource:
         self._closed = False
         # the microphone's readings (an ESP32 on the header's UART): the last few sets, as (window end, readings)
         self._sound: list[tuple[float, np.ndarray]] = []
-        self._sound_seq: int | None = None
-        self.stats.update(sound_frames=0, sound_lost=0, sound_bad=0, sound_age_s=None)
+        self.stats.update(sound_frames=0, sound_bad=0, sound_age_s=None)
 
     # ------------------------------------------------------------ the microphone's readings (an ESP32, by UART)
     SOUND_NAMES = tuple(n for n in F.FEATURE_NAMES if n.startswith("snd_"))
     SOUND_SENT = tuple(n for n in SOUND_NAMES if n != "snd_env_order")  # what the ESP32 sends, in order
     SOUND_FRAME_S = 0.095  # the frame's time on the UART line (sent 8 bytes every 4 ms): stamped at its last byte
-    SOUND_EARLY_S, SOUND_LATE_S = 0.75, 0.25  # how far a set's window may end before or after the row's
+    # How far a set's window may end before or after the row's. Sets come one a second, and each takes about
+    # 0.4 s to get here, so a row's set ended up to about 1.4 s before the row does.
+    SOUND_EARLY_S, SOUND_LATE_S = 1.6, 0.25
 
     def on_sound(self, t_us, age_ms, seq, payload) -> None:
-        """One set of sound readings (the sketch's "snd" notification): `t_us` is the microcontroller's micros()
+        """One set of sound readings (the sketch's "snd" notification, one a second): `t_us` is the microcontroller's micros()
         when the frame's last byte arrived from the ESP32, `age_ms` how long before the ESP32 started sending
-        the window ended, `payload` the 45 float32 readings (SOUND_SENT). The ESP32 worked them out from its
+        the window ended, `payload` the 45 readings (SOUND_SENT) as half-precision floats (or float32). The ESP32 worked them out from its
         own 1.024 s window (firmware/esp32_mic); here they only get a time on our clock."""
-        v = np.frombuffer(bytes(payload), "<f4")
+        raw = bytes(payload)
+        if len(raw) == 2 * len(self.SOUND_SENT):
+            v = np.frombuffer(raw, "<e").astype(np.float32)
+        elif len(raw) == 4 * len(self.SOUND_SENT):
+            v = np.frombuffer(raw, "<f4")
+        else:
+            v = np.empty(0, np.float32)
         if len(v) != len(self.SOUND_SENT):
             self.stats["sound_bad"] += 1
             return
@@ -263,11 +270,6 @@ class UnoQSource:
                 wraps -= 1
             arrived = self.offset + (t_us + wraps * 2 ** 32) / 1e6
         end = arrived - self.SOUND_FRAME_S - min(int(age_ms), 60000) / 1000.0
-        if self._sound_seq is not None:
-            missed = (seq - self._sound_seq - 1) & 0xFFFF
-            if missed < 1000:  # more than that is the ESP32 starting again from 0, not a loss
-                self.stats["sound_lost"] += missed
-        self._sound_seq = seq
         row = np.full(len(self.SOUND_NAMES), np.nan)
         row[[self.SOUND_NAMES.index(n) for n in self.SOUND_SENT]] = v
         self._sound = (self._sound + [(end, row)])[-8:]  # replaced, not changed: the pipeline thread reads it
@@ -278,8 +280,8 @@ class UnoQSource:
         """The sound readings for a row whose window ends at `window_end`: the set whose own window ends nearest,
         if within SOUND_EARLY_S before to SOUND_LATE_S after; else None (sound is then missing from the row).
         A row is made as soon as its vibration is in, and the set for the same moment is still on its way
-        (the ESP32's maths, then 0.1 s on the UART line), so a row usually gets the set from 0.25 to 0.5 s
-        before it. Never waits: without the ESP32 the rows come just as fast, with no sound."""
+        (the ESP32's maths, then 0.1 s on the UART line), and only one set a second is passed on, so a row
+        usually gets a set from 0.4 to 1.4 s before it. Never waits: without the ESP32 the rows come just as fast, with no sound."""
         best = None
         for end, row in self._sound:
             d = end - window_end

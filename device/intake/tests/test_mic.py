@@ -60,7 +60,7 @@ def run(seconds, sound_every=None, sound_from=0.0, sound_until=1e9):
 
 def test_a_row_carries_the_esp32s_readings():
     src, rows = run(4.0, sound_every=0.256)
-    assert src.stats["sound_frames"] >= 14 and src.stats["sound_lost"] == 0 and src.stats["sound_bad"] == 0
+    assert src.stats["sound_frames"] >= 14 and src.stats["sound_bad"] == 0
     t0, x = rows[-1]
     assert "sound" not in F.missing_sensors(x) and "vibration" not in F.missing_sensors(x)
     snd = dict(zip(UnoQSource.SOUND_NAMES, x[SND]))
@@ -90,15 +90,13 @@ def test_sound_goes_missing_when_the_esp32_stops():
     assert late and all("sound" in F.missing_sensors(x) for x in late)  # old readings are never reused
 
 
-def test_bad_payloads_and_lost_frames_are_counted():
+def test_bad_payloads_are_counted():
     clock = Clock()
     src = UnoQSource(clock=clock)
     src.on_sound(1_000_000, 100, 7, readings().tobytes())
     src.on_sound(1_256_000, 100, 8, readings().tobytes()[:-4])  # too short
-    src.on_sound(1_512_000, 100, 11, readings().tobytes())      # 8 was bad, 9 and 10 never came
-    assert src.stats["sound_frames"] == 2 and src.stats["sound_bad"] == 1 and src.stats["sound_lost"] == 3
-    src.on_sound(1_768_000, 100, 0, readings().tobytes())       # the ESP32 started again: not a loss
-    assert src.stats["sound_lost"] == 3
+    src.on_sound(1_512_000, 100, 11, readings().tobytes())
+    assert src.stats["sound_frames"] == 2 and src.stats["sound_bad"] == 1
     assert src.sound_features_at(clock.t) is not None  # before any IMU batch, a set is timed by its arrival
 
 
@@ -108,6 +106,17 @@ def test_a_window_with_raw_audio_ignores_ready_made_readings():
     assert F.extract(w)[F.INDEX["snd_level_db"]] > 10.0
     w = F.Window(t0=0.0, sound_features=np.zeros(45))  # the wrong length is not used at all
     assert np.isnan(F.extract(w)[SND]).all()
+
+
+def test_half_precision_sets_are_read():
+    clock = Clock()
+    src = UnoQSource(clock=clock)
+    v = readings(71.25)
+    src.on_sound(1_000_000, 100, 5, v.astype("<e").tobytes())  # as the sketch sends them: 90 bytes
+    assert src.stats["sound_frames"] == 1 and src.stats["sound_bad"] == 0
+    row = src.sound_features_at(clock.t)
+    assert row[UnoQSource.SOUND_NAMES.index("snd_level_db")] == 71.25
+    assert np.allclose(row[[UnoQSource.SOUND_NAMES.index(n) for n in SENT]], v, rtol=1e-3)
 
 
 if __name__ == "__main__":
