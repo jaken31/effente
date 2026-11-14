@@ -56,8 +56,9 @@ def fetch(platform_url: str, machine_id: str, part_id: str | None = None) -> dic
     With a `part_id`, only that part's entries are asked for. Without one, no
     entries are read: enough to list the machine's parts.
 
-    UNVERIFIED: the parts and log routes were stubs when this was written, so
-    this has only been run against a fake receiver in the tests.
+    UNVERIFIED on master: the parts and log routes were stubs there when this
+    was written. Run once by hand against the routes of branch
+    track5/part-store, and against a fake receiver in the tests.
     """
     base = platform_url.rstrip("/")
     machine = urllib.parse.quote(machine_id, safe="")

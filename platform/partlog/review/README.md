@@ -1,6 +1,6 @@
 # Part review agent
 
-**Never run against the real parts and log routes.** They were stubs when this was written. The tests use fixed history files, a fake receiver and a fake model server in the test process. The local model call was run once against a real model, on the fixed history files only (see "A real run").
+**Not yet run against the parts and log routes on master.** They were stubs there when this was written. The tests use fixed history files, a fake receiver and a fake model server in the test process. Two things were run once by hand (see "Real runs"): the stand-in against the routes as built on branch `track5/part-store`, and the local model call against a real model on the fixed history files.
 
 One run per part. A run reads only that part's history, writes a review, checks it in code, and posts the run as `platform/CONTRACT.md` message 4 with `agent` set to `part_review` (section 8.8). A review that passes is also added to the part's log as a `review` entry. The review is advice: it never changes a part's state. No history and no review leaves the site.
 
@@ -75,9 +75,22 @@ Not handled: a number written as a word ("one alarm"), and a fault type or a par
 - **simulated** is true unless the review came from a real model call and no alarm and no person's entry in the history is simulated. Earlier reviews do not count.
 - **The log entry.** Its `text` is `what`, then `Needs repair: yes (advice).` (or `no`, `not sure`), then `why`. `by` is `part review agent`. The entry's id is on the run as an extra `entry_id` field. If the receiver refuses the entry, the run still ends `ok: true` with a note.
 - **Posting.** As the report agent: the whole run is PUT at start, after the one tool call (`get_part_history`) and at the end. The tool output is the fact sheet, cut to 2,000 characters; the counts come first so they survive the cut.
-- **`run_id`** is `review-YYYYMMDD-HHMMSS-<part_id>`.
+- **`run_id`** is `review-YYYYMMDD-HHMMSS-<part_id>`: two runs for the same part in the same second share an id and the platform keeps only the later one.
 
-## A real run
+## Real runs
+
+### The stand-in against the real routes
+
+Done once, on 14 Nov 2026: the command with the stand-in against the receiver of branch `track5/part-store` at commit 2712363, before that branch merged. A model announcement, three parts, one normal record and two unbalance records were sent to it first.
+
+- Alarm open, nobody answered: the drive roller was `possible` and its review said `not_sure`, citing the alarm, with `how` copied from the announcement. The other two parts got `no`.
+- After the alarm was answered as real, naming the drive roller: `yes`, citing the alarm and the finding the platform made from the answer.
+- Each review landed in the part's log with `source: agent`, and the log store kept `run_id` and `simulated`. The reviews changed no part's state.
+- Two reviews of the same part started in the same second shared one `run_id`, so the receiver kept only the later run. The report agent has the same limit.
+
+Not done: the same on master, and a run from the desktop button.
+
+### The local model
 
 Done once, on 14 Nov 2026, on one Linux laptop: llama.cpp's `llama-server` with `small.gguf` and the settings of `device/agent/serve_model.sh` (`--reasoning-budget 600 --predict 1200 --ctx-size 16384 --parallel 1`), on the five histories in `tests/histories/` with `--history` and `--backend local`. Nothing was posted: the parts and log routes did not exist.
 
@@ -97,13 +110,13 @@ What a person reading them would still fault, and no check catches:
 - `confirmed_waiting`: `why` said the alarm "is validated". The alarm was answered as real by a person; the fault type itself is not validated.
 - `repaired`: `what` was only the old finding's text, "added weight found on the drive roller", with no word that it was repaired.
 
-Five runs on synthetic histories are not a measure of the model. Not done: a run against the receiver, a run from the desktop button, the large model, and any history longer than three entries.
+Five runs on synthetic histories are not a measure of the model. Not done: the local model against the receiver, a run from the desktop button, the large model, and any history longer than three entries.
 
 ## Open points
 
 Things to look at when `track5/part-store` merges, not confirmed bugs.
 
-1. **The routes.** `history.py`, `fetch` reads `GET /api/machines/<id>/parts?removed=1`, `GET /api/machines/<id>/log?part=<part_id>&limit=2000`, `GET /api/machines/<id>/alarms?limit=2000` and `GET /api/state` (for the fault types in `models`), as the contract describes them. Unverified against the real routes.
-2. **The review entry's fields.** The contract's `POST /api/machines/<id>/log` body does not list `run_id` or `simulated`. The command sends both for a `review`. The log store has to keep them, or the entry loses its link to the run.
+1. **The routes.** `history.py`, `fetch` reads `GET /api/machines/<id>/parts?removed=1`, `GET /api/machines/<id>/log?part=<part_id>&limit=2000`, `GET /api/machines/<id>/alarms?limit=2000` and `GET /api/state` (for the fault types in `models`). They answered as expected on the `track5/part-store` branch. Run it again once that branch is on master.
+2. **The review entry's fields.** The contract's `POST /api/machines/<id>/log` body does not list `run_id` or `simulated`. The command sends both for a `review`, and the log store on `track5/part-store` keeps them. If that changes, the entry loses its link to the run.
 3. **A long history.** The log route gives at most 2,000 entries, newest first, so a part with more loses its oldest. The whole fact sheet goes in one prompt: about 1,100 tokens for three entries and one alarm. Not measured: a history that fills the server's 16k context.
 4. **Stand-in rules.** The expected answers in `tests/histories/` are our judgement of a correct review, not measured outcomes.

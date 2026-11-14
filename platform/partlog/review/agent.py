@@ -161,8 +161,9 @@ def add_review_entry(run: ReviewRun, review: dict) -> tuple[str, str]:
     Never raises: a receiver that is down or refuses only costs the log line,
     and the note says so. The review itself is still on the run.
 
-    UNVERIFIED: the log route was a stub when this was written. Whether it
-    takes `run_id` and `simulated` from the body for a `review` is not known.
+    The contract's body for this route does not list `run_id` or `simulated`.
+    Both are sent: the log store on branch track5/part-store keeps them
+    (checked once by hand; the route was a stub on master at the time).
     """
     body = {
         "kind": "review",
