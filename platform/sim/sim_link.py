@@ -55,6 +55,10 @@ class Link:
             return LinkResult(False, True, {}, "reply was not a JSON object")
         return LinkResult(body.get("ok") is True, True, body, "" if body.get("ok") is True else str(body.get("error", "")))
 
+    def call(self, method: str, path: str, payload=None) -> LinkResult:
+        """Any route, for the history command (sim_history.py)."""
+        return self._call(method, path, payload)
+
     def announce(self, model: dict) -> LinkResult:
         return self._call("POST", "/api/model", model)
 

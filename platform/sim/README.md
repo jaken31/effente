@@ -138,6 +138,43 @@ Heat has its own random generator, so `--seed` gives the same vibration records 
 
 [sample_replay.jsonl](sample_replay.jsonl): ten records, one a second: normal; `too_hot` coming on while the model still says normal; unbalance with `too_hot` still on; `too_hot` next to stopped; an unrecognised pattern with nothing else wrong. Made by `sim_model.sample_records()` (a test checks the file still matches).
 
+## History
+
+Contract 9.6. One command writes 60 days of made-up per-part history, so the Machine page has weeks of readings to draw:
+
+```
+python3 platform/sim/history.py            # asks before writing
+python3 platform/sim/history.py --yes      # for scripts
+```
+
+It writes only to the machine `sample-machine` and takes no machine id. It uses the receiver's ordinary routes, as device `sim-history`, and every part, record and log entry it writes carries `"simulated": true`. **There is no undo:** the only way to remove it is to clear the receiver's data folder, which removes every real record too. So it first prints what it is about to write and where, and asks. Started from a script without `--yes` it writes nothing.
+
+| Part | Visits | Shape |
+|------|--------|-------|
+| Drive roller | one a day, 60 days | score rises toward the alarm line; a finding (needs repair) the day before the day 34 repair; then a new rise |
+| Belt | one a day, 60 days | level, with an inspection on day 20 that found nothing |
+| Motor mount | the last day only | one reading |
+| Idle roller | none | no readings |
+
+A visit is 30 records a second apart, sent oldest first in arrays of at most 500. Every score stays under the alarm line (1.0), so every record is judged normal and no alarm is made. The velocity moves with the score (about 1.3 to 4 mm/s). The scores, velocities, spectra and log texts are picked by hand to show each case once. None of it is a measurement or says anything about any machine.
+
+Before writing it reads the sample machine and:
+
+- refuses (exit 2) if it holds any record that is not simulated, has an open alarm, has a connected device, or has parts this command did not make;
+- writes nothing (exit 0) if simulated history is already there, so a second run never doubles it.
+
+If a run stops part way, what was sent stays. A later run reuses the parts it made, but once any record is stored a later run writes nothing more.
+
+| Option | Default | |
+|--------|---------|---|
+| `--url` | `$EFFENTE_PLATFORM_URL` or `http://localhost:8000` | receiver |
+| `--seed` | `1` | repeatable records |
+| `--yes` | off | write without asking |
+
+After writing it prints each part's readings count and projection status from `GET /api/parts/<part_id>/readings`, or says the route is not available yet.
+
+Part states after a run follow contract 8.7 as written: the parts are made at run time and every record is older, so a part with no repair since stays `not_checked` until a newer record arrives.
+
 ## Testing a real device against this
 
 1. **Shape:** run `python3 platform/sim/main.py --count 5 --log sim.jsonl` and compare a real device record with `sim.jsonl` field by field.
@@ -158,4 +195,4 @@ The fake receiver is a test tool, not the platform. The real one is in `platform
 python3 -m pytest platform/sim
 ```
 
-Covers every case with and without a problem, the problem hold and clear timing, limits only outside watching, check-ins, seeded repeatability, replay, and end-to-end runs of `main.py` against the fake receiver: announcement first, problems while normal, check-ins while recording, `need_model`, the sensitivity taken from replies, platform absent, platform coming back mid-run, keys on a pseudo-terminal, and terminal settings restored after `q`, Ctrl-C and an exception.
+Covers every case with and without a problem, the problem hold and clear timing, limits only outside watching, check-ins, seeded repeatability, replay, and end-to-end runs of `main.py` against the fake receiver: announcement first, problems while normal, check-ins while recording, `need_model`, the sensitivity taken from replies, platform absent, platform coming back mid-run, keys on a pseudo-terminal, and terminal settings restored after `q`, Ctrl-C and an exception. For the history command: the plan it builds (only simulated records for `sample-machine`, oldest first, arrays of at most 500, each part's shape), each refusal, no machine id accepted, and runs against the real receiver: nothing written without `--yes`, everything stored simulated, a second run writing nothing. The readings it makes: each part's count, and every reading and summary simulated. The projection checks (simulated, and each part's status) skip while the receiver returns `projection: null` (row P1).
