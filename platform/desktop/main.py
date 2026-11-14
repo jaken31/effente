@@ -1,6 +1,6 @@
 """effente desktop console: the receiver, the simulated device and the dashboard in one window.
 
-    python3 platform/desktop/main.py            # receiver + simulated device
+    python3 platform/desktop/main.py            # receiver + simulated device, and any board on USB
     python3 platform/desktop/main.py --no-sim   # receiver only, for a real device
     python3 platform/desktop/main.py --device http://10.110.213.214:8765
                                                 # a real device, read from its own port
@@ -38,6 +38,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--device", metavar="URL",
                         help="read a real device from its own port, for example http://10.110.213.214:8765 "
                              "(platform/link); no simulated device")
+    parser.add_argument("--no-usb", action="store_true",
+                        help="do not look for a board plugged into this laptop (platform/link/usb_link.py)")
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     parser.add_argument("--fake", action="store_true", help="no receiver: show fixed sample data (tests/fakes.py)")
@@ -84,7 +86,8 @@ def main(argv=None) -> int:
 
         with_sim = not args.no_sim and not args.device
         host = ReceiverHost(str(DATA), args.port, with_sim, args.case, device_url=args.device,
-                            log=log.info if args.device else None)
+                            log=log.info if args.device else None,
+                            usb=not args.no_usb and not args.device, usb_log=log.info)
         try:
             host.start()
         except OSError as e:
