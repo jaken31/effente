@@ -205,6 +205,15 @@ features: 63 % against 68 %. The paper's fusion (mean of per-channel quantiles) 
 (each group over its own 99th percentile, then OR) was worse (50 %): its percentiles came from half-recording models
 and were too noisy. So: per-group scores, normalised by their own median learning score, combined by max, one line.
 
+A direct test (`yell_test.py`, `results/yell_test.json`): a synthetic voice-like sound (220 Hz with harmonics and
+vibrato) 26 dB over each held-out normal clip's own sound level, for 2 seconds, vibration untouched, on all 350
+selection-set held-out clips. Both models alarm on every clip: the device reaches 5.8-10.7x its line (2.3-4.3x its
+spike line, so one such second alone would trip the spike rule), the recommended model 7.3-16.7x its line (its sound
+group 13-21x its learning median). **The board's "yell at 0.73 of the line" does not reproduce on SSCC.** Its cause is
+probably elsewhere: the board's model has gyro, temperature and history inputs that SSCC lacks, a short bench
+recording may already contain loud sounds that raise the line, or the real yell was shorter or quieter in the
+microphone's bands than this one. Not verified.
+
 ### 4. Sensors, and the hardware what-if (selection set; recommended model unless noted)
 
 | signals | FA | all | clean | noise | loose (noise) | screwdrop (noise) |
