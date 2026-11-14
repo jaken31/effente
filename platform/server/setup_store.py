@@ -76,6 +76,10 @@ class SetupStore:
             self.file.append([profile])
             self.profiles[machine_id] = profile
             self.store.emit("profile", profile)
+            # The wanted entry may have changed for every device on this machine (contract 10.4).
+            for device_id, device in self.store.devices.items():
+                if device.machine_id == machine_id:
+                    self.store.emit("settings", self.store._settings_event(device_id))
         return profile
 
     def lookup(self, body):
@@ -103,17 +107,28 @@ class SetupStore:
         machine (`None` if it has reported none): `{"library_entry": ...}` once a
         profile is confirmed (section 10.4). They go into the replies to
         messages 2 and 3, the device's `settings` in `/api/state`, and the
-        `settings` event."""
-        return {}
+        `settings` event.
+
+        Only a confirmed profile sets it: a machine with none wants nothing."""
+        profile = self.profiles.get(machine_id) if machine_id is not None else None
+        entry = ((profile or {}).get("choice") or {}).get("library_entry")
+        return {"library_entry": entry} if isinstance(entry, str) else {}
 
     def device_part(self, device):
         """Keys to add to this Device's entry in `/api/state` and to its
-        `settings` event: `library_entry`, the entry the device reports (section 10.4)."""
-        return {}
+        `settings` event: `library_entry`, the entry the device reports (section 10.4).
+
+        It comes from the model announcement (message 1) for the device's
+        `model_version`, or is None. It is never taken to be the wanted one."""
+        entry = self.store.models.get(device.model_version, {}).get("library_entry")
+        return {"library_entry": entry if isinstance(entry, str) else None}
 
     def check_settings(self, device_id, body):
         """`PUT /api/devices/<device_id>/settings` is about to store `body`, a
         JSON object that holds `sensitivity`. Raise BadRequest to refuse it."""
+        if "library_entry" in body:
+            raise BadRequest("'library_entry' is set by confirming a machine profile "
+                             "(PUT /api/machines/<machine_id>/profile), not here")
 
     def close(self):
         """The receiver is stopping. Every profile is already on disk."""

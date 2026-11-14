@@ -12,7 +12,7 @@ def test_until_built_the_state_and_the_replies_are_as_before(client):
     _, state = client.json("GET", "/api/state")
     assert state["probe"] == {} and state["profiles"] == {}
     device = state["devices"]["effente-01"]
-    assert device["settings"] is None and "library_entry" not in device
+    assert device["settings"] is None and device["library_entry"] is None
     assert "part_id" not in client.json("GET", "/api/machines/conveyor-07/records")[1]["records"][0]
 
 

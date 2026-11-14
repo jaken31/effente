@@ -4,6 +4,7 @@ import json
 import shutil
 
 import pytest
+from receiver_testkit import MODEL, make_check_in, make_record
 from setup_store import lookup
 
 PROFILE = "/api/machines/conveyor-07/profile"
@@ -159,3 +160,89 @@ def test_with_no_readable_library_entry_nothing_is_stored(make_receiver, tmp_pat
     assert client.json("POST", LOOKUP, {"machine_type": "pump"})[0] == 500
     assert client.json("GET", PROFILE)[1]["profile"] is None
     assert put(client, {"machine_type": "conveyor", "by": "Sam"})[1]["profile"]["choice"]["library_entry"] == "conveyor"
+
+
+# ---- the wanted library entry (contract 10.4, plan row U3) -------------------
+#
+# The device announces `conveyor` (MODEL). A pump profile makes the lookup want
+# `generic_rotating`, so wanted and reported differ and can be told apart.
+
+GENERAL = {"library_entry": "generic_rotating"}
+
+
+def replies(client, device_id="effente-01", machine_id="conveyor-07"):
+    """The replies to message 2 (a record) and message 3 (a check-in) from this device."""
+    record = client.json("POST", "/api/records", make_record(device_id=device_id, machine_id=machine_id))
+    check_in = client.json("POST", f"/api/devices/{device_id}", make_check_in(machine_id=machine_id))
+    assert record[0] == check_in[0] == 200, (record, check_in)
+    return record[1], check_in[1]
+
+
+def test_no_reply_carries_a_library_entry_before_a_profile_is_confirmed(client):
+    client.json("POST", "/api/model", MODEL)
+    client.json("POST", LOOKUP, {"machine_type": "pump"})  # asking the lookup sends nothing
+    for reply in replies(client):
+        assert "settings" not in reply
+    device = client.json("GET", "/api/state")[1]["devices"]["effente-01"]
+    assert device["settings"] is None and device["library_entry"] == "conveyor"
+
+
+def test_after_confirming_replies_for_that_machine_carry_the_wanted_entry_and_no_other_machines_do(client):
+    client.json("POST", "/api/model", MODEL)
+    put(client, {"machine_type": "pump", "by": "Sam"})
+    for reply in replies(client):
+        assert reply["settings"] == GENERAL
+    for reply in replies(client, device_id="effente-02", machine_id="press-01"):
+        assert "settings" not in reply
+
+
+def test_settings_hold_only_the_keys_that_are_set(client):
+    client.json("POST", "/api/model", MODEL)
+    assert client.json("PUT", "/api/devices/effente-01/settings", {"sensitivity": 0.7})[0] == 200
+    assert all(r["settings"] == {"sensitivity": 0.7} for r in replies(client))
+    put(client, {"machine_type": "pump", "by": "Sam"})
+    assert all(r["settings"] == {"sensitivity": 0.7, **GENERAL} for r in replies(client))
+    _, reply = client.json("PUT", "/api/devices/effente-01/settings", {"sensitivity": None})
+    assert reply["settings"] == GENERAL
+    assert all(r["settings"] == GENERAL for r in replies(client))
+
+
+def test_the_settings_route_refuses_the_library_entry(client):
+    replies(client)
+    status, reply = client.json("PUT", "/api/devices/effente-01/settings", {"sensitivity": 0.7, **GENERAL})
+    assert status == 400 and "'library_entry' is set by confirming a machine profile" in reply["error"]
+    assert client.json("GET", "/api/state")[1]["devices"]["effente-01"]["settings"] is None
+    assert client.json("PUT", "/api/devices/effente-01/settings", GENERAL)[0] == 400
+
+
+def test_the_state_and_the_settings_event_show_wanted_and_reported_apart(client, open_stream):
+    client.json("POST", "/api/model", MODEL)
+    replies(client)
+    stream = open_stream(client.port)
+    put(client, {"machine_type": "pump", "by": "Sam"})
+    event = stream.next("settings")
+    assert event["device_id"] == "effente-01"
+    assert event["settings"] == GENERAL and event["library_entry"] == "conveyor"
+    device = client.json("GET", "/api/state")[1]["devices"]["effente-01"]
+    assert device["settings"] == GENERAL and device["library_entry"] == "conveyor"
+
+
+def test_a_device_with_no_announced_model_reports_no_entry(client):
+    put(client, {"machine_type": "conveyor", "by": "Sam"})
+    replies(client)
+    device = client.json("GET", "/api/state")[1]["devices"]["effente-01"]
+    assert device["settings"] == {"library_entry": "conveyor"} and device["library_entry"] is None
+
+
+def test_a_device_that_moves_to_a_machine_with_no_profile_stops_getting_it(client):
+    put(client, {"machine_type": "pump", "by": "Sam"})
+    assert all(r["settings"] == GENERAL for r in replies(client))
+    assert all("settings" not in r for r in replies(client, machine_id="press-01"))
+    assert client.json("GET", "/api/state")[1]["devices"]["effente-01"]["settings"] is None
+
+
+def test_the_wanted_entry_survives_a_restart(make_receiver):
+    _, client = make_receiver()
+    put(client, {"machine_type": "pump", "by": "Sam"})
+    _, client2 = make_receiver()  # the same data dir
+    assert all(r["settings"] == GENERAL for r in replies(client2))
