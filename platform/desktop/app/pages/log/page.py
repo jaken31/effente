@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from app.theme import fonts
 from app.theme import tokens as t
-from app.widgets import Button, Panel, Segmented, SimChip
+from app.widgets import Button, Panel, Segmented, SimChip, motion
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -43,6 +43,7 @@ class LogPage(QWidget):
         super().__init__(parent)
         self.state = None
         self.kind = view.ALL  # the table's kind filter
+        self._asked = None  # (machine, part, kind) the table was last drawn for
         self._adding_entry = False  # an add_entry call is out: its entry empties the form
         self._adding_part = False
 
@@ -265,6 +266,10 @@ class LogPage(QWidget):
         self.table.setVisible(bool(rows))
         self.empty.setText(view.empty_text(part, self.kind, machine))
         self.empty.setVisible(not rows)
+        asked = (machine, part["part_id"] if part else None, self.kind)
+        if asked != self._asked and self._asked is not None and self.isVisible():
+            motion.swap(self.table if rows else self.empty)  # another part's log, or another kind
+        self._asked = asked
         self.count.setText(view.count_text(len(rows), self.kind))
         self.sim_chip.setVisible(any(r.tag for r in rows))
         self.export_button.setEnabled(bool(machine))

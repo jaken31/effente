@@ -2,9 +2,10 @@
 
 import pytest
 from app.shell.notices import Notices
-from app.widgets import Segmented, StatusDot, motion
-from PySide6.QtCore import QRectF
-from PySide6.QtWidgets import QWidget
+from app.widgets import Button, Segmented, StatusDot, motion
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtGui import QEnterEvent
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 
 @pytest.fixture
@@ -94,3 +95,143 @@ def test_status_dot_beats_and_comes_back(qtbot, moving):
     assert dot._beat.at < 1.0
     qtbot.waitUntil(lambda: not dot._beat.moving(), timeout=2000)
     assert dot._beat.at == 1.0
+
+
+# ---- set_shown: a card that comes and goes ----------------------------------------
+
+
+def host_with_card(qtbot):
+    host = QWidget()
+    card = QWidget(host)
+    card.setGeometry(10, 10, 80, 40)
+    host.resize(120, 80)
+    shown_widget(qtbot, host)
+    return host, card
+
+
+def still(w) -> bool:
+    return w.graphicsEffect() is None
+
+
+def test_set_shown_fades_out_before_it_hides(qtbot, moving):
+    _host, card = host_with_card(qtbot)
+    motion.set_shown(card, False)
+    assert card.isVisible() and not still(card)  # still there, on its way out
+    qtbot.waitUntil(card.isHidden, timeout=2000)
+    assert still(card)
+
+
+def test_set_shown_settles_in_and_ends_plain(qtbot, moving):
+    _host, card = host_with_card(qtbot)
+    card.hide()
+    motion.set_shown(card, True)
+    assert card.isVisible() and isinstance(card.graphicsEffect(), motion.Lift)
+    assert card.graphicsEffect().opacity == 0.0  # clear at first: it never flashes in whole
+    qtbot.waitUntil(lambda: still(card), timeout=2000)
+    assert card.isVisible()
+
+
+def test_set_shown_asked_twice_moves_once(qtbot, moving):
+    _host, card = host_with_card(qtbot)
+    card.hide()
+    motion.set_shown(card, True)
+    first = card.graphicsEffect()
+    motion.set_shown(card, True)  # a page that redraws every second asks again and again
+    assert card.graphicsEffect() is first
+    qtbot.waitUntil(lambda: still(card), timeout=2000)
+    motion.set_shown(card, True)
+    assert still(card)
+
+
+def test_set_shown_turned_back_halfway_ends_shown(qtbot, moving):
+    _host, card = host_with_card(qtbot)
+    motion.set_shown(card, False)
+    qtbot.wait(40)
+    motion.set_shown(card, True)
+    qtbot.waitUntil(lambda: still(card), timeout=2000)
+    qtbot.wait(motion.EXIT + 60)  # the fade that was under way must not hide it after all
+    assert card.isVisible()
+
+
+def test_set_shown_is_plain_set_visible_with_motion_off(qtbot):
+    _host, card = host_with_card(qtbot)
+    motion.set_shown(card, False)
+    assert card.isHidden() and still(card)
+    motion.set_shown(card, True)
+    assert card.isVisible() and still(card)
+
+
+def test_set_shown_follows_a_plain_hide(qtbot, moving):
+    _host, card = host_with_card(qtbot)
+    motion.set_shown(card, False)
+    qtbot.waitUntil(card.isHidden, timeout=2000)
+    motion.set_shown(card, True)
+    qtbot.waitUntil(lambda: still(card), timeout=2000)
+    assert card.isVisible()
+
+
+# ---- Button: eased hover, a dip while held ------------------------------------------
+
+
+def point_at(w, on: bool) -> None:
+    w.setAttribute(Qt.WidgetAttribute.WA_UnderMouse, on)
+    c = QPointF(w.rect().center())
+    QApplication.sendEvent(w, QEnterEvent(c, c, c) if on else QEvent(QEvent.Type.Leave))
+
+
+def button_in_host(qtbot, **kw):
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    b = Button("Add entry", **kw)
+    lay.addWidget(b)
+    shown_widget(qtbot, host)
+    b.host = host  # held here: nothing else keeps the host alive
+    return b
+
+
+def test_button_hover_eases_in_and_out(qtbot, moving):
+    b = button_in_host(qtbot)
+    point_at(b, True)
+    assert b._hover.moving() and b._hover.at < 1.0
+    assert not b.grab().isNull()  # paints part way
+    qtbot.waitUntil(lambda: b._hover.at == 1.0, timeout=2000)
+    point_at(b, False)
+    qtbot.waitUntil(lambda: b._hover.at == 0.0, timeout=2000)
+
+
+def test_button_dips_while_held_and_comes_back(qtbot, moving):
+    b = button_in_host(qtbot)
+    clicks = []
+    b.clicked.connect(lambda: clicks.append(1))
+    qtbot.mousePress(b, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: b._down.at == 1.0, timeout=2000)
+    qtbot.mouseRelease(b, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: b._down.at == 0.0, timeout=2000)
+    assert clicks == [1]
+
+
+def test_button_at_rest_paints_what_the_stylesheet_says(qtbot):
+    """The button draws itself; at rest that must be the stylesheet's look, pixel for pixel."""
+    from PySide6.QtWidgets import QPushButton
+
+    for kind in ("primary", "secondary", "ghost"):
+        for small in (False, True):
+            host = QWidget()
+            lay = QVBoxLayout(host)
+            ours = Button("Add entry", kind, small=small)
+            plain = QPushButton("Add entry")
+            plain.setProperty("kind", kind)
+            plain.setProperty("small", "true" if small else "false")
+            plain.setFont(ours.font())
+            lay.addWidget(ours)
+            lay.addWidget(plain)
+            shown_widget(qtbot, host)
+            assert ours.size() == plain.size()
+            assert ours.grab().toImage() == plain.grab().toImage(), (kind, small)
+
+
+def test_a_disabled_button_does_not_light_up(qtbot, moving):
+    b = button_in_host(qtbot)
+    b.setEnabled(False)
+    point_at(b, True)
+    assert b._hover.at == 0.0 and not b._hover.moving()

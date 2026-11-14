@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
-from app.widgets import Button
+from app.widgets import Button, motion
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
@@ -96,6 +96,7 @@ class MachinePage(QWidget):
         self.view_state = logic.view_state(None, False)
         self.range = rd.DEFAULT_RANGE  # how far back the chart reaches
         self._awaiting_entry = False
+        self._probe_shown = ...  # the part the probe line was last drawn for; ... before the first draw
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         outer = QVBoxLayout(self)
@@ -291,6 +292,7 @@ class MachinePage(QWidget):
     def set_range(self, key: str) -> None:
         self.range = key
         self.refresh()
+        motion.swap(self.part_column.chart_panel.chart)  # the new stretch of time comes up in place
 
     def run_review(self) -> None:
         part = self.part()
@@ -302,7 +304,7 @@ class MachinePage(QWidget):
         part = self.part()
         draft = rd.agree_draft(self.state.log.review(part["part_id"])) if part else None
         if draft is not None:
-            self.log_panel.form.setVisible(True)
+            self.log_panel.open_form()
             self.log_panel.form.fill(*draft)
 
     def add_entry(self, kind: str, text: str, needs_repair) -> None:
@@ -530,6 +532,9 @@ class MachinePage(QWidget):
 
         probe = log.probe_part()
         selection = getattr(log, "probe", None)  # the pick with its `since`, where the store has it
+        if probe != self._probe_shown and self._probe_shown is not ... and self.isVisible():
+            motion.swap(self.probe_text)  # the probe went to another part
+        self._probe_shown = probe
         self.probe_text.setText(rd.probe_line(parts, probe, selection() if callable(selection) else None))
         self.probe_clear.setVisible(bool(probe))
 
@@ -565,15 +570,16 @@ class MachinePage(QWidget):
         col.head.set_detail(self.detail, probe == part_id)
         col.head.sim_chip.setVisible(False)
         if rd.never_read(part):
-            col.show_blank(pv.NEVER_TITLE, pv.NEVER_TEXT, "" if probe == part_id else rd.PROBE_HERE, head=True)
+            col.show_blank(pv.NEVER_TITLE, pv.NEVER_TEXT, "" if probe == part_id else rd.PROBE_HERE, head=True,
+                           part=part_id)
             return False
         now = self._now()
         since = rd.since(self.range, now)
         reply = self.state.log.readings(part_id, since)  # asking starts the fetch
         if reply is None:
-            col.show_blank(pv.FETCH_TITLE, pv.FETCH_TEXT, head=True)
+            col.show_blank(pv.FETCH_TITLE, pv.FETCH_TEXT, head=True, part=part_id)
             return False
-        col.show_readings()
+        col.show_readings(part_id)
         col.tiles.set_tiles(rd.tiles(reply, part))
         col.head.sim_chip.setVisible(col.tiles.simulated())
 

@@ -10,7 +10,9 @@ With it off every helper here lands on its end value straight away.
 
 The moves: Glide (a number easing), fade_in and fade_out (a card coming or going),
 lift_in, cascade and swap (cards settling into place, words changing in place),
-Reveal (part of a card opening or closing) and Sweep (a busy line).
+set_shown (a card that comes and goes without moving its neighbours), Reveal (part of
+a card opening or closing), RowTint (a row lighting under the pointer and taking the
+pick's tint) and Sweep (a busy line).
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ from PySide6.QtWidgets import (
 
 # Milliseconds. HOVER and TOGGLE are the mockup's .12s and .15s transitions.
 HOVER = 120
+PRESS = 80  # a button going down under the pointer
+RELEASE = 220  # and coming back up
 TOGGLE = 150
 SLIDE = 180  # a selection moving to another option
 ENTER = 180  # a card appearing
@@ -122,10 +126,52 @@ class Glide(QVariantAnimation):
         return self.state() == QAbstractAnimation.State.Running
 
 
-def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[], None] | None) -> None:
+def _under_effect(widget: QWidget) -> bool:
+    """Whether something `widget` is inside is being drawn through an effect right now."""
+    w = widget.parentWidget()
+    while w is not None:
+        if w.graphicsEffect() is not None:
+            return True
+        w = w.parentWidget()
+    return False
+
+
+def _land_below(widget: QWidget) -> None:
+    """Finish, at once, every move under way inside `widget`.
+
+    Qt cannot draw one effect through another: the inner one paints nothing and warns. So
+    a move never starts inside one that is running (see `_under_effect`), and one that
+    starts around others ends them first.
+    """
+    for w in widget.findChildren(QWidget):
+        if w.graphicsEffect() is None:
+            continue
+        anim, land = getattr(w, "_motion_fade", None), getattr(w, "_motion_land", None)
+        if anim is not None:
+            anim.stop()
+            w._motion_fade = None
+        if land is not None:
+            w._motion_land = None
+            land()
+        if w.graphicsEffect() is not None:
+            w.setGraphicsEffect(None)
+
+
+def _stop(widget: QWidget) -> None:
     old = getattr(widget, "_motion_fade", None)
     if old is not None:
         old.stop()
+    widget._motion_fade = widget._motion_land = None
+
+
+def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[], None] | None) -> None:
+    _stop(widget)
+    if _under_effect(widget):  # what it is inside is moving: land where the fade would
+        widget.setGraphicsEffect(None)
+        if done is not None:
+            done()
+        return
+    _land_below(widget)
     effect = QGraphicsOpacityEffect(widget)
     effect.setOpacity(start)
     widget.setGraphicsEffect(effect)  # takes the place of, and deletes, an earlier one
@@ -137,7 +183,7 @@ def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[],
     anim.valueChanged.connect(lambda v: effect.setOpacity(float(v)))
 
     def finished() -> None:
-        widget._motion_fade = None
+        widget._motion_fade = widget._motion_land = None
         if end >= 1.0:
             widget.setGraphicsEffect(None)  # back to plain painting
         if done is not None:
@@ -145,6 +191,7 @@ def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[],
 
     anim.finished.connect(finished)
     widget._motion_fade = anim
+    widget._motion_land = finished
     anim.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
@@ -195,6 +242,12 @@ class Lift(QGraphicsEffect):
         logical = Qt.CoordinateSystem.LogicalCoordinates
         pixmap = self.sourcePixmap(logical, None, QGraphicsEffect.PixmapPadMode.NoPad)
         painter.save()
+        widget = self.parent()
+        if isinstance(widget, QWidget):
+            # An effect draws past what holds its widget: keep to the part that shows, so a
+            # card opening inside a Reveal is never drawn over what lies under it.
+            seen = QRectF(widget.visibleRegion().boundingRect())
+            painter.setClipRect(seen.adjusted(0, 0, 0, self._room + 1), Qt.ClipOperation.IntersectClip)
         painter.setOpacity(self.opacity)
         painter.drawPixmap(self.sourceBoundingRect(logical).topLeft() + QPointF(0, self.drop), pixmap)
         painter.restore()
@@ -205,9 +258,11 @@ def lift_in(widget: QWidget, delay: int = 0, ms: int = RISE, drop: float = 10.0)
     It is clear from the moment this is called, so a delayed card never flashes first."""
     if not enabled():
         return
-    old = getattr(widget, "_motion_fade", None)
-    if old is not None:
-        old.stop()
+    _stop(widget)
+    if _under_effect(widget):  # it rides in with what it is inside
+        widget.setGraphicsEffect(None)
+        return
+    _land_below(widget)
     effect = Lift(widget, 0.0, drop)
     widget.setGraphicsEffect(effect)
     anim = QVariantAnimation()
@@ -223,11 +278,12 @@ def lift_in(widget: QWidget, delay: int = 0, ms: int = RISE, drop: float = 10.0)
     group.addAnimation(anim)
 
     def finished() -> None:
-        widget._motion_fade = None
+        widget._motion_fade = widget._motion_land = None
         widget.setGraphicsEffect(None)
 
     group.finished.connect(finished)
     widget._motion_fade = group
+    widget._motion_land = finished
     group.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
@@ -244,15 +300,115 @@ def swap(widget: QWidget) -> None:
         lift_in(widget, ms=SWAP, drop=3.0)
 
 
+def set_shown(widget: QWidget, on: bool, drop: float = 8.0) -> None:
+    """In place of `setVisible`, for a card that lies over others or keeps its own room.
+
+    Shown, it fades in while it settles `drop` pixels up into place; hidden, it fades out
+    first. Asking for what it already is, or is on its way to, does nothing, so a page
+    that redraws every second can call it each time. Use Reveal where the neighbours
+    should make room instead.
+    """
+    on = bool(on)
+    was = getattr(widget, "_motion_shown", None)
+    if was is None:
+        was = not widget.isHidden()
+    widget._motion_shown = on
+    parent = widget.parentWidget()
+    if not enabled() or parent is None or not parent.isVisible():
+        _stop(widget)
+        if widget.graphicsEffect() is not None:
+            widget.setGraphicsEffect(None)
+        widget.setVisible(on)
+        return
+    if on == was:
+        return
+    if on:
+        effect = widget.graphicsEffect()
+        if widget.isVisible() and isinstance(effect, QGraphicsOpacityEffect):
+            _fade(widget, effect.opacity(), 1.0, ENTER, None)  # turned back halfway: up from where it is
+        else:
+            widget.show()
+            lift_in(widget, ms=ENTER + 60, drop=drop)
+        return
+
+    def gone() -> None:
+        if not widget._motion_shown:  # not asked back in the meantime
+            widget.hide()
+            widget.setGraphicsEffect(None)
+
+    fade_out(widget, gone)
+
+
+# ---- row tint: a row that can be picked ---------------------------------------------
+
+
+class RowTint(QObject):
+    """The background of a row that can be picked: it lights under the pointer and takes
+    the pick's tint.
+
+    `hover` and `pick` return the two colours; they are asked at each paint, since a colour
+    scheme may replace them. The row calls `paint()` first thing in its paintEvent. A row
+    built already picked has its tint at once; `pick_in()` says it was picked just now, and
+    the tint comes up when the row is first shown.
+    """
+
+    def __init__(self, row: QWidget, chosen: bool, hover: Callable[[], QColor], pick: Callable[[], QColor]):
+        super().__init__(row)
+        self._row = row
+        self._colours = (hover, pick)
+        self._fresh = False
+        self.hover = Glide(row)  # 0 plain, 1 under the pointer
+        self.chosen = Glide(row, SLIDE, 1.0 if chosen else 0.0)
+        row.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        row.installEventFilter(self)
+
+    def pick_in(self) -> None:
+        self._fresh = True
+        self.chosen.jump(0.0)
+
+    def eventFilter(self, obj, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.Type.Enter:
+            self.hover.to(1.0)
+        elif kind == QEvent.Type.Leave:
+            self.hover.to(0.0)
+        elif kind == QEvent.Type.Show:
+            self.hover.jump(1.0 if self._row.underMouse() else 0.0)
+            if self._fresh:
+                self._fresh = False
+                self.chosen.to(1.0)
+        return False
+
+    def layers(self) -> list[QColor]:
+        """The background now, bottom layer first: the hover's tint while the row is not
+        picked, then the pick's."""
+        chosen = self.chosen.at
+        layers = []
+        for colour, amount in zip(self._colours, (self.hover.at * (1.0 - chosen), chosen), strict=True):
+            if amount > 0:
+                c = QColor(colour())
+                c.setAlphaF(c.alphaF() * amount)
+                layers.append(c)
+        return layers
+
+    def paint(self) -> None:
+        layers = self.layers()
+        if layers:
+            p = QPainter(self._row)
+            for colour in layers:
+                p.fillRect(self._row.rect(), colour)
+            p.end()
+
+
 # ---- reveal: a part that opens and closes ------------------------------------------
 
 
 class Reveal(QWidget):
     """Holds one widget and opens or closes it: the height eases while the content fades.
 
-    Use `set_open` in place of the child's `setVisible`. Closed, the Reveal is hidden,
-    so the child reads as not visible. The child keeps its own size while the Reveal
-    clips it, so its words never reflow on the way.
+    Use `set_open` in place of the child's `setVisible`. Closed, the Reveal and the child
+    are both hidden, so `isVisible` and `isHidden` on the child read as they did. The
+    child keeps its own size while the Reveal clips it, so its words never reflow on the way.
     """
 
     def __init__(self, child: QWidget, parent: QWidget | None = None):
@@ -298,14 +454,16 @@ class Reveal(QWidget):
         self._anim.stop()
         if on:
             self.setMaximumHeight(round(self._from))
+            self.child.show()
             self.show()
             if parent.layout() is not None:
                 parent.layout().activate()  # give it its width now, so its natural height is right
-        old = getattr(self.child, "_motion_fade", None)
-        if old is not None:
-            old.stop()
-            self.child._motion_fade = None
-        self.child.setGraphicsEffect(Lift(self.child, 0.0 if on else 1.0))
+        _stop(self.child)
+        if _under_effect(self.child):
+            self.child.setGraphicsEffect(None)  # the height still eases; the fade is its holder's
+        else:
+            _land_below(self.child)
+            self.child.setGraphicsEffect(Lift(self.child, 0.0 if on else 1.0))
         self._anim.start()
 
     def _step(self, f) -> None:
@@ -321,6 +479,7 @@ class Reveal(QWidget):
         if isinstance(self.child.graphicsEffect(), Lift):
             self.child.setGraphicsEffect(None)
         self.setMaximumHeight(_MAX)
+        self.child.setVisible(self._open)
         self.setVisible(self._open)
 
 

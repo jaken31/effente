@@ -9,7 +9,7 @@ from __future__ import annotations
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
-from app.widgets import Button, Panel, Segmented, SimChip
+from app.widgets import Button, Panel, Segmented, SimChip, motion
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
@@ -264,6 +264,7 @@ class EvidencePanel(Panel):
 
     def _show(self, key: str) -> None:
         self.stack.setCurrentWidget(self.moved if key == "moved" else self.spectrum)
+        motion.swap(self.stack.currentWidget())
         self.view_changed.emit(key)
 
 
@@ -328,19 +329,39 @@ class PartColumn(QWidget):
         col.addWidget(self.blank, 1)
         for w in (self.chart_panel, self.evidence_panel, self.blank):
             w.setMinimumHeight(0)
+        self._showing = None  # (what is shown, for which part) as last drawn
 
     def readings_shown(self) -> bool:
         return self.chart_panel.isVisibleTo(self)
 
-    def show_blank(self, title: str, text: str, button: str = "", *, head: bool) -> None:
+    def _settle(self, showing: tuple, widgets: list) -> None:
+        """Settle `widgets` in when this is another thing to show than last time. The page redraws
+        with every record: only a real change may move anything. The head stays put while what is
+        under it changes for the same part."""
+        was, self._showing = self._showing, showing
+        if showing == was or was is None or not self.isVisible():
+            return
+        if showing[1] is not None and showing[1] == was[1]:
+            widgets = [w for w in widgets if w is not self.head]
+        # From one part's readings to another's is done often: a shorter, tighter move than the
+        # first time the readings come up.
+        quick = showing[0] == was[0]
+        step, ms, drop = (22, motion.REVEAL, 5.0) if quick else (motion.STAGGER, motion.RISE, 8.0)
+        for i, w in enumerate(w for w in widgets if not w.isHidden()):
+            motion.lift_in(w, delay=i * step, ms=ms, drop=drop)
+
+    def show_blank(self, title: str, text: str, button: str = "", *, head: bool, part=None) -> None:
+        """`part` is the id of the part it is about, if any: another part's blank settles in again."""
         self.head.setVisible(head)
         for w in (self.tiles, self.chart_panel, self.evidence_panel):
             w.setVisible(False)
         self.blank.show_state(title, text, button)
         self.blank.setVisible(True)
+        self._settle((title, part), [self.head, self.blank])
 
-    def show_readings(self) -> None:
+    def show_readings(self, part=None) -> None:
         self.head.setVisible(True)
         for w in (self.tiles, self.chart_panel, self.evidence_panel):
             w.setVisible(True)
         self.blank.setVisible(False)
+        self._settle(("readings", part), [self.head, self.tiles, self.chart_panel, self.evidence_panel])
