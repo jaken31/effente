@@ -71,6 +71,17 @@ python3 phone/tools/fake_receiver.py
 
 It prints the pairing line to paste into the app and says where it puts the files. It is not the receiver: it knows only hello and the upload.
 
+## If it crashes on the phone
+
+The app keeps a small log in its own Documents folder, `effente-log.txt`: each step of a capture, and the reason if it dies on an uncaught exception or an abort. It stays on the phone. To read it from a Mac with the phone connected (use your own bundle id, shown in Xcode under Signing):
+
+```
+xcrun devicectl device copy from --device <device id> --domain-type appDataContainer \
+  --domain-identifier com.effente.scan<TEAMID> --source Documents/effente-log.txt --destination effente-log.txt
+```
+
+The shared Xcode scheme has Metal API Validation and GPU frame capture turned off. The app stopped with an abort at the start of a capture when run from Xcode, and ran a whole scan when started without Xcode. Unverified: that the validation was the cause.
+
 ## By hand, on a real phone
 
 Not done yet. Tick these when they are, with the date and the phone model.

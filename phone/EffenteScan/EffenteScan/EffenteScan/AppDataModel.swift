@@ -57,6 +57,7 @@ class AppDataModel: Identifiable {
     var state: ModelState = .notSet {
         didSet {
             logger.debug("didSet AppDataModel.state to \(String(describing: self.state))")
+            Diagnostics.note("state \(String(describing: oldValue)) -> \(String(describing: self.state))")
             performStateTransition(from: oldValue, to: state)
         }
     }
@@ -119,6 +120,7 @@ class AppDataModel: Identifiable {
 
     /// effente: starts a capture from the home screen. Does nothing while one is under way.
     func beginCapture() {
+        Diagnostics.note("beginCapture tapped, state \(String(describing: self.state))")
         guard state == .notSet else { return }
         state = .ready
     }
@@ -206,8 +208,11 @@ extension AppDataModel {
             preconditionFailure("ObjectCaptureSession is not supported on this device!")
         }
 
+        Diagnostics.note("startNewCapture: making the capture folder")
         captureFolderManager = try CaptureFolderManager()
+        Diagnostics.note("startNewCapture: making the ObjectCaptureSession")
         objectCaptureSession = ObjectCaptureSession()
+        Diagnostics.note("startNewCapture: session made")
 
         guard let session = objectCaptureSession else {
             preconditionFailure("startNewCapture() got unexpectedly nil session!")
@@ -221,8 +226,10 @@ extension AppDataModel {
         configuration.isOverCaptureEnabled = true
         configuration.checkpointDirectory = captureFolderManager.checkpointFolder
         // Starts the initial segment and sets the output locations.
+        Diagnostics.note("startNewCapture: starting the session")
         session.start(imagesDirectory: captureFolderManager.imagesFolder,
                       configuration: configuration)
+        Diagnostics.note("startNewCapture: session state \(String(describing: session.state))")
 
         if case let .failed(error) = session.state {
             logger.error("Got error starting session! \(String(describing: error))")
@@ -331,6 +338,7 @@ extension AppDataModel {
                     try startNewCapture()
                 } catch {
                     logger.error("Starting new capture failed!")
+                    Diagnostics.note("startNewCapture failed: \(String(describing: error))")
                     switchToErrorState(error: error)
                 }
             case .prepareToReconstruct:

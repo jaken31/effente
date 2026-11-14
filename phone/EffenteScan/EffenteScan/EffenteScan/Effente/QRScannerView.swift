@@ -45,8 +45,10 @@ final class QRScannerController: UIViewController, AVCaptureMetadataOutputObject
             message.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24)
         ])
 
+        Diagnostics.note("QR reader opened")
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
+                Diagnostics.note("QR reader: camera allowed \(granted)")
                 if granted {
                     self.configure()
                 } else {
@@ -80,7 +82,11 @@ final class QRScannerController: UIViewController, AVCaptureMetadataOutputObject
         view.layer.insertSublayer(layer, at: 0)
         preview = layer
 
-        sessionQueue.async { [session] in session.startRunning() }
+        Diagnostics.note("QR reader: configured, starting")
+        sessionQueue.async { [session] in
+            session.startRunning()
+            Diagnostics.note("QR reader: running \(session.isRunning)")
+        }
     }
 
     override func viewDidLayoutSubviews() {

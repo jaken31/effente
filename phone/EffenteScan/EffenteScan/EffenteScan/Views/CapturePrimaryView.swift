@@ -27,6 +27,7 @@ struct CapturePrimaryView: View {
         }
         .onAppear(perform: {
             UIApplication.shared.isIdleTimerDisabled = true
+            Diagnostics.note("capture view appeared")
         })
         .id(session.id)
     }
