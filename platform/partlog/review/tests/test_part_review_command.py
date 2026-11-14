@@ -5,8 +5,8 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from conftest import HISTORIES, MACHINE, PLATFORM, load_case
-from fake_receiver import FakeReceiver
+from part_review_cases import HISTORIES, MACHINE, PLATFORM, load_case
+from fake_part_receiver import FakeReceiver
 
 spec = importlib.util.spec_from_file_location("part_review_command", PLATFORM / "part_review.py")
 command = importlib.util.module_from_spec(spec)

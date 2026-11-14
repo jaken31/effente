@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from conftest import CASES, HISTORIES, MACHINE, history_of, load_case
+from part_review_cases import CASES, HISTORIES, MACHINE, history_of, load_case
 
 from device.agent.standin import MODEL_NAME
 from partlog.review import history as histories

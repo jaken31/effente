@@ -4,8 +4,8 @@ import json
 import sys
 
 import pytest
-from conftest import MACHINE, PLATFORM, load_case
-from fake_receiver import FakeReceiver
+from part_review_cases import MACHINE, PLATFORM, load_case
+from fake_part_receiver import FakeReceiver
 
 from device.agent.standin import MODEL_NAME
 from partlog.review import history as histories
