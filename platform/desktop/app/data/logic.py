@@ -842,7 +842,7 @@ def verdict_text(verdict) -> str:
 
 def apply_laptop_snapshot(state: dict, snap) -> dict:
     """The parts of GET /api/state the JS does not read: `alarms`, each device's
-    `sensitivity` and `settings`, and `machines`. Call after apply_snapshot."""
+    `sensitivity`, `settings` and `readings`, and `machines`. Call after apply_snapshot."""
     snap = snap if isinstance(snap, dict) else {}
     alarms = snap.get("alarms")
     state["alarms"] = {k: v for k, v in alarms.items() if isinstance(v, dict)} if isinstance(alarms, dict) else {}
@@ -853,12 +853,18 @@ def apply_laptop_snapshot(state: dict, snap) -> dict:
         src = devs.get(device_id) or {}
         d["sensitivity"] = _sensitivity_or_none(src.get("sensitivity"))
         d["settings"] = src.get("settings") if isinstance(src.get("settings"), dict) else None
+        d["readings"] = _readings_or_none(src.get("readings"))
     return state
 
 
+def _readings_or_none(value):
+    """{"at", "readings"} as the platform keeps a device's own readings, or None."""
+    return value if isinstance(value, dict) and isinstance(value.get("readings"), dict) else None
+
+
 def apply_laptop_event(state: dict, name: str, data) -> bool:
-    """The events the JS does not read: `alarm` and `settings`, and the machine
-    a `record` names. Returns True if it changed something."""
+    """The events the JS does not read: `alarm`, `settings` and `readings`, and the
+    machine a `record` names. Returns True if it changed something."""
     if not isinstance(data, dict):
         return False
     if name == "alarm":
@@ -872,6 +878,12 @@ def apply_laptop_event(state: dict, name: str, data) -> bool:
         d = ensure_device(state, data["device_id"])
         d["sensitivity"] = _sensitivity_or_none(data.get("sensitivity"))
         d["settings"] = data.get("settings") if isinstance(data.get("settings"), dict) else None
+        return True
+    if name == "readings":
+        if not isinstance(data.get("device_id"), str) or _readings_or_none(data) is None:
+            return False
+        ensure_device(state, data["device_id"])["readings"] = {
+            k: v for k, v in data.items() if k not in ("device_id", "machine_id")}
         return True
     if name == "record":
         machine = data.get("machine_id")

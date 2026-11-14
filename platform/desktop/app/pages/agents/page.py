@@ -3,7 +3,8 @@
 Run Report Agent calls `state.start_agent(mode)`, which runs platform/report.py
 as a local process (CONTRACT.md "Not in version 3.3"). Local model mode asks the
 model server on this laptop; when it does not answer, the state's own refusal
-shows under the button. The model's folder, size and server are set here too.
+shows under the button. The model's folder, size and server are set here too,
+and shown only while Local model is the mode picked.
 """
 
 from __future__ import annotations
@@ -102,7 +103,13 @@ class AgentsPage(QWidget):
         tv.setSpacing(10)
         self.fleet = Levels([(name, active, not active) for name, active in view.FLEET])
         self.mode = Segmented(view.MODES, small=True)
-        self.run_button = Button("Run Report Agent", "primary")
+        self.mode.changed.connect(self._draw_mode)
+        self.mode_note = QLabel()
+        self.mode_note.setProperty("role", "muted")
+        self.mode_note.setFont(fonts.small())
+        self.mode_note.setWordWrap(True)
+        self.mode_note.setTextFormat(Qt.TextFormat.PlainText)
+        self.run_button = Button(view.RUN, "primary")
         self.run_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.run_button.clicked.connect(self.run_agent)
         self.message = QLabel()
@@ -113,6 +120,7 @@ class AgentsPage(QWidget):
         self.message.hide()
         tv.addWidget(self.fleet)
         tv.addWidget(self.mode)
+        tv.addWidget(self.mode_note)
         tv.addWidget(self.run_button)
         tv.addWidget(self.message)
         self.fleet_panel.add(top)
@@ -146,7 +154,13 @@ class AgentsPage(QWidget):
         mv.addLayout(choose)
         mv.addWidget(self.server_button)
         self.fleet_panel.add(model)
+        self.model_section = model
 
+        runs_heading = QLabel(view.RUNS_HEADING)
+        runs_heading.setProperty("role", "muted")
+        runs_heading.setFont(fonts.label_caps())
+        runs_heading.setContentsMargins(bh, bv, bh, 6)
+        self.fleet_panel.add(runs_heading)
         self.runs_area = QScrollArea()
         self.runs_area.setWidgetResizable(True)
         self.runs_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -188,6 +202,7 @@ class AgentsPage(QWidget):
         self.fleet_panel.setFixedWidth(290)
         self.report_panel.setFixedWidth(360)
         grid.setColumnStretch(1, 1)
+        self._draw_mode()
 
     # ---- state ------------------------------------------------------------
 
@@ -208,6 +223,12 @@ class AgentsPage(QWidget):
         self.selected_call = None
         self.state.start_agent(self.mode.current() or "standin")
         self.refresh()
+
+    def _draw_mode(self, *_args) -> None:
+        """The chosen mode in a sentence. The model's settings only matter in local mode."""
+        mode = self.mode.current() or "standin"
+        self.mode_note.setText(view.MODE_NOTES.get(mode, ""))
+        self.model_section.setVisible(mode == "local")
 
     def show_message(self, text: str) -> None:
         self.message.setText(text or "")
@@ -255,7 +276,9 @@ class AgentsPage(QWidget):
             return
         runs = self.state.runs()
         run = self.current_run()
-        self.run_button.setEnabled(not self.state.agent_running())
+        running = self.state.agent_running()
+        self.run_button.setEnabled(not running)
+        self.run_button.setText(view.RUNNING if running else view.RUN)
         self._draw_runs(runs, run)
         self._draw_calls(run)
         self._draw_report(run)

@@ -78,6 +78,7 @@ def test_local_model_shows_its_folder_size_and_server(qtbot, state):
     from app.pages.agents import view as agents_view
 
     page = make(qtbot, AgentsPage, state)
+    page.mode.button("local").click()
     rows = page.model_rows
     assert (rows.text("Folder"), rows.text("Size"), rows.text("Server")) == (
         "~/effente-models", "Small, small.gguf", "Not running.")
@@ -103,6 +104,7 @@ def test_a_server_started_elsewhere_is_not_ours_to_start_or_stop(qtbot, state):
     from app.pages.agents import view as agents_view
 
     page = make(qtbot, AgentsPage, state)
+    page.mode.button("local").click()
     state.set_model_status("ready", "Running. It was started outside this app, so this app will not stop it.")
     assert (page.server_button.text(), page.server_button.isEnabled()) == (agents_view.START_SERVER, False)
     state.set_model_status("failed", "llama-server failed to start (exit code 1): out of memory")
@@ -110,11 +112,26 @@ def test_a_server_started_elsewhere_is_not_ours_to_start_or_stop(qtbot, state):
     assert page.server_button.isEnabled()
 
 
+def test_model_settings_show_only_in_local_mode(qtbot, state):
+    from app.pages.agents import AgentsPage
+    from app.pages.agents import view as agents_view
+
+    page = make(qtbot, AgentsPage, state)
+    assert not page.model_section.isVisible()
+    assert page.mode_note.text() == agents_view.MODE_NOTES["standin"]
+    page.mode.button("local").click()
+    assert page.model_section.isVisible()
+    assert page.mode_note.text() == agents_view.MODE_NOTES["local"]
+    page.mode.button("standin").click()
+    assert not page.model_section.isVisible()
+
+
 def test_change_folder_keeps_the_folder_picked(qtbot, state, monkeypatch, tmp_path):
     from app.pages.agents import AgentsPage
     from PySide6.QtWidgets import QFileDialog
 
     page = make(qtbot, AgentsPage, state)
+    page.mode.button("local").click()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")  # cancelled
     qtbot.mouseClick(page.folder_button, Qt.MouseButton.LeftButton)
     assert state.model_folder() == "~/effente-models"
@@ -158,6 +175,7 @@ def test_button_disabled_while_a_run_is_running(qtbot, state):
                status="running", ok=False, report=None, tool_calls=[])
     state.push("agent_run", run)
     assert not page.run_button.isEnabled()
+    assert page.run_button.text() == "Writing the report…"
     assert page.report.text("Status") == "running"
     qtbot.mouseClick(page.run_button, Qt.MouseButton.LeftButton)
     assert state.started_agents == []

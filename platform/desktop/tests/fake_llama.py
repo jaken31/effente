@@ -13,7 +13,11 @@ import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-FAKE = '''#!{python}
+# The first two lines run the script with this Python through sh, because a "#!"
+# line cannot hold a path with a space in it (a pipx venv under
+# "~/Library/Application Support" has one). To Python, line 2 is only a string.
+FAKE = '''#!/bin/sh
+"exec" "{python}" "$0" "$@"
 """Fake llama-server. FAKE_LLAMA says how it behaves: ready, loading or broken."""
 import argparse, json, os, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
