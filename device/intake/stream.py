@@ -19,6 +19,8 @@ platform or curl connects. No UI here, only the data.
                   command the device takes, what each does, the values it takes and what it is now
   GET /features   name, text, unit and sensor of every feature, in row order
   GET /health     the server is up; how old the last result is
+  GET /model/summary  the model in use and how to compute with it (the model_trained event carries the same);
+  GET /model          the same with the whole model file, weights and all
   GET /fires_at   the value each check fires at now (also "fires_at" in GET /latest): fixed limits, the lasting
                   checks against this machine's normal, and the one-moment checks, each with its rule, its default
                   and the reading's value it fires at with the sensitivities and the model as they are
@@ -166,6 +168,7 @@ class Stream:
         self.command_handler = None  # (command name or None, its JSON object) -> reply dict, set by the device app
         self.controls = None  # () -> everything a connected program can tell the device, for GET / and /controls
         self.fires_at = None  # () -> the value each check fires at now, for GET /latest and /fires_at
+        self.model_info = None  # (full) -> the model in use and how to compute with it, for GET /model
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -381,6 +384,10 @@ _INDEX = {"endpoints": {
     "/view": "a page for a browser: the state, the readings and what is wrong, refreshed every second",
     "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}",
     "/command": "GET the commands the device takes; POST one as JSON, e.g. {\"command\": \"clear_history\"}",
+    "/model/summary": "the model in use: what it learned (levels, highest values, its lines), the readings in it, "
+                      "its training report, and how to work out from a sensitivity what each check fires at. "
+                      "The same goes out as \"model\" in the model_trained event when a training ends",
+    "/model": "the summary and the whole model file (weights and all, about 100 kB)",
     "/fires_at": "the value each check fires at now, with the sensitivities and this machine's model as they are",
     "/controls": "everything a connected program can tell the device: every setting and every command, "
                  "with what each does, what values it takes and what it is now"}}
@@ -432,6 +439,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._settings(None)
             elif path == "/command":
                 self._command(None)
+            elif path in ("/model", "/model/summary"):
+                self._json(200, dumps({"ok": True, **(s.model_info(path == "/model") if s.model_info else {})}))
             elif path == "/fires_at":
                 self._json(200, dumps({"ok": True, **(s.fires_at() if s.fires_at else {})}))
             elif path == "/controls":

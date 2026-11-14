@@ -47,6 +47,14 @@ def test_fixing_a_machine_idle_then_more_recording_and_the_model_is_made_again()
         for want in ("@IDLE", "@RECORDING", "@TRAINING", "@DETECTING"):
             assert want in seen, (want, sorted(set(seen)))
         assert seen.count("@TRAINING") >= 2  # trained twice
+        info = app.model_info()  # what a dashboard is told about the model
+        assert info["recordings"] == rep["recordings"] and info["learned"]["model_line"] == d["threshold"]
+        assert info["learned"]["normal_levels"] == d["baseline"]["levels"] and "vib_rms_x" in info["readings_in_the_model"]
+        assert "k = 4 **" in info["how_to_compute"]["k"] and "model_file" not in info
+        assert app.model_info(full=True)["model_file"]["autoencoder"] == d["autoencoder"]
+        k = 4 ** (2 * 0.5 - 1)  # a dashboard's own sum for sudden_impact at the default, against the device's
+        mine = max((1 + 1 / k) * 10 ** info["learned"]["highest_while_learning"]["vib_peak_g_log10"], 0.05)
+        assert abs(mine - app.fires_at()["one_moment"]["sudden_impact"]["fires_at"]) < 1e-3
         c = app.controls()
         assert {"record", "stop", "idle", "detect", "press", "clear_history"} <= set(c["commands"])
         assert c["now"]["state"] == "DETECTING" and len(c["now"]["recordings_in_model"]) == 2 and "TRAINING" in c["states"]

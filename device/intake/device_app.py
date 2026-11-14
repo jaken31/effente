@@ -199,6 +199,7 @@ class DeviceApp:
             self.stream.command_handler = self.command
             self.stream.controls = self.controls
             self.stream.fires_at = self.fires_at
+            self.stream.model_info = self.model_info
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -361,7 +362,7 @@ class DeviceApp:
                 self._save_state()
             if self.uploader is not None:
                 self.uploader.announce(path, d, self.sensitivity)
-            self._event("model_trained", {"file": path.name, **report})
+            self._event("model_trained", {"file": path.name, **report, "model": self.model_info()})
             self._event("mode", {"mode": "watching"})
         except Exception as e:  # noqa: BLE001  e.g. too little recorded: keep learning
             with self.lock:
@@ -608,6 +609,36 @@ class DeviceApp:
         self.mode = "watching"
         self._event("mode", {"mode": "watching", "by": "command"})
         return None
+
+    def model_info(self, full: bool = False) -> dict:
+        """The model in use, for a dashboard that works things out itself: what it learned, and how a sensitivity
+        turns that into the value each check fires at ("how_to_compute"). full: the whole model file too (the
+        weights, the preparation of the readings, the fault-type classifier; about 100 kB), for GET /model.
+        Sent as "model" in the model_trained event when a training ends."""
+        if self.watcher is None or self.model_path is None:
+            return {"model": None, "note": "no model yet: record, then stop", "how_to_compute": HOW_TO_COMPUTE}
+        d = self.watcher.m.d
+        base = d.get("baseline") or {}
+        spikes = base.get("spikes") or {}
+        info = {
+            "model_version": self.model_version, "file": self.model_path.name, "created": d.get("created"),
+            "recordings": [Path(p).name for p in self.sessions], "normal_model": d.get("normal_model"),
+            "period_s": d.get("period_s"), "scores_smoothed_over": d.get("smooth_minutes"),
+            "training_report": d.get("training_report"),
+            "learned": {
+                "normal_levels": base.get("levels"),  # the lasting checks' "learned normal", by reading
+                "highest_while_learning": {"vib_peak_g_log10": spikes.get("peak_max"), "snd_level_db": spikes.get("sound_max"),
+                                           **(spikes.get("moment_max") or {})},
+                "model_line": d.get("threshold"), "model_spike_line": (base.get("model_spike") or {}).get("line"),
+                "model_spike": base.get("model_spike"), "more_impacts": {k: spikes.get(k) for k in ("features", "window_s", "factor", "short")},
+                "limits_dropped_for_this_machine": base.get("dropped"), "learning_notes": base.get("warnings")},
+            "readings_in_the_model": [c.get("name") for c in d.get("feature_table") or []],
+            "fault_types": [t.get("name") for t in d.get("fault_types") or []],
+            "how_to_compute": HOW_TO_COMPUTE,
+            "settings_now": self._dials()}
+        if full:
+            info["model_file"] = d
+        return info
 
     def fires_at(self) -> dict:
         """For whoever reads the JSON: the value each check fires at, in the reading's own unit, with the
@@ -947,6 +978,34 @@ class DeviceApp:
 # the device does exactly what the main dial alone did. early_warning False switches the early warning off.
 OVERRIDES = ("model_sensitivity", "vibration_sensitivity", "heat_sensitivity", "sound_sensitivity",
              "early_warning_sensitivity")
+# How a dashboard works out the value each check fires at, from a sensitivity and what the model learned (the
+# device does the same: effente.safety.margins and Safety; GET /fires_at gives the results for the present dials).
+HOW_TO_COMPUTE = {
+    "k": "k = 4 ** (2 * s - 1), with s the sensitivity from 0 to 1 (0.5 gives 1; each 0.25 up doubles k)",
+    "margins": {"vibration_times": "1 + 1 / k   (2x at 0.5)", "temperature_degC": "15 / k", "sound_dB": "6 / k",
+                "model": "1 / k"},
+    "which_sensitivity": "the lasting checks use \"sensitivity\", or their own dial when it is not null "
+                         "(vibration_sensitivity, heat_sensitivity, sound_sensitivity, model_sensitivity); the "
+                         "one-moment checks use \"spike_sensitivity\"",
+    "always": "fixed limits, no margin: 11 mm/s, knocking peaks of 0.5 g, 100 degC, 8 degC a minute, 5 jolts in 10 minutes",
+    "lasting": {
+        "vibration_above_normal": "reading > max(vibration_times * normal_levels[reading], floor) for vib_velocity_mm_s "
+                                  "(floor 0.3 mm/s) or vib_total_g (floor 0.015 g); held about 10 s",
+        "hotter_than_normal": "imu_temp_c (or th_max_c) > normal_levels[reading] + temperature_degC; held about 10 s",
+        "louder_than_normal": "snd_level_db > normal_levels.snd_level_db + sound_dB; held about 10 s",
+        "model": "the middle value of the last scores_smoothed_over scores, divided by model_line, > model margin "
+                 "(the result's unknown_score is that ratio)"},
+    "one_moment": {
+        "sudden_impact": "10 ** vib_peak_g > max(vibration_times * 10 ** highest_while_learning.vib_peak_g_log10, 0.05) g",
+        "sudden_sound": "snd_level_db > highest_while_learning.snd_level_db + sound_dB",
+        "sudden_twist": "10 ** gyr_peak > vibration_times * 10 ** highest_while_learning.gyr_peak",
+        "sudden_heat": "imu_temp_c, th_max_c or th_change_c > highest_while_learning[reading] + temperature_degC / 3",
+        "model_spike": "one second's score > model_spike_line * model margin (the result's spike_score is "
+                       "score / model_spike_line)",
+        "stays_s": 30},
+    "when": "the checks against the model run only in DETECTING, and only while the machine counts as running",
+}
+
 # What can be sent to POST /command, and what each does (shown as it is to whoever asks: GET /command, /controls).
 COMMANDS = {
     "record": "start recording (from IDLE or DETECTING). With \"keep\": true (the default) what is recorded is added to "
