@@ -393,7 +393,7 @@ def test_an_answer_that_names_a_part_it_cannot_be_about_is_refused(client):
     assert newest_alarm(client)["answers"] == [] and ok(client, "GET", f"/api/machines/{M}/log")["entries"] == []
     assert answer(client, alarm_id, part_id=part["part_id"], at="yesterday")[0] == 200  # as before 3.4: `at` is not checked
     entry = ok(client, "GET", f"/api/machines/{M}/log")["entries"][0]
-    assert entry["at"] == entry["received_at"]
+    assert entry["at"] == newest_alarm(client)["answer"]["received_at"]  # when the answer arrived
 
 
 # ---- a restart -----------------------------------------------------------------
