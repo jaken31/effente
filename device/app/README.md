@@ -97,7 +97,7 @@ It never counts as wrong: `wrong` stays false. While something is wrong it is se
 | OLED 128×64 | `Wire2`, address 0x3C | SSD1306/SSD1309. For an SH1106, set `OLED_COL_OFFSET` to 2 in the sketch |
 | Button | D9 to GND | Internal pull-up, debounced. Until it's wired, `adb shell touch /home/arduino/ArduinoApps/effente/data/press` counts as a press |
 | Microphone INMP441, through an ESP32-S3-N16R8 | Mic to ESP32: VDD 3V3, GND, L/R to GND, SCK GPIO 5, WS GPIO 4, SD GPIO 6. ESP32 to UNO Q: GPIO 17 (TX) to D0, GND to GND | The ESP32 ([firmware/esp32_mic](../../firmware/esp32_mic/esp32_mic.ino)) works the sound readings out and sends them at 115200 baud: a binary frame of 45 readings about 3.7 times a second, then text lines for the screen. On the UNO Q, D0/D1 are `Serial1` (`Serial` is the Bridge's monitor). The readings reach every row and the model (see below); nothing needs switching on. The screen's level is A-weighted with a -5 dB trim set by ear against a phone's sound meter (unverified against a real one). The raw sound goes out from the ESP32 by WiFi (TCP 8770), never over the wire. `EFFENTE_MIC=1` is only for the older raw-audio slot (`audio`), which no sketch sends |
-| Thermal camera MLX90640-D55 (not fitted yet) | I2C, address 0x33, bus not chosen | Slot only: the Linux side takes a `thermal` notification (24 × 32, hundredths of a °C) and the status has `thermal_max_c`, but no sketch reads the camera yet. Off unless `EFFENTE_THERMAL=1` |
+| Thermal camera MLX90640 | I2C, address 0x33, on the sensor's and screen's bus (Wire2: SDA A4, SCL A5) | The sketch reads it, draws it on the OLED (a short press of the button swaps screens) and sends its readings to the Linux side, which works out degrees C: see "The thermal camera on the UNO Q" below. Nothing needs switching on. The older `thermal` slot (`EFFENTE_THERMAL=1`) is sent by no sketch |
 
 ## Sound readings for the model (running on the board since 14 Nov)
 
@@ -119,7 +119,19 @@ INMP441 ──I2S──> ESP32-S3 ──UART, 115200──> UNO Q D0 ──sketc
 - **Record where the device will run.** A model learned in a quiet room hears a noisy hall as a fault (`sudden_sound`, `louder_than_normal` and the model itself): record the normal running at the place, with its noise, or turn the sound sensitivity down.
 - **Unverified:** the full firmware on the ESP32 itself: the time one set takes (it must stay under 256 ms; its USB line prints it), and that the paced frames arrive whole.
 
-## The thermal camera (13 Nov: written, not yet run with a camera)
+## The thermal camera on the UNO Q (14 Nov, as fitted)
+
+```
+MLX90640 ──I2C (Wire2)──> sketch ──"mlx_ee", "mlx" over the Bridge──> device/intake/mlx90640.py ──> each row's heat readings
+```
+
+- **The sketch** reads the camera's calibration memory (832 words, twice, compared) and sends it round and round as `mlx_ee`, a piece every half second. Every half-frame (the camera measures its pixels in two halves, 4 halves a second) goes out as `mlx` in five parts: the 384 pixels just measured, as read, and seven other words. About 4.3 kB/s, so it needs the Bridge at 460800 baud.
+- **The Linux side** ([mlx90640.py](../intake/mlx90640.py)) does the maker's calibration (written from Melexis's `MLX90640_API.c`) and gives `UnoQSource.on_thermal_frame` a 24 × 32 image in °C for every half-frame. Emissivity is taken as 0.95.
+- **Checked on the board (14 Nov, 154 s in watching mode on a desk):** 153,811 vibration samples, 0 lost, 0 FIFO overflows; 557 half-frames read, 528 sent, 29 not sent because the camera had measured the same half again during the read; 505 images on the Linux side (3.3 a second), the two halves in equal numbers. The row's heat readings filled in: hottest pixel 22.6 °C, image average 21.9 °C, camera chip 32.6 °C, supply 3.28 V, no pixel marked bad by the camera.
+- **Unverified:** the temperatures against a thermometer or a warm object; the maths side by side with Melexis's code on the same inputs; a long run; anything with the machine running.
+- **The sketch may not start after the app starts** (twice in a row on 14 Nov; the third start worked): `deploy.sh` already starts again when no samples come.
+
+## The thermal camera on the ESP32 (13 Nov: written, not yet run with a camera)
 
 The camera (an MLX90640, 24 × 32 pixels) goes on the microphone's ESP32, not on the UNO Q, and its frames travel over WiFi.
 

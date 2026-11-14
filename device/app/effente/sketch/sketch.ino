@@ -666,6 +666,7 @@ bool mlxEeCheck = false;                // reading the memory a second time, to 
 uint32_t mlxEpoch = 0;                  // times the memory has been read whole (and read the same twice)
 int16_t mlxOffset[768], mlxRaw[768], mlxShown[768];
 uint8_t mlxSub = 0;                     // which half the frame being read is (the camera's status, bit 0)
+uint32_t mlxReadAt = 0;                 // millis() when the read of it began
 uint16_t mlxCtrl = 0;                   // the camera's control register as set
 uint16_t mlxAux[6];                     // 0x0700, 0x0708, 0x070A, 0x0720, 0x0728, 0x072A of the frame being read
 // A half-frame on its way to the Linux side: its 384 pixels as the camera gave them, then mlxAux and mlxCtrl.
@@ -773,6 +774,7 @@ void mlxPoll() {
     if (status & 0x0008) {
       mlxWrite(0x8000, 0x0030);  // taken: the camera may measure the next one
       mlxSub = status & 1;
+      mlxReadAt = now;
       mlxWord = 0;
       mlxState = 3;
     }
@@ -791,10 +793,17 @@ void mlxPoll() {
     mlxAux[3] = buf[0];
     mlxAux[4] = buf[8];
     mlxAux[5] = buf[10];
-    // The camera does not wait: if it finished its next half-frame while this one was being read, some of
-    // what was read is the next one's. Such a frame still does for the picture, but its numbers are not sent.
+    // The camera does not wait, and reading a half-frame takes about as long as measuring one (14 Nov, on
+    // the board: with "nothing new since" as the rule, every other half-frame was thrown away). The next
+    // half-frame is the OTHER half's pixels, so it leaves this half's alone; only the one after it writes
+    // over them. So the frame is whole unless the camera has, by now, measured this same half again: its
+    // status then says "new data" with this half's number. Under 400 ms it cannot have got a half further
+    // still. The six other readings may be the next half-frame's: they move slowly, and the two that differ
+    // by half (0x0708, 0x0728) each have their own place.
+    // A frame that fails this still does for the picture, but its numbers are not sent.
     uint16_t status;
-    bool whole = mlxRead(0x8000, 1, &status) && !(status & 0x0008);
+    bool whole = mlxRead(0x8000, 1, &status) && millis() - mlxReadAt < 400
+                 && (!(status & 0x0008) || (status & 1) != mlxSub);
     mlxTake();
     if (!whole) mlxMixed++;
     else if (mlxOutPart < 5) mlxSkipped++;  // the last one is still going out

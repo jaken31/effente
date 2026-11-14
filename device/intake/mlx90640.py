@@ -199,7 +199,7 @@ class Camera:
     def __init__(self, on_frame):
         self.on_frame = on_frame
         self.cal: Calibration | None = None
-        self.stats = {"calibrated": False, "ee_epoch": None, "half_frames": 0, "images": 0, "incomplete": 0,
+        self.stats = {"calibrated": False, "ee_epoch": None, "half_frames": 0, "of_each_half": [0, 0], "images": 0, "incomplete": 0,
                       "refused": 0, "camera_c": None, "supply_v": None, "bad_pixels": None, "error": None}
         self._ee = np.zeros(EE_WORDS, np.int64)
         self._ee_have = np.zeros(EE_WORDS, bool)
@@ -265,6 +265,7 @@ class Camera:
         raw[where] = np.concatenate([parts[i] for i in range(PIXEL_PARTS)])
         self._image[where] = self.cal.to_c(raw, aux, subpage)[where]
         self._seen.add(subpage)
+        self.stats["of_each_half"][subpage] += 1
         if len(self._seen) < 2:
             return
         image = self._image.copy()
