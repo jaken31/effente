@@ -34,6 +34,7 @@ NAV = [
     ("device", "Device & model", False),
     ("machine", "Machine", False),
     ("log", "Log", False),
+    ("setup", "Setup", False),
 ]
 KEYS = [k for k, _, _ in NAV]
 LINE = 19  # 13px text at the mockup's line-height 1.45
@@ -66,11 +67,11 @@ class _Brand(QWidget):
 class NavItem(QAbstractButton):
     """One nav button: icon, label, then a badge or the shortcut key on the right."""
 
-    def __init__(self, key: str, label: str, shortcut: int, child: bool, parent: QWidget | None = None):
+    def __init__(self, key: str, label: str, shortcut: int | None, child: bool, parent: QWidget | None = None):
         super().__init__(parent)
         self.key = key
         self.setText(label)
-        self.shortcut_text = str(shortcut)
+        self.shortcut_text = str(shortcut) if shortcut else ""  # a page past the ninth has no key
         self.child = child
         self.on = False
         self.parent_on = False
@@ -177,7 +178,7 @@ class Nav(QWidget):
         sl.setContentsMargins(18 + 1 + 8, 0, 0, 4)
         sl.setSpacing(1)
         for i, (key, label, child) in enumerate(NAV):
-            item = NavItem(key, label, i + 1, child, self)
+            item = NavItem(key, label, i + 1 if i < 9 else None, child, self)
             item.clicked.connect(lambda _=False, k=key: self.navigate.emit(k))
             self.items[key] = item
             if child:
@@ -228,8 +229,8 @@ class _RightElidedLabel(QLabel):
 
 
 class _NavScroll(QScrollArea):
-    """Holds the nav at its full height. Only in a window too short for all nine
-    items does it shrink, by up to the two items added after the first seven:
+    """Holds the nav at its full height. Only in a window too short for every
+    item does it shrink, by up to the items added after the first seven:
     so the smallest window is still 960x660 and looks as it did. The wheel then
     scrolls it, with no bar drawn, and the page shown is always scrolled into view."""
 
@@ -247,7 +248,7 @@ class _NavScroll(QScrollArea):
 
     def minimumSizeHint(self) -> QSize:
         hint = self.widget().sizeHint()
-        return QSize(hint.width(), hint.height() - 2 * (34 + 1))  # two top-level items and their gaps
+        return QSize(hint.width(), hint.height() - len(NAV[7:]) * (34 + 1))  # the later items and their gaps
 
 
 class DeviceCard(QWidget):

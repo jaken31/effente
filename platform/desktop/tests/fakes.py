@@ -22,8 +22,10 @@ The clock is frozen one second after the newest record, so the device reads
 state. `push(name, data)` feeds a stream event, for tests of live updates.
 
 `state.scans` is a FakeScans (fake_scans.py) and `state.log` a FakeLog
-(fake_partlog.py): one scan, four parts, six entries and one part review on the
-same machine and alarms. That sample is written by hand, not by real code.
+(fake_partlog.py): one scan, four parts, six entries, one part review and the
+parts' readings on the same machine and alarms. `state.setup` is a FakeSetup
+(fake_setup.py): a machine profile, a setup run and a local profile, "Sam", so
+`answerer()` is "Sam". Those samples are written by hand, not by real code.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from app.data import logic, model_server, paths
 from app.data.state import StateReads
 from fake_partlog import FakeLog
 from fake_scans import FakeScans
+from fake_setup import FakeSetup
 
 ANSWERED_ALARM = "alarm-5"
 OPEN_ALARM = "alarm-9"
@@ -158,6 +161,7 @@ class FakeState(StateReads):
         self.own_agent_alive = False  # set True to act as if this app's report run is going
         self.stopped_agents = 0  # how many times stop_agent was called
         self._note_alarms()  # the fixture's alarms were there at the first look
+        self.setup.fill()  # first: the local profile's name is the `by` of the log's sample
         self.scans.fill()
         self.log.fill()
 
@@ -166,6 +170,9 @@ class FakeState(StateReads):
 
     def _make_log(self) -> FakeLog:
         return FakeLog(self)
+
+    def _make_setup(self) -> FakeSetup:
+        return FakeSetup(self)
 
     def now_ms(self) -> float:
         return self._now

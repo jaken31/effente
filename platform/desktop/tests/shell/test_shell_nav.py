@@ -18,12 +18,14 @@ def test_sidebar_click_routes(window, qtbot):
 
 
 def test_shortcuts_follow_interface_order(window, qtbot):
-    assert KEYS == ["live", "spectrum", "thermal", "history", "evidence", "agent", "device", "machine", "log"]
+    assert KEYS == ["live", "spectrum", "thermal", "history", "evidence", "agent", "device", "machine", "log", "setup"]
     window.activateWindow()
     qtbot.waitActive(window)
-    for i, key in enumerate(KEYS):
+    for i, key in enumerate(KEYS[:9]):  # the tenth page, setup, has no key yet
         qtbot.keyClick(window, getattr(Qt.Key, f"Key_{i + 1}"))
         assert window.current == key
+    items = window.sidebar.nav.items
+    assert (items["log"].shortcut_text, items["setup"].shortcut_text) == ("9", "")
 
 
 def test_spectrum_and_thermal_get_a_live_crumb(window, qtbot):

@@ -325,7 +325,8 @@ class MainWindow(QMainWindow):
 
     def search_entries(self) -> list[Entry]:
         """What Ctrl+K can find: every page, every other machine, and the actions."""
-        entries = [Entry(getattr(self.pages[key], "title", key), f"Page \u00b7 {i + 1}", lambda k=key: self.navigate(k))
+        entries = [Entry(getattr(self.pages[key], "title", key),
+                         f"Page \u00b7 {i + 1}" if key in shortcuts.NUMBERED else "Page", lambda k=key: self.navigate(k))
                    for i, key in enumerate(KEYS)]
         if self.state is not None:
             current = self.state.current_machine()
