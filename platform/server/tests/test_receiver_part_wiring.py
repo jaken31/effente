@@ -6,7 +6,6 @@ import http.client
 import json
 
 import pytest
-
 import scan_api
 from receiver_server import Handler
 from receiver_store import BadRequest
