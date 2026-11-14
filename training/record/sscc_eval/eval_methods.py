@@ -150,6 +150,8 @@ def make_model(spec: str, prep: Prepared):
     g = prep.groups()
     if spec == "pca95_t2":
         return M.PCA(0.95, 40, True)
+    if spec == "pca95k_t2":  # 95 % of variance without the 40-pattern cap
+        return M.PCA(0.95, 200, True)
     if spec == "pca95_res":
         return M.PCA(0.95, 40, False)
     if spec == "pca99_t2":

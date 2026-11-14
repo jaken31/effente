@@ -299,7 +299,10 @@ Confirmation set: device 1 % / 0 % false alarms and 99 % / 32 % caught with clea
   (25-32 %): a model that has learned "noise is normal" also accepts loose and screwdrop under noise.
 - **The recommended model loses its advantage when one model must cover several speeds**: on the selection set it
   catches 67 % of clean faults against the device's 98 % (light load: 24-47 % per speed against the device's
-  92-99 %; heavy load: 100 % for both). On the confirmation set both catch 100 %. So: one model per operating point, or keep the device's PCA when several speeds must share one.
+  92-99 %; heavy load: 100 % for both). On the confirmation set both catch 100 %. So: one model per operating
+  point, or keep the device's PCA when several speeds must share one. Tried afterwards (selection set, exploratory):
+  no 40-pattern cap 68 %, 99 % of variance 67 %, kNN per group 66 %: the loss comes from the generic features
+  across speeds, not from the PCA settings.
 
 ### 8. Reverse split: learn from the end of each recording, judge its start
 
