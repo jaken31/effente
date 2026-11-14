@@ -195,3 +195,27 @@ def test_the_platform_keeps_an_idle_devices_spectrum_and_heat(link, device, rece
     kept = state(receiver)["devices"]["effente-01"]["readings"]
     assert kept["spectrum"] == [-5.123, -4.9] and kept["heat"]["source"] == "imu"
     assert kept["readings"]["vib_velocity_mm_s"] == 0.41
+
+
+def test_every_record_carries_the_velocity_of_the_newest_row():
+    """Contract 9.2: readings.vib_velocity_mm_s on every record, null when the link cannot know it."""
+    status = dict(STATUS, mode="watching", readings={"vib_mg": 4.5, "sound_db": 82.6})
+    rec = dl.record(LINE, status, ROW, ROW_TABLE)
+    assert rec["readings"] == {"vib_mg": 4.5, "sound_db": 82.6, "vib_velocity_mm_s": 0.41}  # only the asked-for key added
+    assert status["readings"] == {"vib_mg": 4.5, "sound_db": 82.6}  # the device's status is not changed
+    for result in ({"diagnosis": "normal"}, {"diagnosis": "stopped"}, None):  # whatever the diagnosis
+        assert dl.record(dict(LINE, result=result), status, ROW, ROW_TABLE)["readings"]["vib_velocity_mm_s"] == 0.41
+    unknown = [dl.record(LINE, STATUS),  # no screen readings, no row
+               dl.record(LINE, dict(status, readings={"vib_mg": None}), ROW, ROW_TABLE),  # no samples: the row is old
+               dl.record(LINE, status, dict(ROW, features_version="v2"), ROW_TABLE),  # names for another version
+               dl.record(LINE, status, dict(ROW, values=[-5.1, -4.9, None, 26.6, None, 186.5]), ROW_TABLE)]  # sensor gave none
+    assert [r["readings"]["vib_velocity_mm_s"] for r in unknown] == [None] * 4
+
+
+def test_a_watching_devices_records_reach_the_platform_with_their_velocity(link, device, receiver):
+    link._table = dict(ROW_TABLE, features_version=TABLE["features_version"])
+    device.latest = {"results": dict(LINE), "features": dict(ROW, features_version=TABLE["features_version"]),
+                     "status": dict(STATUS, mode="watching", model_version="rec-1-3f2a9c1e", readings={"vib_mg": 4.5})}
+    link.step()
+    assert link.stats["records"] == 1
+    assert receiver.store.records[-1]["readings"]["vib_velocity_mm_s"] == 0.41
