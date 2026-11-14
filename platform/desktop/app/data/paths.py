@@ -52,3 +52,11 @@ def link_module():
     import device_link
 
     return device_link
+
+
+def usb_link_module():
+    """platform/link's usb_link module."""
+    _on_path(LINK_DIR)
+    import usb_link
+
+    return usb_link

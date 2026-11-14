@@ -75,10 +75,12 @@ class ReceiverHost:
     there, as platform/run.py does. `port` 0 picks a free port; `.port` says
     which after `start()`. `device_url` is a real device's own port
     (http://DEVICE:8765): platform/link reads it and feeds this receiver.
+    With `usb`, a board plugged into this laptop is found and read by itself
+    (platform/link/usb_link.py, through adb); what it does is said to `usb_log`.
     """
 
     def __init__(self, data_dir=None, port=8000, with_sim=False, case="normal", host="0.0.0.0",
-                 sim_args=(), log=None, device_url=None):
+                 sim_args=(), log=None, device_url=None, usb=False, usb_log=None):
         self.data_dir = Path(data_dir) if data_dir else paths.DEFAULT_DATA_DIR
         self.host = host
         self._port = port
@@ -90,6 +92,9 @@ class ReceiverHost:
         self.sim = None  # SimHandle while the sim runs
         self.device_url = device_url
         self.link = None  # DeviceLink while it runs
+        self.usb = usb
+        self.usb_log = usb_log
+        self.usb_link = None  # UsbLink while it runs
         self._sim_thread = None
         self._keys = None
 
@@ -113,6 +118,8 @@ class ReceiverHost:
             self._start_sim()
         if self.device_url:
             self.link = paths.link_module().DeviceLink(self.device_url, self.url, log=self.log).start()
+        if self.usb:
+            self.usb_link = paths.usb_link_module().UsbLink(self.url, log=self.usb_log).start()
 
     def _start_sim(self) -> None:
         sim_device = paths.sim_modules()[0]
@@ -131,7 +138,10 @@ class ReceiverHost:
         self._sim_thread.start()
 
     def stop(self) -> None:
-        """Stop the sim and the device link, then the receiver. Safe to call twice."""
+        """Stop the sim and the device links, then the receiver. Safe to call twice."""
+        if self.usb_link is not None:
+            self.usb_link.stop()
+            self.usb_link = None
         if self.link is not None:
             self.link.stop()
             self.link = None

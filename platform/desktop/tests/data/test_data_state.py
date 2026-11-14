@@ -337,3 +337,17 @@ def test_range_records_fall_back_to_the_cache_when_loading_fails(qtbot, host, cl
         assert len(state.range_records(None)) == 3
     assert sig.args[0].startswith("History not loaded")
     assert len(state.range_records(None)) == 3  # no new attempt until the span or machine changes
+
+
+def test_the_host_watches_usb_only_when_asked(make_host, monkeypatch):
+    """`usb` starts platform/link's UsbLink beside the receiver; here adb is taken away, so it only says so."""
+    from app.data import paths
+
+    usb_link = paths.usb_link_module()
+    monkeypatch.setattr(usb_link, "find_adb", lambda: None)
+    assert make_host().usb_link is None
+    said = []
+    host = make_host(usb=True, usb_log=said.append)
+    assert host.usb_link.platform == host.url and said == [usb_link.NO_ADB]
+    host.stop()
+    assert host.usb_link is None
