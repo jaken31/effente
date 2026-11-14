@@ -7,7 +7,14 @@ from app.theme import fonts
 from app.theme import tokens as t
 from app.widgets import Button, Panel, Segmented, SimChip
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLineEdit, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLineEdit,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from . import view
 from .marks import Strip, label

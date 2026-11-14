@@ -14,14 +14,14 @@ from . import view
 
 # (header, EntryRow field, fixed width in px or None to take the rest)
 COLUMNS = (
-    ("When", "when", 108),
-    ("Part", "part", 116),
-    ("Kind", "kind", 88),
+    ("When", "when", 116),
+    ("Part", "part", 132),
+    ("Kind", "kind", 98),
     ("What", "text", None),
-    ("Needs repair", "needs_repair", 108),
-    ("By", "by", 128),
-    ("Alarm", "alarm", 76),
-    ("", "tag", 92),
+    ("Needs repair", "needs_repair", 118),
+    ("By", "by", 142),
+    ("Alarm", "alarm", 78),
+    ("", "tag", 108),
 )
 FIELDS = [c[1] for c in COLUMNS]
 PART, WHAT, NEEDS, ALARM, TAG = (FIELDS.index(f) for f in ("part", "text", "needs_repair", "alarm", "tag"))

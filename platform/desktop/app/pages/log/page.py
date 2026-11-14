@@ -15,7 +15,13 @@ from app.theme import fonts
 from app.theme import tokens as t
 from app.widgets import Button, Panel, Segmented, SimChip
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFileDialog, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QVBoxLayout,
+    QWidget,
+)
 
 from . import view
 from .detail import Compose, ReviewPanel
@@ -23,7 +29,7 @@ from .marks import StateMark, Strip, keep_place, label
 from .side import AlarmsPanel, PartsPanel
 from .table import EntryTable
 
-SIDE_W = 320
+SIDE_W = 296
 PAD_V, PAD_H = t.PANEL_BODY_PAD
 
 

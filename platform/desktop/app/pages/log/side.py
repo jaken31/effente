@@ -40,6 +40,16 @@ def _scroll() -> QScrollArea:
     return area
 
 
+def _swap(area: QScrollArea, inner: QWidget) -> None:
+    """Show a new list. The old one is deleted later, not now: a click on one of its
+    rows is often what asked for the new list, and that row is still handling it."""
+    old = area.takeWidget()
+    area.setWidget(inner)
+    if old is not None:
+        old.hide()
+        old.deleteLater()
+
+
 def _column(parent: QWidget, spacing: int = 0, margins=(0, 0, 0, 0)) -> QVBoxLayout:
     lay = QVBoxLayout(parent)
     lay.setContentsMargins(*margins)
@@ -149,7 +159,7 @@ class PartsPanel(Panel):
                 col.addWidget(w)
                 self.rows.append(w)
             col.addStretch(1)
-            self.area.setWidget(inner)
+            _swap(self.area, inner)
         self.empty_text.setText(view.NO_PARTS if machine else view.NO_MACHINE)
         self.machine_button.setVisible(machine)
         self.empty.setVisible(not rows)
@@ -198,7 +208,8 @@ class _AlarmRow(QFrame):
         text.setContentsMargins(0, 0, 0, 0)
         text.setSpacing(1)
         self.title = label(row.title, "strong", fonts.font(t.FONT_TABLE, 500))
-        self.when = label(row.when + (f" · {view.SIMULATED}" if row.simulated else ""), "muted", fonts.small())
+        self.when = label(row.when + (f" · {view.SIMULATED}" if row.simulated else ""), "muted", fonts.small(),
+                          wrap=True)
         self.suspects = label(row.suspects, "soft", fonts.small(), wrap=True)
         for w in (self.title, self.when, self.suspects):
             text.addWidget(w)
@@ -281,7 +292,7 @@ class AlarmsPanel(Panel):
                 empty = label(view.NO_ALARMS, "empty")
                 col.addWidget(empty)
             col.addStretch(1)
-            self.area.setWidget(inner)
+            _swap(self.area, inner)
         self._rows = list(rows)
         if self.alarm_id is not None:
             self.refresh_choices()
