@@ -493,7 +493,8 @@ class MachinePage(QWidget):
         if not shown:
             self.mode, self._said = logic.IDLE, ""
 
-        self.stage.set_hint(logic.scan_line(scan))
+        self.stage.set_hint(logic.scan_when(scan))  # the whole line, with the file's name, on hover
+        self.stage.hint_label.setToolTip(logic.scan_line(scan))
         if shown:
             self.stage.show_model()
             pins = self._view_pins(parts, scan, selected)

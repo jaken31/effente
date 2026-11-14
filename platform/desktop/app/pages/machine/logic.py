@@ -288,6 +288,14 @@ def scan_line(scan: dict | None, tz=None) -> str:
     return " \u00b7 ".join(x for x in (f"scanned {made}" if made else "", name) if x)
 
 
+def scan_when(scan: dict | None, tz=None) -> str:
+    """The short form beside the scan panel's title, where the whole line does not fit: "14 Nov". The time
+    and the file's name are in its tooltip."""
+    if scan is None:
+        return ""
+    return " ".join(when(scan.get("at") or scan.get("received_at"), tz).split()[:2])
+
+
 # ---- a scan on its way ------------------------------------------------------------------------------------
 
 STEP_LABELS = ("Received", "Converted", "On this laptop")

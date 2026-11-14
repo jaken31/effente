@@ -159,7 +159,8 @@ def test_the_newest_scan_is_loaded_with_its_bounds(page, state):
     scan = state.scans.current()
     assert page.view_state["name"] == "ready" and page.stage.model_shown()
     assert page.view.loaded == [(state.scans.model_path(SCAN_ID), scan["model"]["bounds"])]
-    assert "box.glb" in page.stage.hint() and "scanned" in page.stage.hint()
+    assert page.stage.hint() == logic.scan_when(scan)
+    assert "box.glb" in page.stage.hint_label.toolTip() and "scanned" in page.stage.hint_label.toolTip()
     assert page.stage.reset_button.isVisible()
 
 

@@ -372,3 +372,33 @@ def test_the_page_does_not_scroll_at_1440x820_and_up(qtbot, state, size, part_id
     area = next(a for a in w.findChildren(PageScroll) if a.isVisible())
     qtbot.waitUntil(lambda: area.widget().height() <= area.viewport().height() + 1)
     assert area.verticalScrollBar().maximum() == 0 and area.horizontalScrollBar().maximum() == 0
+
+
+# ---- labels fit where there is room --------------------------------------------------------------------------
+
+
+def test_what_moved_names_are_whole_when_the_bars_leave_room(qtbot):
+    from app.pages.machine.charts import MovedChart
+
+    chart = MovedChart()
+    qtbot.addWidget(chart)
+    chart.resize(440, 160)  # the evidence panel's chart at 1440x820
+    rows = [rd.Moved("vib_kurtosis", "vibration impulsiveness", 1.73), rd.Moved("snd_level_db", "sound level", 1.1)]
+    chart.set_rows(rows)
+    assert [chart.name_shown(m) for m in rows] == ["vibration impulsiveness", "sound level"]
+    names_w, values_w = chart.columns()
+    assert chart.width() - 12 - names_w - values_w >= MovedChart.BAR_MIN
+
+
+def test_the_newest_value_sits_by_the_newest_point(qtbot):
+    chart = VelocityChart()
+    qtbot.addWidget(chart)
+    chart.resize(440, 200)
+    day = 86400.0
+    falling = [rd.Point(i * day, 3.0, True, False) for i in range(5)] + [rd.Point(5 * day, 1.3, True, True)]
+    chart.set_data(falling, [], (0.0, 5 * day))
+    box, x, y = chart.newest_label_rect(), chart.x(5 * day), chart.y(1.3)
+    assert box.right() <= x and x - box.right() < 12  # just left of it
+    assert box.top() >= y  # under it, away from the line coming down into it
+    chart.set_data(falling[:-1] + [rd.Point(5 * day, 4.0, True, False)], [], (0.0, 5 * day))
+    assert chart.newest_label_rect().bottom() <= chart.y(4.0)  # rising: above it
