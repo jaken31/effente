@@ -15,6 +15,7 @@ PLATFORM = DESKTOP.parent
 REPO = PLATFORM.parent
 SERVER_DIR = PLATFORM / "server"
 SIM_DIR = PLATFORM / "sim"
+LINK_DIR = PLATFORM / "link"
 WEB_DIR = PLATFORM / "web"
 REPORT_SCRIPT = PLATFORM / "report.py"
 DEFAULT_DATA_DIR = SERVER_DIR / "data"  # where platform/report.py looks for the device log
@@ -43,3 +44,11 @@ def sim_modules():
     import sim_model
 
     return sim_device, sim_model, sim_heat
+
+
+def link_module():
+    """platform/link's device_link module."""
+    _on_path(LINK_DIR)
+    import device_link
+
+    return device_link

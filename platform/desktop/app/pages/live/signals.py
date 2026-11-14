@@ -234,6 +234,38 @@ def build_specs(state, records: list) -> list[SignalSpec]:
         specs.append(SignalSpec(
             "heat", "Hottest point", f"{heat['imu_temp_c']:.1f} °C", _hot_problem(state),
             "IMU temperature, no camera · optional sensor", vals, 0.0, hi, None, "thermal"))
+    specs.extend(device_reading_specs(state, shown_heat=any(s.key == "heat" for s in specs)))
+    return specs
+
+
+# The device's own readings (contract section 3, `readings`): key, name, format, context, lo, hi, page.
+_DEVICE_READINGS = (
+    ("vib_mg", "Vibration", "{:.1f} mg", "From the IMU, as on the device's screen", 0.0, 50.0, "spectrum"),
+    ("peak_g", "Vibration peak", "{:.3f} g", "From the IMU, as on the device's screen", 0.0, 0.1, "spectrum"),
+    ("sound_db", "Sound level", "{:.1f} dB", "From the microphone, as the device reports it", 0.0, 100.0, "history"),
+    ("snd_tone_hz", "Strongest tone", "{:.0f} Hz", "From the microphone: strongest tone, 100 to 7,900 Hz", 0.0, 1000.0,
+     "history"),
+    ("snd_tone_db", "Tone strength", "{:.1f} dB", "How far the strongest tone stands above the rest of the sound", 0.0,
+     60.0, "history"),
+    ("snd_centroid_hz", "Sound pitch", "{:.0f} Hz", "From the microphone: where the sound's energy sits (centroid)", 0.0,
+     2000.0, "history"),
+    ("imu_temp_c", "IMU temperature", "{:.1f} °C", "The IMU's own sensor, not a surface temperature", 0.0, 40.0,
+     "thermal"),
+)
+
+
+def device_reading_specs(state, shown_heat: bool = False) -> list[SignalSpec]:
+    """A row for each of the device's own readings that has a number: they come in every
+    mode, so they show while the device is not watching and sends no records."""
+    now = state.readings()
+    past = state.readings_history()
+    specs = []
+    for key, name, fmt, context, lo, hi, go in _DEVICE_READINGS:
+        if not _num(now.get(key)) or (key == "imu_temp_c" and shown_heat):
+            continue
+        vals = [r.get(key) if _num(r.get(key)) else None for r in past]
+        top = max([hi] + [v for v in vals if v is not None] + [now[key]])
+        specs.append(SignalSpec(f"device_{key}", name, fmt.format(now[key]), False, context, vals, lo, top, None, go))
     return specs
 
 
@@ -247,6 +279,10 @@ def _velocity_spec(state, rec: dict, records: list) -> SignalSpec:
     probs = {p.get("name"): p for p in state.problems()}
     shown = probs.get("vibration_over_limit") or probs.get("vibration_above_normal")
     value = logic.problem_value_text(shown) if shown else ""
+    own = state.readings().get("vib_velocity_mm_s")  # the device's own number, sent in every mode
+    past = state.readings_history()
+    if not value and _num(own):
+        value = f"{own:.2f} mm/s"
     feats = rec.get("features") or {}
     spreads = feats.get("vib_velocity_mm_s")
     margin = logic.margins(state.sensitivity()["reported"])["vibration"]
@@ -256,5 +292,9 @@ def _velocity_spec(state, rec: dict, records: list) -> SignalSpec:
     bits.append(f"wrong above {short(margin)}\u00d7 normal")
     bits.append(f"limit {VIBRATION_LIMIT_MM_S} mm/s for any machine")
     vals = [(r.get("features") or {}).get("vib_velocity_mm_s") for r in records]
+    lo, hi = -2.0, 10.0
+    if not any(_num(v) for v in vals) and _num(own):  # no records: the device's own mm/s over time
+        vals = [r.get("vib_velocity_mm_s") for r in past]
+        lo, hi = 0.0, max([2.0] + [v for v in vals if _num(v)])
     return SignalSpec("velocity", "Vibration velocity", value or "–", bool(shown), " · ".join(bits),
-                      [v if _num(v) else None for v in vals], -2.0, 10.0, None, "spectrum")
+                      [v if _num(v) else None for v in vals], lo, hi, None, "spectrum")

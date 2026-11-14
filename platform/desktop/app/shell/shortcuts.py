@@ -7,24 +7,30 @@ looks for: `export_dialog()` for Ctrl+E, and the Agents page's `run_agent()`.
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from ..theme import fonts
+from ..widgets import motion
 from .pages import KEYS
+
+# Qt reads "Ctrl" in a key sequence as the Command key on macOS, so the list names that key there.
+MOD = "Cmd" if sys.platform == "darwin" else "Ctrl"
 
 # (key sequences, keys as shown, what it does, MainWindow method)
 ACTIONS: list[tuple[tuple[str, ...], str, str, str]] = [
-    (("Ctrl+K",), "Ctrl K", "Search pages, machines and actions", "toggle_search"),
+    (("Ctrl+K",), f"{MOD} K", "Search pages, machines and actions", "toggle_search"),
     (("Esc",), "Esc", "Back to Live from Spectrum or Thermal", "go_back"),
     (("[",), "[", "Previous machine", "previous_machine"),
     (("]",), "]", "Next machine", "next_machine"),
-    (("Ctrl+R",), "Ctrl R", "Run the report agent", "run_report"),
-    (("Ctrl+E",), "Ctrl E", "Export CSV, on Live and History", "export_page"),
+    (("Ctrl+R",), f"{MOD} R", "Run the report agent", "run_report"),
+    (("Ctrl+E",), f"{MOD} E", "Export CSV, on Live and History", "export_page"),
     (("F11",), "F11", "Full screen", "toggle_full_screen"),
     (("?", "Shift+?", "F1"), "?", "Show or hide this list", "toggle_shortcut_help"),
-    (("Ctrl+Q",), "Ctrl Q", "Quit", "close"),
+    (("Ctrl+Q",), f"{MOD} Q", "Quit", "close"),
 ]
 PAGES_ROW = (f"1 to {len(KEYS)}", "Open a page, in sidebar order")
 
@@ -81,6 +87,7 @@ class ShortcutHelp(QFrame):
         self._place()
         self.show()
         self.raise_()
+        motion.fade_in(self, motion.HOVER)
 
     def _place(self) -> None:
         host = self.parentWidget()

@@ -15,12 +15,16 @@ import signal
 import sys
 import threading
 import time
+from collections import deque
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, Signal
 
-from . import logic, paths
+from . import logic, model_server, paths
 from .api import ApiClient, ApiError, StreamReader
+from .model_settings import ModelSettings
+
+READINGS_KEPT = 300  # readings kept per device for the Live page's sparklines: 5 minutes at one a second
 
 
 def _ms(record) -> float | None:
@@ -76,6 +80,8 @@ class StateReads(QObject):
     alarm_opened = Signal(dict)
     # range_records() has the range it was asked for, read from the receiver.
     range_loaded = Signal()
+    # The local model's folder or size was changed, or its server's state moved.
+    model_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -85,6 +91,9 @@ class StateReads(QObject):
         self._machine = None  # picked by hand with set_machine; None = follow the shown device
         self._agent_message = ""
         self._seen_alarms = None  # alarm ids already looked at; None before the first look
+        self._readings_history: dict = {}  # device_id -> deque of readings dicts, for the sparklines
+        self.model_settings = ModelSettings()  # remembers nothing unless given a store
+        self._model_status = model_server.Status(model_server.STOPPED, "Not running.")
         self.alarms_changed.connect(self._note_alarms)  # first, so alarm_opened precedes page refreshes
 
     def _note_alarms(self) -> None:
@@ -176,6 +185,36 @@ class StateReads(QObject):
         (every one when None), oldest first, without `spectrum` and `heat.frames`.
         Here from the live history only; the live state reads the whole range."""
         return _within(self.records(logic.HISTORY_CAP), span_s)
+
+    def readings(self) -> dict:
+        """The shown device's own readings (the numbers on its screen: vib_mg, sound_db,
+        imu_temp_c, ...), in any mode. {} when it sent none or is not connected."""
+        d = self._device()
+        kept = d.get("readings") if d and d.get("connected") else None
+        return dict(kept["readings"]) if kept else {}
+
+    def live_record(self):
+        """What the spectrum and heat panels draw. While the shown device is connected and not
+        watching it sends no records, so this is the `spectrum` and `heat` of its newest
+        check-in when it carried them (contract section 3); otherwise latest()."""
+        d = self._device()
+        kept = d.get("readings") if d and d.get("connected") and d.get("mode") != "watching" else None
+        if kept and ("spectrum" in kept or "heat" in kept):
+            return {k: kept[k] for k in ("at", "spectrum", "heat") if k in kept}
+        return self.latest()
+
+    def spectrum_model(self):
+        """model(), or just the band edges a check-in carried when no model is announced."""
+        model = self.model()
+        d = self._device()
+        edges = ((d or {}).get("readings") or {}).get("spectrum_edges_hz")
+        if model is None and isinstance(edges, list):
+            return {"spectrum_edges_hz": edges}
+        return model
+
+    def readings_history(self) -> list:
+        """The shown device's readings since this app started, oldest first, at most 5 minutes."""
+        return list(self._readings_history.get(self.device_id(), ()))
 
     def problems(self) -> list:
         """The shown device's problems now, limits first as sent. [] while not connected."""
@@ -271,6 +310,42 @@ class StateReads(QObject):
         self._agent_message = text
         self.agent_message.emit(text)
 
+    # ---- local model --------------------------------------------------------
+
+    def model_folder(self) -> str:
+        """The folder the model files are in, as chosen (default ~/effente-models)."""
+        return self.model_settings.folder()
+
+    def model_size(self) -> str:
+        """'small' or 'large': small.gguf or large.gguf in the model folder."""
+        return self.model_settings.size()
+
+    def set_model_folder(self, folder) -> None:
+        self.model_settings.set_folder(folder)
+        self.model_changed.emit()
+
+    def set_model_size(self, size: str) -> None:
+        self.model_settings.set_size(size)
+        self.model_changed.emit()
+
+    def model_status(self) -> model_server.Status:
+        """The model server's state as last seen: `.state`, `.message`, `.ours`."""
+        return self._model_status
+
+    def start_model_server(self) -> None:
+        """Start llama-server with the chosen model file, unless one already answers."""
+
+    def stop_model_server(self) -> None:
+        """Stop the model server this app started. One started elsewhere is left alone."""
+
+    def refresh_model_status(self) -> None:
+        """Look at the model server again; model_changed fires if its state moved."""
+
+    def _model_status_is(self, status: model_server.Status) -> None:
+        if status != self._model_status:
+            self._model_status = status
+            self.model_changed.emit()
+
     # ---- settings -----------------------------------------------------------
 
     def sensitivity(self) -> dict:
@@ -284,11 +359,9 @@ class StateReads(QObject):
         return
 
 
-LIVE_KEY = "ANTHROPIC_API_KEY"
-NO_KEY_MESSAGE = (
-    "Live mode needs ANTHROPIC_API_KEY in the laptop's environment. Set it before starting the app, "
-    "or run the stand-in."
-)
+MODES = ("standin", "local")
+NO_SERVER_HINT = "Start the model server, or run the stand-in."
+MODEL_POLL_MS = 2000
 
 
 class DashboardState(StateReads):
@@ -297,13 +370,22 @@ class DashboardState(StateReads):
 
     `api` is an ApiClient or a base URL. `host` is the ReceiverHost, when the
     app runs one, for `sim()`. `report_script` is platform/report.py unless a
-    test passes a copy.
+    test passes a copy. `settings` is the QSettings the model folder and size
+    are kept in; without one they last for this run only. `models` is the
+    ModelServer, which `stop()` also stops.
     """
 
     _done = Signal(object)  # a callable to run on the Qt thread, from a worker thread
 
-    def __init__(self, api, host=None, report_script=None, parent=None):
+    def __init__(self, api, host=None, report_script=None, parent=None, settings=None, models=None):
         super().__init__(parent)
+        self.model_settings = ModelSettings(settings)
+        self.models = models or model_server.ModelServer()
+        self._model_poll = QTimer(self)
+        self._model_poll.setInterval(MODEL_POLL_MS)
+        self._model_poll.timeout.connect(self.refresh_model_status)
+        self._model_asking = False
+        self._model_changes = 0  # starts and stops so far: an answer asked for before one is out of date
         self.api = api if isinstance(api, ApiClient) else ApiClient(api)
         self.host = host
         self.report_script = str(report_script or paths.REPORT_SCRIPT)
@@ -324,10 +406,14 @@ class DashboardState(StateReads):
 
     def start(self) -> None:
         self.reader.start()
+        self._model_poll.start()
+        self.refresh_model_status()
 
     def stop(self) -> None:
+        self._model_poll.stop()
         self.reader.stop()
         self.stop_agent()
+        self.models.stop()
 
     # ---- background work --------------------------------------------------
 
@@ -386,6 +472,11 @@ class DashboardState(StateReads):
             self.settings_changed.emit()
         elif name in ("model", "device"):
             self.snapshot_changed.emit()
+        elif name == "readings" and isinstance(data, dict) and isinstance(data.get("readings"), dict):
+            kept = self._readings_history.setdefault(data.get("device_id"), deque(maxlen=READINGS_KEPT))
+            kept.append(data["readings"])
+            if data.get("device_id") == self.device_id():
+                self.snapshot_changed.emit()
         if self._problem_key() != before:
             self.problems_changed.emit()
 
@@ -531,24 +622,28 @@ class DashboardState(StateReads):
 
     def start_agent(self, mode="standin") -> bool:
         """Run `python3 platform/report.py` for the current machine, as a local process.
-        Live mode needs ANTHROPIC_API_KEY in the environment and is refused without it;
-        the key is never asked for. Returns whether a run started. The run's tool calls
-        arrive over the stream (runs_changed); agent_message says why a run did not start or failed."""
+        'standin' writes a rule-based report with no model. 'local' asks the model server
+        on this laptop, and is refused with the reason when that server does not answer.
+        Returns whether a run started. The run's tool calls arrive over the stream
+        (runs_changed); agent_message says why a run did not start or failed."""
         machine = self.current_machine()
-        if mode not in ("standin", "live"):
-            raise ValueError("mode is 'standin' or 'live'")
+        if mode not in MODES:
+            raise ValueError("mode is 'standin' or 'local'")
         if machine is None:
             self._say("No machine to report on yet.")
             return False
         if self.agent_running():
             self._say(f"A report for {machine} is already running.")
             return False
-        if mode == "live" and not os.environ.get(LIVE_KEY, "").strip():
-            self._say(NO_KEY_MESSAGE)
-            return False
-        args = [self.report_script, "--machine", machine, "--port", str(self._port())]
-        if mode == "live":
-            args.append("--live")
+        args = [self.report_script, "--machine", machine, "--port", str(self._port()), "--backend", mode]
+        if mode == "local":
+            answer, why = model_server.probe(self.models.url)
+            if answer != model_server.READY:
+                self._say(why if answer == model_server.LOADING else f"{why} {NO_SERVER_HINT}")
+                self.refresh_model_status()
+                return False
+            # Named on every run, so nothing in the environment can point the agent elsewhere.
+            args += ["--llm-url", self.models.url]
         proc = QProcess(self)
         proc.setProcessEnvironment(QProcessEnvironment.systemEnvironment())
         proc.setProcessChannelMode(QProcess.MergedChannels)
@@ -608,6 +703,37 @@ class DashboardState(StateReads):
         else:
             self._say("")
         self.runs_changed.emit()
+
+    # ---- local model ------------------------------------------------------
+
+    def start_model_server(self) -> None:
+        self._model_changes += 1
+        self._model_status_is(self.models.start(self.model_settings.model_file()))
+
+    def stop_model_server(self) -> None:
+        self._model_changes += 1
+        self.models.stop()
+        self.refresh_model_status()
+
+    def refresh_model_status(self) -> None:
+        """Ask the model server how it is, off the Qt thread; model_changed fires if it moved."""
+        if self._model_asking:
+            return
+        self._model_asking = True
+        asked_at = self._model_changes
+
+        def ask():
+            status = self.models.status()
+            self._done.emit(lambda: self._model_asked(status, asked_at))
+
+        threading.Thread(target=ask, name="effente-model", daemon=True).start()
+
+    def _model_asked(self, status, asked_at: int) -> None:
+        self._model_asking = False
+        if asked_at == self._model_changes:
+            self._model_status_is(status)
+        else:
+            self.refresh_model_status()
 
     def stored_count(self):
         """Records the receiver has stored for the current machine, or None when the

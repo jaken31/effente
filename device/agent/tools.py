@@ -1,6 +1,6 @@
 """The agent's tools as plain functions, each call recorded on the run as it happens.
 
-The live Claude path and the stand-in both call these, so the platform sees
+The local model path and the stand-in both call these, so the platform sees
 the same tool calls either way.
 """
 

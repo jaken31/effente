@@ -83,6 +83,51 @@ def test_too_short_a_recording_keeps_learning_and_the_press_file_works():
         assert app.mode == "recording" and "learn 5 min" in app.message, (app.mode, app.message)
 
 
+def test_a_power_cut_while_recording_never_records_again_by_itself():
+    with tempfile.TemporaryDirectory() as tmp:
+        clock = Clock()
+        app = DeviceApp(tmp, ConveyorSim(days=1), clock=clock)
+        run(app, clock, rows(START, 2), press_at=(START + 30,))
+        assert app.mode == "recording"
+        first = app.recording
+        # the power goes (no close): a new app on the same folder comes back NOT recording
+        again = DeviceApp(tmp, ConveyorSim(days=1), clock=clock)
+        assert again.mode == "display" and again.recorder is None and again.recording is None
+        assert "power cut" in again.message
+        assert json.loads((Path(tmp) / "state.json").read_text())["mode"] == "display"
+        kept = sorted(p.name for p in first.rglob("*"))
+        run(again, clock, rows(START + 120, 1))  # a minute of rows: nothing more goes into the old recording
+        assert sorted(p.name for p in first.rglob("*")) == kept and again.mode == "display"
+        # only a press starts recording again, into a new folder
+        run(again, clock, rows(START + 180, 1), press_at=(START + 190,))
+        assert again.mode == "recording" and again.recording != first
+        app._close_recorder()  # let go of the files, so the folder can be removed (Windows holds open files)
+        again._close_recorder()
+
+
+def test_training_picked_up_after_a_power_cut_that_fails_does_not_record():
+    with tempfile.TemporaryDirectory() as tmp:
+        empty = Path(tmp) / "recordings" / "rec-empty"
+        empty.mkdir(parents=True)
+        (Path(tmp) / "state.json").write_text(json.dumps({"mode": "training", "recording": str(empty),
+                                                          "record_started": 0.0, "model": None}))
+        app = DeviceApp(tmp, ConveyorSim(days=1), clock=Clock())
+        deadline = time.time() + 60
+        while app.mode == "training" and time.time() < deadline:
+            time.sleep(0.05)
+        assert app.mode == "display" and app.recorder is None, (app.mode, app.message)
+
+
+def test_readings_have_slots_for_the_microphone_and_thermal_camera():
+    from device.intake.device_app import readings
+    x = np.full(F.N_FEATURES, np.nan)
+    r = readings(x)
+    assert r["sound_db"] is None and r["thermal_max_c"] is None  # not fitted: missing, never 0
+    x[F.INDEX["snd_level_db"]], x[F.INDEX["th_max_c"]] = 62.5, 48.0
+    r = readings(x)
+    assert r["sound_db"] == 62.5 and r["thermal_max_c"] == 48.0
+
+
 def test_rows_kept_on_whole_seconds_even_when_windows_start_off_the_second():
     from device.intake.recorder import Recorder
     from device.intake.source import SourceInfo

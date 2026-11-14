@@ -18,7 +18,7 @@ Two diagrams: how the system fits together, and the data it keeps. Details are i
  |  Linux side:                                                        |
  |    model library --pick entry--> calibration (minutes)              |
  |                                          |                          |
- |    features (278 per window) --> calibrated network --> alarm?      |
+ |    features (285 per window) --> calibrated network --> alarm?      |
  |                                          |                          |
  |                                 readings that moved                 |
  |                                          |                          |
@@ -73,7 +73,7 @@ Tracks map onto the boxes: track 1 is the handheld, track 2 is recordings and th
 | Recording | Learn-mode folder: feature rows 1 a second, per-minute summaries, raw snippets, history state, events |
 | Model | `model_version`, `features_version`, library entry, calibrated or trained, preparation statistics, int8 weights, threshold, fault classifier, fault types, feature table |
 | Fault type | name, plain text, group |
-| Feature | name, plain text, unit (278 of them) |
+| Feature | name, plain text, unit (285 of them) |
 | Record | `device_id`, `machine_id`, `model_version`, `at`, `diagnosis`, `confidence`, `unknown_score`, `features` (readings that moved, in spreads), `fault_types`, `note`, `spectrum` |
 | Agent run | `machine_id`, `at`, model, usage, `ok`, reason, problems, tool calls |
 | Report | summary, priority, cited readings, recommended action, part reference |

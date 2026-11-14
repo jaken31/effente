@@ -37,7 +37,7 @@ DESKTOP = Path(__file__).resolve().parents[1]
 if str(DESKTOP) not in sys.path:
     sys.path.insert(0, str(DESKTOP))
 
-from app.data import logic, paths
+from app.data import logic, model_server, paths
 from app.data.state import StateReads
 
 ANSWERED_ALARM = "alarm-5"
@@ -188,10 +188,22 @@ class FakeState(StateReads):
 
     def start_agent(self, mode="standin") -> bool:
         self.started_agents.append(mode)
-        if mode == "live" and not os.environ.get("ANTHROPIC_API_KEY"):
-            self._say("Live mode needs ANTHROPIC_API_KEY in the laptop's environment. Use the stand-in instead.")
+        if mode == "local" and self.model_status().state != model_server.READY:
+            self._say(f"No model server is running at {model_server.URL}. Start the model server, or run the stand-in.")
             return False
         return True
+
+    def start_model_server(self) -> None:
+        """No process is started: the server is shown as running with the chosen file."""
+        name = self.model_settings.model_file().name
+        self._model_status_is(model_server.Status(model_server.READY, f"Running with {name}.", True, name))
+
+    def stop_model_server(self) -> None:
+        self._model_status_is(model_server.Status(model_server.STOPPED, "Not running."))
+
+    def set_model_status(self, state: str, message: str, ours: bool = False, model: str = "") -> None:
+        """Show the model server in any state, for page tests."""
+        self._model_status_is(model_server.Status(state, message, ours, model))
 
     def _agent_process_alive(self) -> bool:
         return self.own_agent_alive

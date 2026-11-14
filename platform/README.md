@@ -34,23 +34,24 @@ The dashboard side of the demo in [docs/PRD.md](../docs/PRD.md), played with the
 | 5 | Press `5` | "Model: machine stopped", and the problem stays listed under it |
 | 6 | Press `m` three times (watching, display, calibrating, recording) | Mode RECORDING, "Model: not judging while recording", the problem still listed: the limits still run |
 | 7 | Press `h`, wait about 8 seconds, then `m` twice and `1` | The problem clears: "Nothing is wrong". Back to watching. |
-| 8 | Terminal 2: `python3 platform/report.py` | The agent panel lists the tool calls, then the report |
+| 8 | Terminal 2: `python3 platform/report.py --backend standin` | The agent panel lists the tool calls, then the report |
 
 Before going on stage, run the whole script once and leave the page open.
 
-### About step 6
+### About step 8
 
-`python3 platform/report.py` uses a **stand-in**: fixed rules, no Claude call, no network. Its report starts with "Stand-in report:", names its model as "stand-in (no Claude call)", and is labelled simulated on the dashboard. It exists so the report flow can be shown with no key and no WiFi. Do not present it as the agent's own writing.
+`python3 platform/report.py --backend standin` uses a **stand-in**: fixed rules, no model, no network. Its report starts with "Stand-in report:" and is labelled simulated on the dashboard. It exists so the report flow can be shown with no model server. Do not present it as the agent's own writing.
 
-For the real agent:
+For the real agent, a language model on this laptop writes the report. Start llama.cpp's `llama-server` with a model file, then run the report with no option:
 
 ```
-pip install anthropic
-export ANTHROPIC_API_KEY=...
-python3 platform/report.py --live
+llama-server -m ~/effente-models/small.gguf --host 127.0.0.1 --port 8081 --offline
+python3 platform/report.py
 ```
 
-**The live Claude call and the live Tavily parts lookup have never been run.** Read [device/agent/README.md](../device/agent/README.md) first: it has the steps and a list of known concerns. Try it well before the demo, on the hotspot, and keep the stand-in as the fallback. If the call fails the dashboard shows "agent unavailable" and the reason; detection is unaffected.
+`--llm-url URL` names a model server somewhere else on the site. The desktop app starts and stops the server itself: Agents page, Start model server. No reading and no report leaves the site.
+
+**A report from a real model has never been run.** Read [device/agent/README.md](../device/agent/README.md) first: it has the steps and a list of open points. Try it well before the demo and keep the stand-in as the fallback. If the model server does not answer, the dashboard shows "agent unavailable" and the reason; detection is unaffected.
 
 ## With the real device
 
@@ -59,6 +60,14 @@ python3 platform/run.py --no-sim
 ```
 
 The receiver listens on port 8000 on all interfaces. On the device, set `EFFENTE_PLATFORM_URL` to the laptop's address on the hotspot, for example `http://192.168.43.10:8000`. The command prints the address devices should use.
+
+If the board is not set up to send (no `EFFENTE_PLATFORM_URL` on it), the laptop can read the device's own port instead:
+
+```
+python3 platform/desktop/main.py --device http://10.110.213.214:8765   # or platform/run.py --device ...
+```
+
+[platform/link/device_link.py](link/device_link.py) reads the device's `/latest` twice a second and sends the receiver the contract's messages for it. Run against the board on 13 Nov while it was idle: the dashboard showed it connected, in display mode. Records while watching are **unverified on the board**: they were run against the device app on a laptop with simulated sensors (recording, training, watching, a fault added), where diagnoses and alarms reached the receiver. The device's port carries no fault type texts and no model file, so the dashboard shows fault type names without their sentences and the report agent has nothing to read. Setting `EFFENTE_PLATFORM_URL` on the board has neither gap.
 
 What the device must send and expect back is in [CONTRACT.md](CONTRACT.md). [sim/README.md](sim/README.md) walks through it from the device's side, and `sim/tests/sim_fake_platform.py` is a small checker a device implementation can be pointed at.
 
@@ -93,7 +102,7 @@ The simulated device and a real one can run at the same time. The dashboard show
 python3 -m pytest platform device
 ```
 
-Needs pytest. The dashboard's logic tests also need `node` and are skipped without it.
+Needs pytest. The dashboard's logic tests also need `node` and are skipped without it. The desktop app's tests need `pip install -r platform/desktop/requirements.txt`; without pytest-qt they are skipped without a word.
 
 ## Known gaps
 
@@ -111,6 +120,6 @@ Checked on one laptop (Linux, headless Chromium) with `run.py`, the simulated de
 Not checked:
 
 - Anything with the real handheld. Only the simulated device has talked to the receiver.
-- The live Claude call and the live Tavily lookup.
+- A report written by a real model on a model server. Only the stand-in and a fake server in tests have run.
 - A real projector, Firefox, Safari, macOS or Windows. The simulator's keys need a Unix terminal.
 - A run with the laptop's network physically switched off. The parts were only observed to make no outside requests.

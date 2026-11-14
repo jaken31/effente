@@ -1,0 +1,193 @@
+{
+  "entry_id": "generic_rotating",
+  "version": "0.1.0",
+  "normal_model": "pca",
+  "features_version": "89613129193f",
+  "sources": [
+    {
+      "name": "sim_drive_a",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_b",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_c",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_d",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_e",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_drive_f",
+      "kind": "simulated",
+      "used_for": "training"
+    },
+    {
+      "name": "sim_pump",
+      "kind": "simulated",
+      "used_for": "evaluation",
+      "evaluated": false
+    },
+    {
+      "name": "sim_server_rack",
+      "kind": "simulated",
+      "used_for": "evaluation",
+      "evaluated": false,
+      "note": "wrong machine: a server rack, for the fit check"
+    },
+    {
+      "name": "nasa_ims_test2_bearing1",
+      "kind": "public",
+      "used_for": "evaluation",
+      "evaluated": false
+    },
+    {
+      "name": "ottawa_uods_vafdc",
+      "kind": "public",
+      "used_for": "evaluation",
+      "evaluated": false
+    },
+    {
+      "name": "dcase2024_fan_sound",
+      "kind": "public",
+      "used_for": "evaluation",
+      "evaluated": false
+    }
+  ],
+  "heldout_score_quantiles": {
+    "p50": 11.335585324907168,
+    "p90": 18.102795878455357,
+    "p99": 28.13464581930147,
+    "max": 36.09728323043015
+  },
+  "scorecard": {
+    "vibration_too_high": "not validated",
+    "unbalance_like": "not validated",
+    "misalignment_like": "not validated",
+    "looseness_or_rattle": "not validated",
+    "repeating_knock": "not validated",
+    "impacts": "not validated",
+    "bearing_defect_like": "not validated",
+    "speed_change": "not validated",
+    "electrical_motor": "not validated",
+    "new_tone_whine_squeal": "not validated",
+    "grinding_or_hiss": "not validated",
+    "alarm_or_beeping": "not validated",
+    "overheating": "not validated",
+    "heating_up_over_time": "not validated",
+    "local_hot_spot": "not validated",
+    "area_running_cold": "not validated",
+    "excess_temperature_fluctuation": "not validated",
+    "unsteady_vibration_or_sound": "not validated",
+    "room_too_hot_or_humid": "not validated",
+    "device_moved": "not validated",
+    "camera_moved_or_blocked": "not validated"
+  },
+  "status": "unverified",
+  "built": {
+    "command": "python3 -m training.library.build generic_rotating --seed 0",
+    "seed": 0,
+    "git_commit": "d52e00164abe5752c27f40976cfc77ce6d5b5750"
+  },
+  "model_sha1": "c42d4c933973612612f88a5097801a16ac2a7528",
+  "calibration": {
+    "min_s": 300,
+    "hold": [
+      "time_",
+      "trend_",
+      "imu_temp_c"
+    ],
+    "widen": {
+      "vib_rms_x": 4.499,
+      "vib_rms_y": 3.516,
+      "vib_rms_z": 3.904,
+      "vib_band_00": 1.321,
+      "vib_band_01": 1.131,
+      "vib_band_02": 1.109,
+      "vib_band_03": 1.154,
+      "vib_band_04": 1.26,
+      "vib_band_05": 1.391,
+      "vib_band_06": 1.51,
+      "vib_band_07": 1.709,
+      "vib_band_08": 1.582,
+      "vib_band_09": 1.674,
+      "vib_band_10": 1.576,
+      "vib_band_11": 1.418,
+      "vib_band_12": 1.794,
+      "vib_band_13": 1.879,
+      "vib_band_14": 2.002,
+      "vib_band_15": 1.777,
+      "vib_band_16": 1.908,
+      "vib_band_17": 2.229,
+      "vib_band_18": 2.518,
+      "vib_band_19": 2.221,
+      "vib_speed_hz": 3.326,
+      "vib_1x": 4.603,
+      "vib_2x": 2.337,
+      "vib_3x": 1.299,
+      "vib_harm_3_10": 2.012,
+      "vib_half": 1.269,
+      "vib_peak2_hz": 2.702,
+      "vib_peak2": 3.68,
+      "vib_crest": 1.21,
+      "vib_kurtosis": 1.103,
+      "vib_peak_g": 1.954,
+      "vib_jerk": 1.795,
+      "vib_env_peak_hz": 1.399,
+      "vib_env_peak": 1.524,
+      "vib_env_order": 1.846,
+      "vib_velocity_mm_s": 5.0,
+      "vib_line_2x": 1.407,
+      "vib_gravity_x": 1.05,
+      "vib_gravity_y": 1.043,
+      "vib_gravity_z": 1.0,
+      "imu_temp_c": 5.0,
+      "gyr_rms": 1.092,
+      "gyr_peak": 1.027,
+      "time_hour_sin": 5.0,
+      "time_hour_cos": 5.0,
+      "slow_band_00": 1.054,
+      "slow_band_01": 2.012,
+      "slow_band_02": 1.188,
+      "slow_band_03": 1.909,
+      "slow_band_04": 3.774,
+      "slow_band_05": 3.46,
+      "slow_peak1_hz": 5.0,
+      "slow_peak1": 5.0,
+      "slow_peak2_hz": 3.297,
+      "slow_peak2": 4.652,
+      "knock_period_s": 1.371,
+      "knock_repeat": 1.47,
+      "trend_shocks_10m": 1.0,
+      "trend_since_shock_s": 4.887,
+      "trend_heat_1m": 5.0,
+      "trend_heat_10m": 5.0,
+      "trend_heat_1h": 5.0,
+      "trend_heat_6h": 5.0,
+      "trend_heat_rise_per_min": 1.343,
+      "trend_heat_rise_per_h": 5.0,
+      "trend_vib_10m": 5.0,
+      "trend_vib_1h": 5.0,
+      "trend_speed_1h": 5.0,
+      "trend_heat_swing_10m": 3.692,
+      "trend_heat_swing_1h": 5.0,
+      "trend_vib_swing_10m": 5.0,
+      "trend_vib_swing_1h": 5.0
+    },
+    "widen_use": "recorded only: effente.calibration does not read these factors. On simulated conveyors they gave more false alarms than keeping the entry's own spreads as the floor (training/library/README.md)",
+    "prep": "the medians and spreads of sim_drive_a, the first training source; the other 5 were re-expressed onto them before pooling",
+    "threshold": "from the held-out rows (the last 15% by time) of every training source, scored together"
+  }
+}
