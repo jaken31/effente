@@ -198,6 +198,7 @@ class DeviceApp:
         self._resumed_training = False  # training picked up after a power cut: if it fails, don't record
         self.row_errors = 0  # rows or packets that raised; the pipeline carries on (status has the count)
         self._row_at = None  # when the last row came, by this computer's own steady clock (for NO DATA)
+        self._born = time.monotonic()  # for sound_missing when no sound ever came
         self._resume()
         if self.uploader is not None:
             self.uploader.on_settings = self.platform_settings
@@ -1131,6 +1132,9 @@ class DeviceApp:
                 age = round(self.source.clock() - snd[-1][0], 1)
                 s["sensors"]["sound_age_s"] = age
                 s["sensors"]["sound_missing"] = age > SOUND_MISSING_S
+            elif snd is not None:  # a source that can carry sound, and none has come since the start (the ESP32 off,
+                # or its wire: 14 Nov, on the board, the status said nothing at all)
+                s["sensors"]["sound_missing"] = time.monotonic() - self._born > SOUND_MISSING_S
         s["row_errors"] = self.row_errors
         if self._row_at is not None:
             s["last_row_age_s"] = round(time.monotonic() - self._row_at, 1)

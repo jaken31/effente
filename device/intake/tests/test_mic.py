@@ -124,3 +124,14 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_status_says_sound_missing_when_none_ever_came():
+    import tempfile
+    from device.intake.device_app import DeviceApp, SOUND_MISSING_S
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        app = DeviceApp(tmp, UnoQSource(clock=Clock()))
+        assert app.status()["sensors"]["sound_missing"] is False  # just started: too soon to say
+        app._born -= SOUND_MISSING_S + 1
+        s = app.status()["sensors"]
+        assert s["sound_missing"] is True and s["sound_age_s"] is None
