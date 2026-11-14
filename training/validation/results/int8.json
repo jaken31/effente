@@ -10,17 +10,30 @@
   4,
   5
  ],
- "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); effente.simulate_server + effente.site_noise (datacenter)",
+ "data_source": "training/library; effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); effente.simulate_server + effente.site_noise (datacenter)",
  "label": "simulated",
- "notes": [
-  "library entry conveyor: not measured. Its training report has no int8_vs_float_score_correlation: the library builder writes the int8 weights without keeping the float network to compare with",
-  "library entry generic_rotating: not measured. Its training report has no int8_vs_float_score_correlation: the library builder writes the int8 weights without keeping the float network to compare with"
- ],
+ "notes": [],
  "standin": null,
  "library_code": null,
  "features_version": "89613129193f",
- "created": "2026-11-13T17:14:41+00:00",
+ "created": "2026-11-14T04:42:50+00:00",
  "rows": [
+  {
+   "entry": "conveyor",
+   "metric": "int8 vs float score correlation, the entry's network",
+   "value": 0.99997,
+   "n": "1 model",
+   "range": "",
+   "data_source": "training/library"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "int8 vs float score correlation, the entry's network",
+   "value": 0.99999,
+   "n": "1 model",
+   "range": "",
+   "data_source": "training/library"
+  },
   {
    "entry": "own model, conveyor",
    "metric": "int8 vs float score correlation, lowest over machines",
@@ -39,6 +52,14 @@
   }
  ],
  "detail": [
+  {
+   "entry": "conveyor",
+   "correlation": 0.99997
+  },
+  {
+   "entry": "generic_rotating",
+   "correlation": 0.99999
+  },
   {
    "entry": "own model, conveyor",
    "machine": "conveyor",

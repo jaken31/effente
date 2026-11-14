@@ -4,17 +4,16 @@ Nothing in [REPORT.md](REPORT.md) comes from a device recording. Checks 1 to 6 u
 
 ## When track 3's code changes (no new data)
 
-The numbers were made with track 3's library entries (`training/library/entries`, versions in each manifest) and `effente.calibration.calibrate`, as they stood on `track3/library-build` and `track3/library-calibrate`. `training/validation/track3.py` is the only module that imports them.
+The numbers were made with track 3's library entries (`training/library/entries`, merged in PR 33; versions in each manifest) and `effente.calibration` as it stands on `track3/calibration` (PR 42). `training/validation/track3.py` is the only module that imports them.
 
-A second library and calibration exist on `feat/model-library` (PR 33) and `track3/calibrate-entry` (PR 34), with another entry layout, a refitted threshold and a fit check rule. Nothing here was run on them. If they are the ones merged, `track3.py` must be pointed at them (`effente.calibration.load_entry`, `calibrate`, `fit_check`) and everything rerun.
+PR 42 is still a draft and its threshold rule is not decided. When it changes or merges, rerun everything.
 
 Rerun `python3 -m training.validation.run_all` when any of these changes:
 
 - an entry is rebuilt (for example `conveyor` with real recordings of the demo conveyor)
-- calibration changes what it refits or switches off
-- a fit check pass rule is set: put it in `track3.fit_check` in place of the placeholder rule. Until then check 6's pass and fail shares are marked as resting on that placeholder
-- calibration starts retraining the fault classifier (the entries carry none today, so fault names come from the signatures alone)
-- the library builder starts reporting the int8 vs float correlation (check 4 lists the entries as not measured until it does)
+- calibration changes what it refits, or its threshold rule (`THRESHOLD_MEDIAN_MULTIPLE`, provisional)
+- the fit check rule changes (`effente.calibration.FIT_MAX_RATIO`, a starting value set on the simulators). Check 6's pass and fail shares are marked as resting on it until the TRD sets a rule
+- calibration starts applying the manifests' `widen` factors or `hold` list (it reads only the model file today)
 
 ## When device recordings exist (for track 2)
 

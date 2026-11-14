@@ -16,91 +16,91 @@
  "standin": null,
  "library_code": "training/library/entries (track 3) calibrated by effente.calibration.calibrate (track 3)",
  "features_version": "89613129193f",
- "created": "2026-11-13T17:15:24+00:00",
+ "created": "2026-11-14T04:43:44+00:00",
  "rows": [
   {
    "entry": "conveyor",
    "metric": "fit check, conveyor machines (right entry): share that pass",
    "value": 1.0,
    "n": "5 machines",
-   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+   "standin": "track 3's starting rule (effente.calibration.FIT_MAX_RATIO = 3), set on the simulators only; the TRD leaves the rule open"
   },
   {
    "entry": "conveyor",
-   "metric": "fit check, conveyor machines (right entry): median calibration score over the entry's threshold, median over machines",
-   "value": 0.0625,
+   "metric": "fit check, conveyor machines (right entry): median held-out score after calibration over the entry's own held-out median score, median over machines",
+   "value": 0.3103,
    "n": "5 machines",
-   "range": "0.0464 to 0.0679"
+   "range": "0.2966 to 0.3883"
   },
   {
    "entry": "conveyor",
-   "metric": "fit check, conveyor machines (right entry): median calibration score over the entry's own held-out median score, median over machines",
-   "value": 0.4302,
+   "metric": "fit check, conveyor machines (right entry): median calibration score on the entry as shipped over the entry's threshold, median over machines",
+   "value": 0.071,
    "n": "5 machines",
-   "range": "0.3194 to 0.4674"
+   "range": "0.0451 to 0.1153"
   },
   {
    "entry": "conveyor",
    "metric": "fit check, server machines (wrong entry): share that fail",
    "value": 0.0,
    "n": "5 machines",
-   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+   "standin": "track 3's starting rule (effente.calibration.FIT_MAX_RATIO = 3), set on the simulators only; the TRD leaves the rule open"
   },
   {
    "entry": "conveyor",
-   "metric": "fit check, server machines (wrong entry): median calibration score over the entry's threshold, median over machines",
-   "value": 0.1013,
+   "metric": "fit check, server machines (wrong entry): median held-out score after calibration over the entry's own held-out median score, median over machines",
+   "value": 0.7092,
    "n": "5 machines",
-   "range": "0.0995 to 0.1078"
+   "range": "0.4991 to 0.8142"
   },
   {
    "entry": "conveyor",
-   "metric": "fit check, server machines (wrong entry): median calibration score over the entry's own held-out median score, median over machines",
-   "value": 0.6973,
+   "metric": "fit check, server machines (wrong entry): median calibration score on the entry as shipped over the entry's threshold, median over machines",
+   "value": 1.1052,
    "n": "5 machines",
-   "range": "0.6849 to 0.7421"
+   "range": "1.072 to 1.128"
   },
   {
    "entry": "generic_rotating",
    "metric": "fit check, conveyor machines (neither right nor wrong): share that pass",
    "value": 1.0,
    "n": "5 machines",
-   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+   "standin": "track 3's starting rule (effente.calibration.FIT_MAX_RATIO = 3), set on the simulators only; the TRD leaves the rule open"
   },
   {
    "entry": "generic_rotating",
-   "metric": "fit check, conveyor machines (neither right nor wrong): median calibration score over the entry's threshold, median over machines",
-   "value": 0.0131,
+   "metric": "fit check, conveyor machines (neither right nor wrong): median held-out score after calibration over the entry's own held-out median score, median over machines",
+   "value": 0.1006,
    "n": "5 machines",
-   "range": "0.0099 to 0.0138"
+   "range": "0.0964 to 0.1111"
   },
   {
    "entry": "generic_rotating",
-   "metric": "fit check, conveyor machines (neither right nor wrong): median calibration score over the entry's own held-out median score, median over machines",
-   "value": 0.5936,
+   "metric": "fit check, conveyor machines (neither right nor wrong): median calibration score on the entry as shipped over the entry's threshold, median over machines",
+   "value": 0.1082,
    "n": "5 machines",
-   "range": "0.4486 to 0.6254"
+   "range": "0.0954 to 0.1743"
   },
   {
    "entry": "generic_rotating",
    "metric": "fit check, server machines (right entry): share that pass",
    "value": 1.0,
    "n": "5 machines",
-   "standin": "placeholder pass rule (track 3 leaves it open): median calibration score not over the entry's threshold"
+   "standin": "track 3's starting rule (effente.calibration.FIT_MAX_RATIO = 3), set on the simulators only; the TRD leaves the rule open"
   },
   {
    "entry": "generic_rotating",
-   "metric": "fit check, server machines (right entry): median calibration score over the entry's threshold, median over machines",
-   "value": 0.0204,
+   "metric": "fit check, server machines (right entry): median held-out score after calibration over the entry's own held-out median score, median over machines",
+   "value": 0.2002,
    "n": "5 machines",
-   "range": "0.0197 to 0.0219"
+   "range": "0.1404 to 0.2246"
   },
   {
    "entry": "generic_rotating",
-   "metric": "fit check, server machines (right entry): median calibration score over the entry's own held-out median score, median over machines",
-   "value": 0.9244,
+   "metric": "fit check, server machines (right entry): median calibration score on the entry as shipped over the entry's threshold, median over machines",
+   "value": 0.6973,
    "n": "5 machines",
-   "range": "0.8927 to 0.9924"
+   "range": "0.6717 to 0.7455"
   }
  ],
  "detail": [
@@ -110,9 +110,9 @@
    "seed": 1,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0464,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.3194
+   "reason": "no gross mismatch: this machine's normal scores 0.3 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.3103,
+   "score_over_entry_line": 0.0629
   },
   {
    "entry": "generic_rotating",
@@ -120,9 +120,9 @@
    "seed": 1,
    "right_entry": null,
    "passes": true,
-   "score_over_entry_line": 0.0099,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.4486
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.1006,
+   "score_over_entry_line": 0.1204
   },
   {
    "entry": "conveyor",
@@ -130,9 +130,9 @@
    "seed": 2,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0679,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.4674
+   "reason": "no gross mismatch: this machine's normal scores 0.3 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.3032,
+   "score_over_entry_line": 0.0724
   },
   {
    "entry": "generic_rotating",
@@ -140,9 +140,9 @@
    "seed": 2,
    "right_entry": null,
    "passes": true,
-   "score_over_entry_line": 0.0138,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.6254
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.0964,
+   "score_over_entry_line": 0.1082
   },
   {
    "entry": "conveyor",
@@ -150,9 +150,9 @@
    "seed": 3,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0648,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.4461
+   "reason": "no gross mismatch: this machine's normal scores 0.3 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.3417,
+   "score_over_entry_line": 0.0451
   },
   {
    "entry": "generic_rotating",
@@ -160,9 +160,9 @@
    "seed": 3,
    "right_entry": null,
    "passes": true,
-   "score_over_entry_line": 0.0133,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.6027
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.1074,
+   "score_over_entry_line": 0.0984
   },
   {
    "entry": "conveyor",
@@ -170,9 +170,9 @@
    "seed": 4,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0625,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.4302
+   "reason": "no gross mismatch: this machine's normal scores 0.3 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.2966,
+   "score_over_entry_line": 0.1153
   },
   {
    "entry": "generic_rotating",
@@ -180,9 +180,9 @@
    "seed": 4,
    "right_entry": null,
    "passes": true,
-   "score_over_entry_line": 0.0131,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.5936
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.0997,
+   "score_over_entry_line": 0.0954
   },
   {
    "entry": "conveyor",
@@ -190,9 +190,9 @@
    "seed": 5,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0623,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.4289
+   "reason": "no gross mismatch: this machine's normal scores 0.4 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.3883,
+   "score_over_entry_line": 0.071
   },
   {
    "entry": "generic_rotating",
@@ -200,9 +200,9 @@
    "seed": 5,
    "right_entry": null,
    "passes": true,
-   "score_over_entry_line": 0.0124,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.5619
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.1111,
+   "score_over_entry_line": 0.1743
   },
   {
    "entry": "conveyor",
@@ -210,9 +210,9 @@
    "seed": 1,
    "right_entry": false,
    "passes": true,
-   "score_over_entry_line": 0.105,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.7228
+   "reason": "no gross mismatch: this machine's normal scores 0.7 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.7092,
+   "score_over_entry_line": 1.0721
   },
   {
    "entry": "generic_rotating",
@@ -220,9 +220,9 @@
    "seed": 1,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0216,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.9788
+   "reason": "no gross mismatch: this machine's normal scores 0.2 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.2002,
+   "score_over_entry_line": 0.7166
   },
   {
    "entry": "conveyor",
@@ -230,9 +230,9 @@
    "seed": 2,
    "right_entry": false,
    "passes": true,
-   "score_over_entry_line": 0.1013,
-   "share_rows_over_entry_line": 0.0067,
-   "score_over_entry_heldout_median": 0.6973
+   "reason": "no gross mismatch: this machine's normal scores 0.8 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.7929,
+   "score_over_entry_line": 1.1031
   },
   {
    "entry": "generic_rotating",
@@ -240,9 +240,9 @@
    "seed": 2,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0204,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.9244
+   "reason": "no gross mismatch: this machine's normal scores 0.2 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.2246,
+   "score_over_entry_line": 0.6973
   },
   {
    "entry": "conveyor",
@@ -250,9 +250,9 @@
    "seed": 3,
    "right_entry": false,
    "passes": true,
-   "score_over_entry_line": 0.1007,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.6932
+   "reason": "no gross mismatch: this machine's normal scores 0.5 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.5147,
+   "score_over_entry_line": 1.1094
   },
   {
    "entry": "generic_rotating",
@@ -260,9 +260,9 @@
    "seed": 3,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.02,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.9063
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.1404,
+   "score_over_entry_line": 0.6736
   },
   {
    "entry": "conveyor",
@@ -270,9 +270,9 @@
    "seed": 4,
    "right_entry": false,
    "passes": true,
-   "score_over_entry_line": 0.1078,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.7421
+   "reason": "no gross mismatch: this machine's normal scores 0.8 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.8142,
+   "score_over_entry_line": 1.1279
   },
   {
    "entry": "generic_rotating",
@@ -280,9 +280,9 @@
    "seed": 4,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0219,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.9924
+   "reason": "no gross mismatch: this machine's normal scores 0.2 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.2169,
+   "score_over_entry_line": 0.7455
   },
   {
    "entry": "conveyor",
@@ -290,9 +290,9 @@
    "seed": 5,
    "right_entry": false,
    "passes": true,
-   "score_over_entry_line": 0.0995,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.6849
+   "reason": "no gross mismatch: this machine's normal scores 0.5 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.4991,
+   "score_over_entry_line": 1.1052
   },
   {
    "entry": "generic_rotating",
@@ -300,9 +300,9 @@
    "seed": 5,
    "right_entry": true,
    "passes": true,
-   "score_over_entry_line": 0.0197,
-   "share_rows_over_entry_line": 0.0,
-   "score_over_entry_heldout_median": 0.8927
+   "reason": "no gross mismatch: this machine's normal scores 0.1 times the entry's own (limit 3, a starting value, simulated only). This does not show the machine is of the entry's type",
+   "score_over_entry_heldout_median": 0.1422,
+   "score_over_entry_line": 0.6717
   }
  ]
 }
