@@ -133,6 +133,7 @@ class Fused:
     """One model per sensor group, each score put on the same footing by its own out-of-fold learning scores
     (2 folds in time order), then fused:
       "max"   the largest score / its learning median
+      "maxq"  the largest score / its learning 99th percentile (each group at its own line, then OR)
       "mean"  the mean of score / its learning median
       "z"     the mean of (score - learning mean) / learning spread
       "zmax"  the largest of those z
@@ -160,6 +161,9 @@ class Fused:
 
     def score(self, Z):
         P = self.parts(Z)
+        if self.combine == "maxq":  # each group over its own 99th percentile of out-of-fold learning scores
+            R = np.stack([p / max(o[int(0.99 * (len(o) - 1))], 1e-12) for p, o in zip(P, self.oof)], 1)
+            return R.max(1)
         if self.combine in ("max", "mean"):
             R = np.stack([p / max(np.median(o), 1e-12) for p, o in zip(P, self.oof)], 1)
             return R.max(1) if self.combine == "max" else R.mean(1)

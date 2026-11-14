@@ -119,7 +119,18 @@ def main(argv=None) -> int:
         for j in range(len(fids)):
             tf = pre_t[-1] + 1 + np.arange(5)
             fault_first.append(safety_started(base, np.r_[pre_t, tf], np.vstack([pre_X, Xf[j]]), tf[0]))
-        save[cond] = {"norm_med": nm, "fault_med": fm, "norm_spike": na, "fault_spike": fa,
+        # A threshold-only change to try: the device's own model, but the line from 5 time blocks of the learning
+        # clips (each scored by a device model trained on the other four), 99th percentile after a median of 3,
+        # alarm on the median of the last 3 seconds (no spike rule). Saved as "cf_*" in units of that line.
+        fold = np.arange(len(learn)) * 5 // len(learn)
+        oof = []
+        for q in range(5):
+            dq, _ = train(data, learn[fold != q])
+            _, Xq = rows_of(data, learn[fold == q])
+            oof.append(C.running_median(RT.Model(dq).score(Xq)[0], 3))
+        cf_line = float(np.quantile(np.concatenate(oof), 0.99))
+        cn, cfm = C.clip_stats(sh / cf_line, sf / cf_line, "med", 3)
+        save[cond] = {"cf_norm": cn, "cf_fault": cfm, "norm_med": nm, "fault_med": fm, "norm_spike": na, "fault_spike": fa,
                       "norm_score": sh / thr, "fault_score": sf / thr, "labels": data.meta["label"][fids],
                       "fault_ids": data.meta["clip_id"][fids], "fault_folder": data.meta["folder"][fids]}
         info[cond] = {"report": {k: report[k] for k in ("period_s", "rows_learned", "rows_calibration", "inputs",

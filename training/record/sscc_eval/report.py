@@ -70,6 +70,8 @@ def device_stats(path: Path, which: str, part: str = "both"):
         if part == "both":
             ns[c] = np.maximum(d[f"{c}|norm_med"], d[f"{c}|norm_spike"])
             fs[c] = np.maximum(d[f"{c}|fault_med"], d[f"{c}|fault_spike"])
+        elif part == "crossfit":
+            ns[c], fs[c] = d[f"{c}|cf_norm"], d[f"{c}|cf_fault"]
         elif part == "med":
             ns[c], fs[c] = d[f"{c}|norm_med"], d[f"{c}|fault_med"]
         else:
@@ -127,7 +129,7 @@ def main(argv=None) -> int:
     out, rows = {}, []
     dev = C.RESULTS / "device_A.npz"
     if dev.exists() and "device" in ("device" + args.only):
-        for part in ("both", "med", "spike"):
+        for part in ("both", "med", "spike") + (("crossfit",) if any("cf_norm" in k for k in np.load(dev).files) else ()):
             s = summarise(*device_stats(dev, args.set, part))
             out[f"device_as_is[{part}]"] = s
             rows.append(fmt_row(f"device as is ({part})", s, args.group))
