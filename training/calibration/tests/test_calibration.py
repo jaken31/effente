@@ -381,7 +381,7 @@ def library_style_entry():
                             "hold": ["trend_", "env_room_c"], "min_s": 300})  # by name, as the manifests have it
     man = {"manifest": "effente-entry-1", "entry": "fixture_conveyor", "version": "0.1.0", "status": "unverified",
            "features_version": d["features_version"],
-           "fit_check": {"entry_heldout_score_median": manifest["held_out_score_quantiles"]["p50"], "rule": "open"}}
+           "heldout_score_quantiles": {"p50": manifest["held_out_score_quantiles"]["p50"]}}
     return lib, man
 
 
@@ -566,6 +566,9 @@ def test_a_fit_that_cannot_be_checked_is_not_a_fit():
              (report, dict(manifest, features_version="other"), "features_version"),
              (report, dict(manifest, normal_model="autoencoder"), "normal_model"),
              (dict(report, score_quantiles_held_out={}), manifest, "calibration report"),
+             (dict(report, score_quantiles_held_out={"p50": 0.0}), manifest, "calibration report"),
+             (dict(report, score_quantiles_held_out={"p50": -1.0}), manifest, "calibration report"),
+             (report, {"fit_check": {"entry_heldout_score_median": 2.0}}, "no held-out median"),  # on no manifest
              ({}, manifest, "calibration report")]
     for rep, man, text in cases:
         v = C.fit_check(rep, man)

@@ -313,12 +313,8 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
 
 
 def _manifest_median(manifest: dict):
-    """The entry's held-out median score from its manifest, or None. The manifest's exact key names
-    are the library's; the usual spellings are accepted."""
-    fc = manifest.get("fit_check")  # training/library's manifests: {"entry_heldout_score_median": ...}
-    v = fc.get("entry_heldout_score_median") if isinstance(fc, dict) else None
-    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0:
-        return float(v)
+    """The entry's held-out median score from its manifest, or None. training/library's manifests
+    carry it as heldout_score_quantiles.p50; the other usual spellings are accepted."""
     for key in _MANIFEST_QUANTILE_KEYS:
         q = manifest.get(key)
         if isinstance(q, dict):
@@ -350,8 +346,8 @@ def fit_check(report: dict, manifest: dict) -> dict:
     if ref is None:
         return no("not checked: the entry's manifest has no held-out median score")
     mine = (report.get("score_quantiles_held_out") or {}).get("p50")
-    if not isinstance(mine, (int, float)) or isinstance(mine, bool) or not math.isfinite(mine):
-        return no("not checked: the calibration report has no held-out median score")
+    if not isinstance(mine, (int, float)) or isinstance(mine, bool) or not math.isfinite(mine) or mine <= 0:
+        return no("not checked: the calibration report has no held-out median score above 0")
     ratio = float(mine) / ref
     limit = f"limit {FIT_MAX_RATIO:g}, a starting value, simulated only"
     if ratio > FIT_MAX_RATIO:
