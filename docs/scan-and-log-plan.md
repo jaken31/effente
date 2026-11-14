@@ -773,7 +773,7 @@ Order:
  S2 needs R1 and R2, so its history can be seen.
 ```
 
-No times are set here. The team sets them when it agrees the proposal. Until gate 2 of section 11 has passed, none of this starts.
+No times are set here. The team sets them when it agrees the proposal. Proposed: none of this starts before gate 2 of section 11 has passed, because the working demo and the Machine page of PR #63 come first.
 
 If it is not working, cut in this order, and the page falls back to what PR #63 builds:
 

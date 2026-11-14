@@ -837,7 +837,7 @@ After clearing, `"probe": null`.
 
 ### 9.2 Velocity on every record
 
-Today a stored record has no vibration velocity in mm/s. `features.vib_velocity_mm_s` is in spreads of normal, not mm/s, and is there only when that reading is among the three that moved most. The mm/s value reaches the platform only as the `value` of a `vibration_over_limit` problem, and in the `readings` of a check-in.
+Today a stored record has no vibration velocity in mm/s. `features.vib_velocity_mm_s` is in spreads of normal, not mm/s, and is there only when that reading is among those that moved most. The mm/s value reaches the platform only as the `value` of a `vibration_over_limit` problem, and in the `readings` of a check-in.
 
 The change: every record sent while watching carries the feature row's own value, in mm/s, in the optional `readings` block that message 3 already describes.
 
