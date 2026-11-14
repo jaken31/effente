@@ -368,7 +368,8 @@ PRESETS = {
 }
 
 
-def make_model(preset: str = "lin50", **kw) -> "BandModel":
+# The team's choice (14 Nov) is "log64": make_model() gives it. BandModel() with no arguments is still "lin50".
+def make_model(preset: str = "log64", **kw) -> "BandModel":
     return BandModel(**{**PRESETS[preset], **kw})
 
 
