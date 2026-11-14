@@ -1,5 +1,5 @@
-"""ReceiverHost: the platform's receiver, and optionally the simulated device,
-running inside the desktop app's process.
+"""ReceiverHost: the platform's receiver, and optionally the simulated device or
+the link to a real device's own port, running inside the desktop app's process.
 
 Both are the existing classes, used as they are: platform/server's `Receiver`
 already serves from a background thread (`start()`/`stop()`), and
@@ -73,11 +73,12 @@ class ReceiverHost:
     `data_dir` defaults to platform/server/data, where platform/report.py reads
     the device log; with the sim running, its `--log` and `--model-file` go
     there, as platform/run.py does. `port` 0 picks a free port; `.port` says
-    which after `start()`.
+    which after `start()`. `device_url` is a real device's own port
+    (http://DEVICE:8765): platform/link reads it and feeds this receiver.
     """
 
     def __init__(self, data_dir=None, port=8000, with_sim=False, case="normal", host="0.0.0.0",
-                 sim_args=(), log=None):
+                 sim_args=(), log=None, device_url=None):
         self.data_dir = Path(data_dir) if data_dir else paths.DEFAULT_DATA_DIR
         self.host = host
         self._port = port
@@ -87,6 +88,8 @@ class ReceiverHost:
         self.log = log or (lambda message: None)
         self.receiver = None
         self.sim = None  # SimHandle while the sim runs
+        self.device_url = device_url
+        self.link = None  # DeviceLink while it runs
         self._sim_thread = None
         self._keys = None
 
@@ -108,6 +111,8 @@ class ReceiverHost:
         self.receiver.start()
         if self.with_sim:
             self._start_sim()
+        if self.device_url:
+            self.link = paths.link_module().DeviceLink(self.device_url, self.url, log=self.log).start()
 
     def _start_sim(self) -> None:
         sim_device = paths.sim_modules()[0]
@@ -126,7 +131,10 @@ class ReceiverHost:
         self._sim_thread.start()
 
     def stop(self) -> None:
-        """Stop the sim, then the receiver. Safe to call twice."""
+        """Stop the sim and the device link, then the receiver. Safe to call twice."""
+        if self.link is not None:
+            self.link.stop()
+            self.link = None
         if self._sim_thread is not None:
             self._keys.keys.put("q")
             self._sim_thread.join(timeout=5)

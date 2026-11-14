@@ -2,6 +2,8 @@
 
     python3 platform/run.py            # receiver + simulated device, keys 1-6 switch case
     python3 platform/run.py --no-sim   # receiver only, for a real device
+    python3 platform/run.py --device http://10.110.213.214:8765
+                                       # a real device, read from its own port (platform/link)
 
 The simulated device takes over this terminal for its keys. The receiver's output
 goes to a log file in the data folder. Quitting the simulator (q) stops both.
@@ -39,6 +41,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-sim", action="store_true", help="receiver only, for a real device")
+    parser.add_argument("--device", metavar="URL",
+                        help="read a real device from its own port, for example http://10.110.213.214:8765")
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     args = parser.parse_args()
@@ -68,6 +72,14 @@ def main() -> int:
                 return 1
             print(f"Dashboard: {url}")
             print("Report:    python3 platform/report.py   (in a second terminal)")
+            if args.device:
+                sys.path.insert(0, str(HERE / "link"))
+                import device_link
+
+                device_link.DeviceLink(args.device, url).start()
+                print(f"Reading the device at {args.device}. Ctrl-C to stop.")
+                server.wait()
+                return 0
             if args.no_sim:
                 # The receiver's first line gives the address a device should use.
                 print(server_log.read_text(encoding="utf-8").splitlines()[0])

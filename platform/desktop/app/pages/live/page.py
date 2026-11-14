@@ -201,8 +201,8 @@ class LivePage(QWidget):
         self.controls.show_sim(s.sim())
 
     def _show_spectrum(self, s, records: list) -> None:
-        rec = s.latest()
-        model = s.model()
+        rec = s.live_record()
+        model = s.spectrum_model()
         self.spectrum.set_record(rec, model)
         self.spectrum.set_baseline(baseline_from(s.records(logic.HISTORY_CAP, spectrum=True)))
         edges = (model or {}).get("spectrum_edges_hz")
@@ -214,7 +214,7 @@ class LivePage(QWidget):
         self.spectrum_panel.set_hint(hint)
 
     def _show_thermal(self, s) -> None:
-        view = logic.heat_view(s.latest() or {})
+        view = logic.heat_view(s.live_record() or {})
         rng = logic.heat_range(view) if view["kind"] == "camera" else None
         frames = view.get("frames") or []
         if view["kind"] == "camera" and frames and rng:

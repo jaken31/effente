@@ -199,7 +199,7 @@ class ThermalPage(QWidget):
         if s is None:
             return
         self._update_sim()
-        self.show_record(s.latest())
+        self.show_record(s.live_record())
         self._draw_trend()
 
     def _on_record(self, rec: dict) -> None:

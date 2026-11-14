@@ -68,7 +68,7 @@ After a power cut the device resumes what it was doing.
 |------|-------|
 | Vibration sample rate | 1 kHz, 3 axes |
 | Window | 1 second, a new one every 0.25 s (1 a second while recording) |
-| Features | 278 per window: 210 from the window itself, 68 from the stream's history (`effente/features.py`, `effente/history.py`) |
+| Features | 285 per window: 211 from the window itself, 74 from the stream's history (`effente/features.py`, `effente/history.py`) |
 | Preparation | Running rows only, median and interquartile range from training rows, clipped to +-8, missing sensors as 0 plus a missing flag (`effente/model_input.py`, `Prep`) |
 
 The vibration features include 20 bands from 5 to 500 Hz, running speed and the levels at 1x, 2x, 3x, 3-10x and 0.5x of it, knockiness, jolts, bearing-rate envelope analysis and velocity in mm/s. Sound, heat and room features are listed in `device/intake/README.md`.
@@ -184,7 +184,7 @@ The device-to-platform messages are in [platform/CONTRACT.md](../platform/CONTRA
 | History state, so trend features survive a restart | `history.npz` |
 | Events: start, stop, sensor lost, device moved, gaps, cleanup | `events.jsonl` |
 
-Each hour file holds `X` (rows x 278), `t0`, `feature_names`, `feature_sensor`, `feature_text`, `feature_kind`, `label` and `features_version`. `features_version` changes whenever the feature list changes; check it before training.
+Each hour file holds `X` (rows x 285), `t0`, `feature_names`, `feature_sensor`, `feature_text`, `feature_kind`, `label` and `features_version`. `features_version` changes whenever the feature list changes; check it before training.
 
 **Model file** (`effente-model-1`, JSON, about 50 kB): format and `features_version`, library entry name and whether it was calibrated or trained on the machine alone, the preparation statistics, summary period and persistence, the threshold, the normal model's int8 weights with scales (a PCA model is stored as a linear autoencoder), the residual spreads, the fault classifier, the fault types (name, text, sensing), the feature table (name, text, unit), and a training report. The device refuses a model built on a different feature list.
 
@@ -193,19 +193,23 @@ Each hour file holds `X` (rows x 278), `t0`, `feature_names`, `feature_sensor`, 
 - `model.json`: a plain `effente-model-1` file, exactly as `effente.trainer.train_model` writes it. No added fields. A new key in the model file is a format change and needs all five people.
 - `manifest.json`: everything else about the entry.
 
+The two entries on master (`conveyor`, `generic_rotating`) use 79 of the 285 readings: the accelerometer and gyroscope ones. Sound and heat readings are left out, so faults that show only there are not caught.
+
 | Manifest field | Holds |
 |----------------|-------|
 | `entry_id` | For example `generic_rotating` |
 | `version` | For example `0.1.0` |
 | `normal_model` | `pca` |
 | `features_version` | Copied from `model.json` |
-| `sources` | List of `{name, kind, used_for}`. `kind` is `simulated`, `public` or `device`; `used_for` is `training` or `evaluation` |
+| `sources` | List of `{name, kind, used_for}`. `kind` is `simulated`, `public` or `device`; `used_for` is `training` or `evaluation`. An evaluation source also carries `evaluated` (`false` until the entry has been scored on it) and may carry a `note` |
 | `heldout_score_quantiles` | `{p50, p90, p99, max}` of the normal model's score on the last 15 % of training time |
 | `scorecard` | Per fault type: `not validated`, `simulated only`, or `validated on <data>` |
 | `status` | `demo`, `unverified` or `verified`. Nothing is `verified` without recordings from our own device |
 | `built` | `{command, seed, git_commit}` |
+| `model_sha1` | SHA-1 of `model.json`. `training/library/load.py` refuses an entry whose model file does not match |
+| `calibration` | `{min_s, hold, widen, widen_use, prep, threshold}`. `min_s` is the shortest calibration in seconds. `hold` and `widen` are recorded only: `calibrate` does not read them. `widen_use`, `prep` and `threshold` are plain text saying how each was made |
 
-Settings that calibration reads per entry, such as readings to hold at the entry's values, also go in the manifest.
+`calibrate` takes no manifest. It reads only the entry's `model.json`. In simulation the manifest's `widen` factors gave more false alarms than keeping the entry's own spreads as the floor, so they are not wired in.
 
 **Calibration interface** (`effente/calibration.py`, in review, not yet on master):
 

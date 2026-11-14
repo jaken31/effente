@@ -629,3 +629,17 @@ def test_diagnosis_tag_and_text():
     for diagnosis in ("normal", "warming_up", "stopped", "unrecognised_pattern", None, ""):
         assert L.diagnosis_tag(model, diagnosis, "m-1") == ""
         assert L.diagnosis_text(model, diagnosis, "m-1") == L.display_name(diagnosis)
+
+
+def test_a_devices_own_readings_come_by_snapshot_and_event():
+    state = L.create_state()
+    L.ensure_device(state, "effente-01")
+    kept = {"at": "2026-11-14T03:16:42Z", "readings": {"vib_mg": 4.5, "sound_db": 82.6}}
+    L.apply_laptop_snapshot(state, {"devices": {"effente-01": {"readings": kept}}})
+    assert state["devices"]["effente-01"]["readings"] == kept
+    assert L.apply_laptop_event(state, "readings", {"device_id": "effente-01", "at": "2026-11-14T03:16:43Z",
+                                                        "readings": {"vib_mg": 5.0}})
+    assert state["devices"]["effente-01"]["readings"]["readings"] == {"vib_mg": 5.0}
+    assert not L.apply_laptop_event(state, "readings", {"device_id": "effente-01", "readings": "none"})
+    L.apply_laptop_snapshot(state, {"devices": {"effente-01": {}}})
+    assert state["devices"]["effente-01"]["readings"] is None

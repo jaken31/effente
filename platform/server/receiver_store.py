@@ -183,6 +183,7 @@ class Device:
         self.problems = []  # likewise; [] while not connected
         self.sensitivity = None  # last value the device reported; kept while not connected
         self.latest = None
+        self.readings = None  # {"at", "readings"} from the newest message that carried readings
 
 
 class Store:
@@ -345,6 +346,19 @@ class Store:
                     {"device_id": device.device_id, "machine_id": device.machine_id, "at": message["at"], "problem": problem},
                 )
 
+    def _note_readings(self, device, message):
+        """Keep the device's own readings (optional, contract section 3) from a
+        record or check-in that carries them, and emit `readings`. Caller holds the lock."""
+        readings = message.get("readings")
+        if not isinstance(readings, dict):
+            return
+        device.readings = {"at": message["at"], "readings": readings}
+        if message is not device.latest:  # a check-in: a record's own spectrum and heat are in `latest`
+            for name in ("spectrum", "spectrum_edges_hz", "heat"):
+                if name in message:
+                    device.readings[name] = message[name]
+        self.emit("readings", {"device_id": device.device_id, "machine_id": device.machine_id, **device.readings})
+
     def _note_sensitivity(self, device, value, emit=True):
         """Keep the sensitivity a device reported, if it reported one, and
         emit `settings` when it changed. Caller holds the lock."""
@@ -453,6 +467,7 @@ class Store:
                     need_model = True
                 self.emit("record", record)
                 self._set_problems(device, record)
+                self._note_readings(device, record)
                 self._note_sensitivity(device, record.get("sensitivity"))
                 self._track_alarm(record)
             reply = {"ok": True, "stored": len(batch), "need_model": need_model}
@@ -471,6 +486,7 @@ class Store:
         with self.lock:
             device = self._touch(device_id, body["mode"])
             self._set_problems(device, body)
+            self._note_readings(device, body)
             self._note_sensitivity(device, body.get("sensitivity"))
             return self._reply_settings({"ok": True}, device_id)
 
@@ -665,6 +681,7 @@ class Store:
                     "sensitivity": device.sensitivity,
                     "settings": self._wanted(device.device_id),
                     "latest": device.latest,
+                    "readings": device.readings if connected else None,
                 }
             alarms = {}
             for history in self.machine_alarms.values():

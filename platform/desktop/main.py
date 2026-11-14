@@ -2,10 +2,13 @@
 
     python3 platform/desktop/main.py            # receiver + simulated device
     python3 platform/desktop/main.py --no-sim   # receiver only, for a real device
+    python3 platform/desktop/main.py --device http://10.110.213.214:8765
+                                                # a real device, read from its own port
     python3 platform/desktop/main.py --fake     # no receiver: fixed sample data (FakeState)
 
-Arguments match platform/run.py. Closing the window stops everything.
-`python3 platform/desktop/install_launcher.py` adds it to the app launcher (Linux).
+Arguments match platform/run.py. Closing the window stops everything, the model
+server included if the app started it (Agents page).
+`python3 platform/desktop/install_launcher.py` adds it to the app launcher (Linux, macOS).
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from __future__ import annotations
 import argparse
 import errno
 import logging
+import os
 import shutil
 import signal
 import sys
@@ -31,9 +35,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-sim", action="store_true", help="receiver only, for a real device")
+    parser.add_argument("--device", metavar="URL",
+                        help="read a real device from its own port, for example http://10.110.213.214:8765 "
+                             "(platform/link); no simulated device")
     parser.add_argument("--fresh", action="store_true", help="delete stored history first")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     parser.add_argument("--fake", action="store_true", help="no receiver: show fixed sample data (tests/fakes.py)")
+    parser.add_argument("--no-motion", action="store_true", help="no animations (as EFFENTE_REDUCE_MOTION=1)")
     parser.add_argument("--scheme", help="colour scheme for this run: red, amber, blue or light (default: the saved one)")
     return parser.parse_args(argv)
 
@@ -41,6 +49,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    if args.no_motion:
+        os.environ["EFFENTE_REDUCE_MOTION"] = "1"
 
     from app import settings
     from app.theme import apply_theme, schemes
@@ -72,7 +82,9 @@ def main(argv=None) -> int:
         from app.data.host import ReceiverHost
         from app.data.state import DashboardState
 
-        host = ReceiverHost(str(DATA), args.port, not args.no_sim, args.case)
+        with_sim = not args.no_sim and not args.device
+        host = ReceiverHost(str(DATA), args.port, with_sim, args.case, device_url=args.device,
+                            log=log.info if args.device else None)
         try:
             host.start()
         except OSError as e:
@@ -83,7 +95,7 @@ def main(argv=None) -> int:
             QMessageBox.critical(None, "effente did not start",
                                  text + ("\n\neffente may already be running." if busy else ""))
             return 1
-        state = DashboardState(host.url, host=host)
+        state = DashboardState(host.url, host=host, settings=settings.store())
         state.start()
         address = f"{host.host}:{host.port}"
 

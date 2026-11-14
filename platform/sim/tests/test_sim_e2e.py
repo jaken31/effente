@@ -190,6 +190,21 @@ def _pump(fd, seconds):
     return out
 
 
+def _wait_reading(proc, fd, timeout):
+    """Wait for the process to end while reading its terminal output. Returns what was read.
+
+    On macOS a process that leads its terminal session does not finish exiting until
+    its pending output has been read, so a bare proc.wait() here times out.
+    """
+    out = b""
+    end = time.time() + timeout
+    while proc.poll() is None:
+        if time.time() >= end:
+            raise subprocess.TimeoutExpired(proc.args, timeout)
+        out += _pump(fd, 0.1)
+    return out
+
+
 @needs_pty
 def test_keyboard_switches_case_and_quits_restoring_terminal():
     import termios
@@ -209,11 +224,12 @@ def test_keyboard_switches_case_and_quits_restoring_terminal():
             os.write(master, b"m")  # watching -> display: check-ins instead of records
             out += _pump(master, 0.8)
             os.write(master, b"q")
-            proc.wait(timeout=5)
+            out += _wait_reading(proc, master, 5)
             out += _pump(master, 0.2)
             assert proc.returncode == 0
-            assert termios.tcgetattr(slave)[3] & termios.ICANON  # restored
-            assert termios.tcgetattr(slave)[3] & termios.ECHO
+            # Read through the master: on macOS the slave is revoked once its session leader has gone.
+            assert termios.tcgetattr(master)[3] & termios.ICANON  # restored
+            assert termios.tcgetattr(master)[3] & termios.ECHO
         finally:
             if proc.poll() is None:
                 proc.kill()
@@ -238,10 +254,10 @@ def test_ctrl_c_restores_terminal():
         _pump(master, 0.8)
         assert not termios.tcgetattr(slave)[3] & termios.ICANON
         os.write(master, b"\x03")  # Ctrl-C through the terminal
-        proc.wait(timeout=5)
+        _wait_reading(proc, master, 5)
         assert proc.returncode == 130
         assert b"Traceback" not in proc.stderr.read()
-        assert termios.tcgetattr(slave)[3] & termios.ICANON
+        assert termios.tcgetattr(master)[3] & termios.ICANON  # the master, as above
     finally:
         if proc.poll() is None:
             proc.kill()

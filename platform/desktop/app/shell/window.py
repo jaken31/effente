@@ -379,6 +379,8 @@ class MainWindow(QMainWindow):
 
     def _record_added(self, _record: dict) -> None:
         self.refresh_chrome()
+        if not self.topbar.stale:
+            self.topbar.fresh_dot.pulse()  # one beat for each record that arrives
 
     def refresh(self) -> None:
         if self.state is None:

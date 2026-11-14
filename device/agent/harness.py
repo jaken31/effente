@@ -40,6 +40,12 @@ moved only while normal, stopped, warming up or in an unrecognised pattern justi
 citation. If the readings show an unrecognised pattern, say so plainly and recommend \
 inspection: do not guess a cause.
 
+The summary and the recommended action are checked in code, and a report that \
+breaks either rule is thrown away. Write a reading's name (such as vib_1x) only if \
+you cite it. Write a number only if it appears in what get_readings returned, \
+copied exactly: do not round it, and do not repeat numbers from the feature \
+table's sentences (describe "3-10x running speed" as "harmonics" or "rattle").
+
 Set priority by how soon the machine needs attention. Leave part_reference empty."""
 
 
