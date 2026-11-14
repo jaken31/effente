@@ -175,6 +175,7 @@ class MainWindow(QMainWindow):
 
         self.current = ""
         self._closing_after_agent = False
+        self._setup_offered: set[str] = set()  # machines the Setup page was opened for, or not needed for
         geometry = self._remembered(GEOMETRY)
         if geometry:
             self.restoreGeometry(geometry)
@@ -351,6 +352,9 @@ class MainWindow(QMainWindow):
             state.alarm_opened.connect(self._alarm_opened)
         for page in self.pages.values():
             page.bind(state)
+        setup = getattr(state, "setup", None)
+        if setup is not None and hasattr(setup, "profile_known"):
+            setup.profile_changed.connect(self.offer_setup)
         self.refresh()
         self._tick.start()
 
@@ -396,6 +400,20 @@ class MainWindow(QMainWindow):
         self.sidebar.set_machines(machines, self.state.current_machine())
         self.refresh_chrome()
         self.refresh_badges()
+        self.offer_setup()
+
+    def offer_setup(self) -> None:
+        """Open the Setup page by itself, once a run, for a machine the platform says
+        has no machine profile (contract section 10.1). Not before it has said."""
+        setup = getattr(self.state, "setup", None)
+        machine = self.state.current_machine() if self.state is not None else None
+        if not machine or machine in self._setup_offered or setup is None:
+            return
+        if not getattr(setup, "profile_known", lambda: False)():
+            return
+        self._setup_offered.add(machine)
+        if setup.profile() is None:
+            self.navigate("setup")
 
     def refresh_badges(self) -> None:
         s = self.state
