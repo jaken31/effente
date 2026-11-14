@@ -490,3 +490,21 @@ $PY -m training.record.sscc_eval.eval_shift --part paper,shift,variety --set sel
 SSCC_SPLIT=reverse SSCC_A_SUBDIR=A_rev $PY -m training.record.sscc_eval.eval_methods --configs "g1+ga|fused_pca95_t2_max"
 ```
 The venv holds numpy, scipy, scikit-learn, pandas, pyarrow and soundfile.
+
+
+## Independent check (14 Nov, after the report was written): corrections
+
+A second agent recomputed the confirmation set from the cached features with its own code (`C:\Users\finnf\effente-sscc\check\`). Read these with everything above; where they disagree, these are right.
+
+**Confirmed.** Both headline rows reproduce exactly (recommended 1/175 and 93.6 %; device 2/175 and 74.6 %). Nothing fitted saw held-out normal clips or fault clips. The device row is the real `train_model` and `Watcher` at the default sensitivity. Run as one continuous stream instead of 5-second clips, the device catches 79.0 % and the recommended model 97.0 %. Of the 19 points between them, about 4 come from the line rule (the device's own model with the recommended line: 0/175, 78.7 %) and about 15 from the features and the fusion.
+
+**Corrections, most serious first.**
+
+1. **The several-speeds weakness is partly an artefact.** Most of the light-load loss came from the per-group normaliser taking its two halves in time (`methods.Fused`): with recordings joined, the halves are different speeds. With halves taken within each condition, light load rises from 33 % to 72 % caught, with 0 false alarms. Still under the device's about 95 %, and seen on 1 load of 3 (heavy and med: 100 % for both). Every variant tried used the same normaliser, so "the loss comes from the generic features" was never isolated. Re-test before concluding the device's PCA must be kept for several speeds. (A quick check on the selection set, outside the frozen protocol.)
+2. **`board_model.py` reproduces the scores, not the line.** `Final.learn` sets its line from blocks of rows with the median of 3 restarting in each block; the benchmark uses blocks of clips. The line differs in 3 of 6 confirmation conditions. As shipped, with its one-second spike rule on: 2/175 and 92.6 %. With the benchmark's line plus that spike rule: 2/175 and 93.9 %, and catches at 1 % false alarms fall from 97.9 to 92.8 %. That, not 1/175 and 94 %, is what section B1's detector gives.
+3. **The selection set has 3,196 fault clips, not 2,196.**
+4. **"Another speed made 67-87 % of normal clips alarm" is pooled over speeds 20 and 40, where every clip alarms.** For neighbouring speeds it runs from 0 % to 100 % by pair (the device learned at med 60: 0 of 24 clips alarm at 80). The advice to learn at the conditions of use stands; the number overstates it.
+5. **The 8-9 s learning time is for the new model alone, and rough.** The board-to-PC ratio of 16 comes from the device's whole training step, about 85 % of which is the fault-type classifier; it was timed on random data. With the classifier kept, expect about 25 s plus the new model.
+6. Small: the device headline leaves out its safety checks (75.7 % with them); the sensitivity table moves the spike margin with the median's, which the device's `model_sensitivity` does not; the "frozen before the confirmation run" note in RESUME.md was written after that run (file times say the choice was made 70 seconds before it; there is no record written in advance); `eval_methods`' docstring says two halves where the code uses 5 blocks.
+
+**Not checked by either agent:** the feature extraction from the raw files (15 windows compared with the cache, no more), the other ~70 configurations, the reverse split, the x10 unit what-if, the paper-protocol figures, CED-tiny, the yell test, the ablations, the how-early table. Nothing was run on the board.
