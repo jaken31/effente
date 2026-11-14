@@ -1,0 +1,17 @@
+# Xcode per-user and build files
+.DS_Store
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+**/*.xcodeproj/project.xcworkspace/*
+!**/*.xcodeproj/project.xcworkspace/xcshareddata
+**/*.xcodeproj/project.xcworkspace/xcshareddata/*
+!**/*.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+# Swift package build output
+.build/
+.swiftpm/
+
+# Scans are large. Share them another way (see README).
+*.usdz
