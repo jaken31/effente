@@ -39,7 +39,8 @@ def test_a_visit_makes_a_reading_on_the_part(rig):
     send_visit(rig, 12, v=2.5)
     reply = get_readings(rig, rig.roller)
     [r] = reply["readings"]
-    assert (reply["part_id"], reply["machine_id"], reply["projection"]) == (rig.roller, M, None)
+    assert (reply["part_id"], reply["machine_id"]) == (rig.roller, M)
+    assert reply["projection"]["status"] == "not_enough_history"
     assert (r["start"], r["end"], r["records"], r["velocity_mm_s"], r["unknown_score"]) == (
         iso(T0), iso(T0 + 11), 12, 2.5, 0.5)
     assert (r["open"], r["simulated"], r["abnormal"]) == (True, True, False)  # make_record is simulated
@@ -154,3 +155,44 @@ def test_the_reading_event_is_rarer_than_records_and_announces_the_close(rig, op
     rig.tick()
     with pytest.raises(AssertionError):
         stream.next("reading", timeout=0.5)  # closed once, announced once
+
+
+# ---- the projection (contract 9.5) ------------------------------------------
+
+DAY = 86400
+
+
+def visit_a_day(rig, scores, line=1.0):
+    """One 12 record visit a day, one day apart, each at its score."""
+    for score in scores:
+        rig.pick(rig.roller)
+        send_visit(rig, 12, unknown_score=score, alarm_line=line)
+        rig.clock.t += DAY - 12
+
+
+def test_the_reply_carries_the_projection_of_the_parts_readings(rig):
+    visit_a_day(rig, [0.5, 0.6, 0.8])
+    projection = get_readings(rig, rig.roller)["projection"]
+    assert projection["status"] == "rising"
+    assert projection["window"]["readings"] == 3 and projection["window"]["days"] == 3
+    assert projection["line"] == {"name": "alarm_line", "unknown_score": 1.0}
+    assert projection["show_days"] is False and projection["reaches"] is None
+    assert projection["simulated"] is True  # make_record is simulated
+
+
+def test_the_projection_ignores_since_and_limit(rig):
+    visit_a_day(rig, [0.5, 0.6, 0.8])
+    whole = get_readings(rig, rig.roller)["projection"]
+    assert get_readings(rig, rig.roller, "?limit=1")["projection"] == whole
+    assert get_readings(rig, rig.roller, f"?since={iso(rig.clock.t - DAY)}")["projection"] == whole
+
+
+def test_a_repair_starts_the_projection_again(rig):
+    visit_a_day(rig, [0.5, 0.6, 0.8])
+    ok(rig.client, "POST", f"/api/machines/{M}/log",
+       {"kind": "repair", "text": "balanced", "by": "Sam", "part_id": rig.roller, "at": iso(rig.clock.t)})
+    rig.clock.t += 60
+    visit_a_day(rig, [0.4])
+    projection = get_readings(rig, rig.roller)["projection"]
+    assert projection["status"] == "not_enough_history"
+    assert projection["window"]["readings"] == 1
