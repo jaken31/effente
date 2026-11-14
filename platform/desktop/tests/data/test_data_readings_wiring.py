@@ -51,8 +51,8 @@ def test_the_live_setup_has_stubs_and_gets_every_snapshot_and_event(make_host, m
     setup.start_run({"What kind of machine is it?": "a belt conveyor"})
     setup.set_draft(drive="belt")
     setup.confirm()
-    setup.set_local_profile("Sam", "technician")
-    assert failed == ["Setup is not built yet."] * 4
+    assert failed == ["Setup is not built yet."] * 3
+    assert not setup.profile_known()  # the receiver sends no `profiles` until U1 is built
 
 
 def test_the_answerer_is_the_local_profiles_name_first(make_host, make_state, monkeypatch):

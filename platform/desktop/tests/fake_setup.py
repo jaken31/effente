@@ -119,6 +119,9 @@ class FakeSetup(Setup):
     def device_entry(self):
         return self._device_entry if self._here() else None
 
+    def profile_known(self) -> bool:
+        return True  # the fake always knows which machines have a profile
+
     def local_profile(self):
         return dict(self._local) if self._local else None
 

@@ -21,6 +21,11 @@ from PySide6.QtCore import QObject, Signal
 NOT_BUILT = "Setup is not built yet."
 FIELDS = ("machine_type", "drive", "speed_rpm", "mounting", "sensor_location")  # contract section 10.1
 
+# The local profile's keys in the store from app/settings.py (contract section 10.5).
+NAME_KEY, ROLE_KEY = "local_profile/name", "local_profile/role"
+NAME_MAX, ROLE_MAX = 60, 40
+NO_NAME = "Local profile not saved: a name is needed."
+
 
 class Setup(QObject):
     profile_changed = Signal()  # the current machine's stored profile, the draft or the choice moved
@@ -31,11 +36,14 @@ class Setup(QObject):
     def __init__(self, state):
         super().__init__(state)
         self.state = state
+        self._profiles_seen = False  # a snapshot has carried `profiles` (contract 10.1)
+        self._unsaved_local = None  # the local profile when the state has no store: this run only
 
     # ---- fed by the state -------------------------------------------------
 
     def apply_snapshot(self, snap: dict) -> None:
         """GET /api/state, after every (re)connect."""
+        self._profiles_seen = self._profiles_seen or "profiles" in snap
 
     def apply_event(self, name: str, data: dict) -> None:
         """One stream event, of any name."""
@@ -70,9 +78,19 @@ class Setup(QObject):
         """The entry the shown device reports, or None."""
         return
 
+    def profile_known(self) -> bool:
+        """True once the platform has said which machines have a profile: a snapshot
+        carried `profiles`. Until then `profile()` being None says nothing, so the
+        window does not open the Setup page for it."""
+        return self._profiles_seen
+
     def local_profile(self):
-        """{"name", "role"}, or None if none is set."""
-        return
+        """{"name", "role"}, or None if none is set. `role` may be ""."""
+        store = self._store()
+        if store is None:
+            return dict(self._unsaved_local) if self._unsaved_local else None
+        name = _text(store.value(NAME_KEY, ""), NAME_MAX)
+        return {"name": name, "role": _text(store.value(ROLE_KEY, ""), ROLE_MAX)} if name else None
 
     # ---- actions ----------------------------------------------------------
 
@@ -91,4 +109,24 @@ class Setup(QObject):
 
     def set_local_profile(self, name, role) -> None:
         """Keep the local profile in the store from app/settings.py. No password."""
-        self.state.action_failed.emit(NOT_BUILT)
+        name, role = _text(name, NAME_MAX), _text(role, ROLE_MAX)
+        if not name:
+            self.state.action_failed.emit(NO_NAME)
+            return
+        store = self._store()
+        if store is None:
+            self._unsaved_local = {"name": name, "role": role}
+        else:
+            store.setValue(NAME_KEY, name)
+            store.setValue(ROLE_KEY, role)
+        self.local_profile_changed.emit()
+
+    def _store(self):
+        """The QSettings the state keeps the model folder in, or None (tests): the
+        local profile sits beside it, so both last as long as each other."""
+        return getattr(getattr(self.state, "model_settings", None), "_store", None)
+
+
+def _text(value, limit: int) -> str:
+    """One line of plain text, trimmed and cut to `limit` characters."""
+    return " ".join(str(value or "").split())[:limit]
