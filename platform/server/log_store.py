@@ -10,13 +10,17 @@ worked out at start and again whenever an entry is added, an alarm changes or
 a record arrives (platform/partlog/part_state.py), and a `part` event goes out
 only when it comes out different: a record a second is not an event a second.
 
-`state_part()` and the three hooks are called with `store.lock` already held:
+`state_part()` and the hooks are called with `store.lock` already held:
 they may read the Store's fields but must not take the lock or call its public
 methods. Everything else here takes the lock.
 
 A hook that fails is logged and skipped, so it can never stop a record or an
-answer from being stored. The one exception: `alarm_answered` raises BadRequest
-to refuse an answer that names a part it cannot be about.
+answer from being stored. The exceptions: `alarm_answered` raises BadRequest
+to refuse an answer that names a part it cannot be about, and `stamp_record`
+may raise it to refuse a batch of records.
+
+Part readings (contract section 9) are not built yet: `stamp_record` and `tick`
+are stubs, and the three routes of section 9 in log_api.py answer "not built yet".
 """
 
 import bisect
@@ -349,6 +353,17 @@ class LogStore:
         return ("﻿" + text.getvalue()).encode("utf-8")
 
     # ---- hooks, called by the Store with its lock held ---------------------
+
+    def stamp_record(self, record):
+        """A record is about to be stored (message 2): checked, but with no `seq`
+        or `received_at` yet, and `simulated` may be missing. Called for each
+        record of a batch before any of them is stored. May add `part_id` to it
+        (contract 9.1). Raise BadRequest to refuse the whole batch: nothing of it
+        is stored (9.1 Already stamped, 9.6). A stub: does nothing."""
+
+    def tick(self):
+        """Called about four times a second, with records arriving or not, so a
+        pick can clear itself (9.1) and a reading can close (9.3). A stub: does nothing."""
 
     def record_stored(self, record):
         """A record was stored (message 2). Not called for records read at start.

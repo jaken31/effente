@@ -1,6 +1,7 @@
 """HTTP side of the effente receiver: API routes, the event stream and the
-dashboard's static files. Routes follow platform/CONTRACT.md sections 1 to 8.
-The routes of section 8 are in scan_api.py and log_api.py.
+dashboard's static files. Routes follow platform/CONTRACT.md sections 1 to 10.
+The routes of section 8 are in scan_api.py and log_api.py, those of section 9
+in log_api.py and those of section 10 in setup_api.py.
 """
 
 import http.server
@@ -16,6 +17,7 @@ import urllib.parse
 
 import log_api
 import scan_api
+import setup_api
 from receiver_store import DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT, QUIET_AFTER_S, BadRequest, Store, parse_time
 
 KEEPALIVE_S = 5.0
@@ -171,7 +173,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError as e:
             raise BadRequest(f"body is not valid JSON: {e}")
 
-    # What scan_api.py and log_api.py use: the same plumbing under public names,
+    # What scan_api.py, log_api.py and setup_api.py use: the same plumbing under public names,
     # and two calls for bodies and replies too big to hold in memory.
     def read_json(self):
         return self._body()
@@ -286,6 +288,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (("parts", None), {"PUT": self._api(log_api.put_part)}),
             (("machines", None, "log"), {"POST": self._api(log_api.post_entry), "GET": self._api(log_api.get_machine_log)}),
             (("machines", None, "log.csv"), {"GET": self._api(log_api.get_machine_log_csv)}),
+            # Section 9, in log_api.py.
+            (("machines", None, "probe"), {"PUT": self._api(log_api.put_probe)}),
+            (("parts", None, "readings"), {"GET": self._api(log_api.get_part_readings)}),
+            (("machines", None, "normal-spectrum"), {"GET": self._api(log_api.get_normal_spectrum)}),
+            # Section 10, in setup_api.py.
+            (("machines", None, "profile"), {"PUT": self._api(setup_api.put_profile), "GET": self._api(setup_api.get_profile)}),
+            (("library", "lookup"), {"POST": self._api(setup_api.post_lookup)}),
         ]
         for pattern, methods in routes:
             if len(pattern) != len(parts):
@@ -304,7 +313,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return None, 404
 
     def _api(self, function):
-        """A route handler that calls `function(request, query, *ids)` in scan_api.py or log_api.py."""
+        """A route handler that calls `function(request, query, *ids)` in scan_api.py, log_api.py or setup_api.py."""
         return lambda query, *ids: function(self, query, *ids)
 
     def do_GET(self):

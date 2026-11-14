@@ -16,6 +16,8 @@ PATHS = {
     "device": '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>',
     "machine": '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
     "log": '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h1M4 12h1M4 18h1"/>',
+    "setup": '<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4"/>'
+             '<circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="14" cy="18" r="2"/>',
 }
 
 _cache: dict[tuple[str, str], QSvgRenderer] = {}

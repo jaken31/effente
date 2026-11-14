@@ -25,6 +25,7 @@ from .api import ApiClient, ApiError, StreamReader
 from .model_settings import ModelSettings
 from .partlog import PartLog
 from .scans import Scans
+from .setup import Setup
 
 READINGS_KEPT = 300  # readings kept per device for the Live page's sparklines: 5 minutes at one a second
 
@@ -97,9 +98,10 @@ class StateReads(QObject):
         self.model_settings = ModelSettings()  # remembers nothing unless given a store
         self._model_status = model_server.Status(model_server.STOPPED, "Not running.")
         self.alarms_changed.connect(self._note_alarms)  # first, so alarm_opened precedes page refreshes
-        # INTERFACES.md additions 18 and 19. Each gets every snapshot and stream event.
+        # INTERFACES.md additions 18, 19 and 24. Each gets every snapshot and stream event.
         self.scans = self._make_scans()
         self.log = self._make_log()
+        self.setup = self._make_setup()
 
     def _make_scans(self) -> Scans:
         return Scans(self)
@@ -107,17 +109,22 @@ class StateReads(QObject):
     def _make_log(self) -> PartLog:
         return PartLog(self)
 
+    def _make_setup(self) -> Setup:
+        return Setup(self)
+
     def _feed_snapshot(self, snap) -> None:
-        """Pass GET /api/state on to state.scans and state.log."""
+        """Pass GET /api/state on to state.scans, state.log and state.setup."""
         if isinstance(snap, dict):
             self.scans.apply_snapshot(snap)
             self.log.apply_snapshot(snap)
+            self.setup.apply_snapshot(snap)
 
     def _feed_event(self, name: str, data) -> None:
-        """Pass one stream event on to state.scans and state.log."""
+        """Pass one stream event on to state.scans, state.log and state.setup."""
         if isinstance(data, dict):
             self.scans.apply_event(name, data)
             self.log.apply_event(name, data)
+            self.setup.apply_event(name, data)
 
     def _note_alarms(self) -> None:
         """Emit alarm_opened for each open alarm not seen before. The first call only looks."""
@@ -286,8 +293,10 @@ class StateReads(QObject):
         return [a for a in self.alarms() if logic.is_unanswered(a)]
 
     def answerer(self) -> str:
-        """The name sent as an answer's `by`: EFFENTE_ANSWERER, else the laptop's login name."""
-        name = os.environ.get("EFFENTE_ANSWERER", "").strip()
+        """The name sent as `by`: the local profile's name (contract 10.5), else
+        EFFENTE_ANSWERER, else the laptop's login name."""
+        name = str((self.setup.local_profile() or {}).get("name") or "").strip()
+        name = name or os.environ.get("EFFENTE_ANSWERER", "").strip()
         if name:
             return name
         try:

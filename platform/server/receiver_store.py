@@ -215,25 +215,30 @@ class Store:
         self.last_minutes = {}  # machine_id -> abnormal_minutes of the open alarm's newest record
         self.next_seq = 1
         self._load()
-        # Section 8. Made after the load, so each can read what is already stored.
-        # Imported here because both modules import BadRequest from this one.
+        # Sections 8 to 10. Made after the load, so each can read what is already stored.
+        # Imported here because the modules import BadRequest from this one.
         from log_store import LogStore
         from scan_store import ScanStore
+        from setup_store import SetupStore
 
         self.scans = ScanStore(self)
         self.partlog = LogStore(self)
+        self.setup = SetupStore(self)
 
     def close(self):
         """The receiver is stopping."""
         self.scans.close()
         self.partlog.close()
+        self.setup.close()
 
     def _hook(self, hook, *args):
-        """Tell the log store something happened. Caller holds the lock. A hook
-        that fails is logged and skipped: it must never stop what the device or
-        a person sent from being stored. BadRequest passes, for `alarm_answered`."""
+        """Tell the log store or the setup store something happened, or ask it
+        something: returns its answer. Caller holds the lock. A hook that fails
+        is logged and skipped, and answers None: it must never stop what the
+        device or a person sent from being stored. BadRequest passes, for
+        `alarm_answered`, `stamp_record` and `check_settings`."""
         try:
-            hook(*args)
+            return hook(*args)
         except BadRequest:
             raise
         except Exception:
@@ -402,15 +407,22 @@ class Store:
 
     def _settings_event(self, device_id):
         device = self.devices.get(device_id)
-        return {
+        event = {
             "device_id": device_id,
             "sensitivity": device.sensitivity if device else None,
             "settings": self._wanted(device_id),
         }
+        if device:
+            event.update(self._hook(self.setup.device_part, device) or {})  # section 10.4
+        return event
 
     def _wanted(self, device_id):
-        wanted = self.settings.get(device_id)
-        return dict(wanted) if wanted else None
+        """What is wanted of a device: what the dashboard set for it (section 7), and
+        what the setup store wants of any device on its machine (section 10.4). None when neither."""
+        wanted = dict(self.settings.get(device_id) or {})
+        device = self.devices.get(device_id)
+        wanted.update(self._hook(self.setup.wanted_settings, device.machine_id if device else None) or {})
+        return wanted or None
 
     def _reply_settings(self, reply, device_id):
         """Add the dashboard's settings to a reply to message 2 or 3, once set."""
@@ -442,6 +454,7 @@ class Store:
                         self.emit("problem_cleared", self._cleared_event(device, at, problem["name"], QUIET_REASON))
                     device.problems = []
                     device.wrong = False
+            self._hook(self.partlog.tick)  # sections 9.1 and 9.3: a pick clears itself, a reading closes
 
     # ---- message 1: model -------------------------------------------------
 
@@ -481,6 +494,8 @@ class Store:
             _require_strings(record, REQUIRED_RECORD_FIELDS, what)
             _require_problems(record, what)
         with self.lock:
+            for record in batch:  # section 9.1: the log store may add `part_id`, or refuse the batch
+                self._hook(self.partlog.stamp_record, record)
             received_at = utc_now()
             for record in batch:
                 record.setdefault("simulated", False)
@@ -665,6 +680,7 @@ class Store:
         if value is not None and _sensitivity(value) is None:
             raise BadRequest("'sensitivity' must be a number from 0 to 1, or null to clear")
         with self.lock:
+            self._hook(self.setup.check_settings, device_id, body)  # section 10.4: it may refuse a key
             self.settings_file.append([{"device_id": device_id, "sensitivity": value, "at": utc_now()}])
             self._device(device_id)
             if value is None:
@@ -714,6 +730,7 @@ class Store:
                     "latest": device.latest,
                     "readings": device.readings if connected else None,
                 }
+                devices[device.device_id].update(self._hook(self.setup.device_part, device) or {})  # section 10.4
             alarms = {}
             for history in self.machine_alarms.values():
                 newest = self._newest_first(history)
@@ -727,8 +744,8 @@ class Store:
                 "machines": sorted(self.by_machine),
                 "alarms": alarms,
             }
-            # Section 8: each store adds its own keys, and the machines it knows of.
-            for part in (self.scans, self.partlog):
+            # Sections 8 to 10: each store adds its own keys, and the machines it knows of.
+            for part in (self.scans, self.partlog, self.setup):
                 try:
                     extra = dict(part.state_part())
                 except Exception:
