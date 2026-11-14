@@ -29,6 +29,7 @@ import json
 import math
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +50,7 @@ from device.intake.recorder import Recorder
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
                 "watching": "DETECTING"}  # what the screen calls each mode, and status's "state"
+LIVE_EVERY_S, LIVE_WINDOW_S = 0.1, 1.0  # start_live_screen: how often, and from how much vibration
 SCREEN_EVERY_S = 0.2  # the layout goes to the screen with every row (4 a second): its arrival is the beat on which
 #                       all six tiles change (it was once a second, and the velocity and speed lagged the rest)
 HISTORY_SAVE_EVERY_S = 300.0
@@ -186,6 +188,10 @@ class DeviceApp:
         self._load_settings()
         self._last_history_save = None
         self._screen_text, self._screen_event = None, threading.Event()
+        # The screen's velocity and speed, worked out LIVE_EVERY_S apart from the newest second of vibration
+        # (start_live_screen): (speed in Hz, velocity in mm/s, when); None until then, and screen_lines falls back
+        # to the last row's.
+        self._live_on, self._live, self._live_lock, self._live_acc = False, None, threading.Lock(), deque()
         self._stop = threading.Event()
         self._resumed_training = False  # training picked up after a power cut: if it fails, don't record
         self._resume()
@@ -404,6 +410,11 @@ class DeviceApp:
 
     # ------------------------------------------------------------ the pipeline
     def _tap(self, p):
+        if p.sensor == "accel" and self._live_on:  # the newest second of vibration, for the screen's quick numbers
+            with self._live_lock:
+                self._live_acc.append((p.t, p.values))
+                while len(self._live_acc) > 1 and self._live_acc[-1][0][-1] - self._live_acc[0][0][-1] > LIVE_WINDOW_S + 0.1:
+                    self._live_acc.popleft()
         rec = self.recorder
         if rec is not None and self.mode == "recording":
             rec.on_packet(p)
@@ -453,8 +464,8 @@ class DeviceApp:
         if self.uploader is not None:  # only queues: the sending is on the uploader's own thread
             self.uploader.on_row(t0, x, mode, result, problems, self.sensitivity,
                                  watcher.margin if watcher is not None else None)
-        if self.screen is not None and (getattr(self, "_screen_t", None) is None
-                                        or t0 - self._screen_t >= SCREEN_EVERY_S):
+        if self.screen is not None and not self._live_on and (getattr(self, "_screen_t", None) is None
+                                                             or t0 - self._screen_t >= SCREEN_EVERY_S):
             self._screen_t = t0
             text = "\n".join(self.screen_lines())
             # With every row (4 a second), changed or not: the layout's arrival is the beat on which the
@@ -960,6 +971,47 @@ class DeviceApp:
     def stop(self):
         self._stop.set()
 
+    def start_live_screen(self) -> None:
+        """Make the screen's velocity (MM/S) and speed (HZ) as quick as its other numbers: a thread works them
+        out LIVE_EVERY_S apart from the newest second of vibration, with the very function the rows use
+        (effente.features._vibration, so the numbers are the rows' own, only fresher), and sends the layout each
+        time. The layout's arrival is the beat on which the microcontroller replaces all six tiles together.
+        Only the screen: the rows, the model and the checks are untouched. For the device itself (main.py);
+        tests and replays leave it off and get the layout with each row."""
+        if self._live_on or self.screen is None:
+            return
+        self._live_on = True
+        threading.Thread(target=self._live_worker, name="live-screen", daemon=True).start()
+
+    def _live_worker(self):
+        i0 = F.SLICES["vibration"].start
+        i_speed, i_vel = F.INDEX["vib_speed_hz"] - i0, F.INDEX["vib_velocity_mm_s"] - i0
+        nxt = time.monotonic()
+        while not self._stop.is_set():
+            nxt += LIVE_EVERY_S
+            wait = nxt - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            else:
+                nxt = time.monotonic()  # behind: don't try to catch up
+            try:
+                with self._live_lock:
+                    parts = list(self._live_acc)
+                if parts:
+                    t = np.concatenate([p[0] for p in parts])
+                    a = np.concatenate([p[1] for p in parts])
+                    keep = t >= t[-1] - LIVE_WINDOW_S
+                    t, a = t[keep], a[keep]
+                    if len(t) >= 256 and t[-1] - t[0] >= 0.8 * LIVE_WINDOW_S:
+                        rate = (len(t) - 1) / (t[-1] - t[0])
+                        v = F._vibration(np.asarray(a, float), rate, self.source.info.accel_range_g)
+                        self._live = (float(v[i_speed]), float(v[i_vel]), time.monotonic())
+                text = "\n".join(self.screen_lines())
+                self._screen_text, self._screen_sent = text, self.clock()
+                self._screen_event.set()
+            except Exception:  # noqa: BLE001  the screen's quick numbers must never stop anything
+                pass
+
     # ------------------------------------------------------------ what is shown
     def screen_lines(self) -> list[str]:
         """The screen's layout, design B (tiles): five lines the microcontroller draws as a header and six
@@ -976,7 +1028,9 @@ class DeviceApp:
         Vibration, peak and temperature (shown in F) come from the samples on the microcontroller, so they
         move at the screen's own rate; this changes only when the mode, the minute or what is wrong does."""
         r = readings(self.latest)
-        speed = f"{r['speed_hz']:.0f}" if r["speed_hz"] else "0"
+        live = self._live if self._live is not None and time.monotonic() - self._live[2] < 0.5 else None
+        hz = live[0] if live is not None else r["speed_hz"]
+        speed = f"{hz:.0f}" if hz else "0"
         with self.lock:
             mode, problems = self.mode, list(self.problems)
             early_obj = getattr(self, "early", None)
@@ -1004,7 +1058,7 @@ class DeviceApp:
                 tile = "vib"
         now = time.localtime(self.clock())  # 12-hour, with AM or PM, and 12 for midnight and noon (the user, 14 Nov)
         clock = f"{now.tm_hour % 12 or 12}:{now.tm_min:02d}{'AM' if now.tm_hour < 12 else 'PM'}"
-        v = _g(self.latest, "vib_velocity_mm_s") if self.latest is not None else None
+        v = live[1] if live is not None else (_g(self.latest, "vib_velocity_mm_s") if self.latest is not None else None)
         velocity = "0" if v is None or not math.isfinite(v) else (f"{v:.1f}" if v < 9.95 else f"{min(v, 999):.0f}")
         return [f"@{left}"[:24], clock, tile, speed, velocity]
 

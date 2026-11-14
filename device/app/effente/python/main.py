@@ -88,6 +88,7 @@ app = DeviceApp(DATA, source, screen=screen, stream=stream, device_id=DEVICE, ma
 if uploader is not None:
     uploader.start()
 app.esp_address = lambda: esp["ip"]  # for the list of what can be read (GET /, GET /latest)
+app.start_live_screen()  # the screen's MM/S and HZ 10 times a second, and with them the beat all six tiles change on
 Bridge.provide("button", app.on_button)
 threading.Thread(target=app.run, name="pipeline", daemon=True).start()
 print(f"effente started in {app.mode} mode; sensors {', '.join(source.sensors)}; live stream on port 8765; data in {DATA}; platform "

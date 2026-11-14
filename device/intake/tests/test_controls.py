@@ -10,6 +10,8 @@ import urllib.request
 
 import numpy as np
 
+from effente import features as F
+
 from device.intake.device_app import COMMANDS, SETTINGS, DeviceApp
 from device.intake.source import UnoQSource
 from device.intake.stream import Stream
@@ -142,6 +144,34 @@ def test_the_json_says_what_value_each_check_fires_at():
             assert f["always"]["vibration_over_limit"]["fires_at"] == 11.0  # no dial moves the fixed limits
         finally:
             stream.stop()
+
+
+def test_the_live_screen_numbers_come_from_the_newest_second_and_match_the_rows():
+    """start_live_screen: MM/S and HZ are worked out 10 times a second from the newest second of vibration, with
+    the rows' own function, and a layout goes to the screen each time."""
+    import time as _time
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        clock = Clock()
+        src = UnoQSource(clock=clock)
+        shown = []
+        app = DeviceApp(d, src, screen=shown.append, clock=clock)
+        app.start_live_screen()
+        try:
+            for first in range(0, 2000, 25):  # 2 s of a 25 Hz shake, fed as the board sends it
+                imu_batch(src, clock, first)
+                app._tap(src.q.get_nowait())
+            _time.sleep(0.5)
+            assert app._live is not None and len(shown) >= 2  # several layouts in half a second, not one a second
+            speed, vel, _ = app._live
+            assert abs(speed - 25.0) < 1.5 and vel > 0
+            lines = app.screen_lines()
+            assert lines[3] == f"{speed:.0f}" and lines[4] == (f"{vel:.1f}" if vel < 9.95 else f"{vel:.0f}")
+            a = np.concatenate([p[1] for p in app._live_acc])[-1000:]  # the same second through the rows' function
+            row = F._vibration(np.asarray(a, float), 1000.0, src.info.accel_range_g)
+            i0 = F.SLICES["vibration"].start
+            assert abs(row[F.INDEX["vib_velocity_mm_s"] - i0] - vel) / vel < 0.05
+        finally:
+            app.stop()
 
 
 if __name__ == "__main__":
