@@ -1,0 +1,4662 @@
+{
+ "check": "faults",
+ "status": "ok",
+ "reason": "",
+ "command": "python3 -m training.validation.check_faults --seeds 1,2,3,4,5",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows; effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows",
+ "label": "simulated, unverified",
+ "notes": [],
+ "standin": null,
+ "library_code": "training/library/entries (track 3) calibrated by effente.calibration.calibrate (track 3)",
+ "features_version": "89613129193f",
+ "created": "2026-11-14T05:26:17+00:00",
+ "rows": [
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 1: share with an alarm after the onset",
+   "value": 0.4545,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 1: share whose twin without the fault alarms in the same window",
+   "value": 0.0,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 1: share with an alarm after the onset, faults whose twin does not alarm",
+   "value": 0.4545,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 1: median seconds from onset to first alarm, faults whose twin does not alarm",
+   "value": 11.0,
+   "n": "25 alarmed of 55",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 1: share of alarmed faults given a fault type name (not unrecognised_pattern)",
+   "value": 1.0,
+   "n": "25 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 1: share of alarmed faults whose screen symptom is one expected for the fault",
+   "value": 0.88,
+   "n": "25 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 0.3: share with an alarm after the onset",
+   "value": 0.3636,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 0.3: share whose twin without the fault alarms in the same window",
+   "value": 0.0,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 0.3: share with an alarm after the onset, faults whose twin does not alarm",
+   "value": 0.3636,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 0.3: median seconds from onset to first alarm, faults whose twin does not alarm",
+   "value": 29.0,
+   "n": "20 alarmed of 55",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 0.3: share of alarmed faults given a fault type name (not unrecognised_pattern)",
+   "value": 1.0,
+   "n": "20 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "simulated faults, severity 0.3: share of alarmed faults whose screen symptom is one expected for the fault",
+   "value": 0.8,
+   "n": "20 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "injected fault types, 8 spreads: share with an alarm after the onset",
+   "value": 0.7273,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "injected fault types, 8 spreads: share whose twin without the fault alarms in the same window",
+   "value": 0.0,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "injected fault types, 8 spreads: share with an alarm after the onset, faults whose twin does not alarm",
+   "value": 0.7273,
+   "n": "55 faults",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "injected fault types, 8 spreads: median seconds from onset to first alarm, faults whose twin does not alarm",
+   "value": 2.0,
+   "n": "40 alarmed of 55",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "injected fault types, 8 spreads: share of alarmed faults given a fault type name (not unrecognised_pattern)",
+   "value": 1.0,
+   "n": "40 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "conveyor",
+   "metric": "injected fault types, 8 spreads: share of alarmed faults named as the injected type",
+   "value": 1.0,
+   "n": "40 alarmed",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "simulated faults, severity 1: share with an alarm after the onset",
+   "value": 0.25,
+   "n": "20 faults",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "simulated faults, severity 1: share whose twin without the fault alarms in the same window",
+   "value": 0.0,
+   "n": "20 faults",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "simulated faults, severity 1: share with an alarm after the onset, faults whose twin does not alarm",
+   "value": 0.25,
+   "n": "20 faults",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "simulated faults, severity 1: median seconds from onset to first alarm, faults whose twin does not alarm",
+   "value": 2.0,
+   "n": "5 alarmed of 20",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "simulated faults, severity 1: share of alarmed faults given a fault type name (not unrecognised_pattern)",
+   "value": 1.0,
+   "n": "5 alarmed",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "injected fault types, 8 spreads: share with an alarm after the onset",
+   "value": 0.3,
+   "n": "50 faults",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "injected fault types, 8 spreads: share whose twin without the fault alarms in the same window",
+   "value": 0.0,
+   "n": "50 faults",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "injected fault types, 8 spreads: share with an alarm after the onset, faults whose twin does not alarm",
+   "value": 0.3,
+   "n": "50 faults",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "injected fault types, 8 spreads: median seconds from onset to first alarm, faults whose twin does not alarm",
+   "value": 2.0,
+   "n": "15 alarmed of 50",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "injected fault types, 8 spreads: share of alarmed faults given a fault type name (not unrecognised_pattern)",
+   "value": 1.0,
+   "n": "15 alarmed",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "injected fault types, 8 spreads: share of alarmed faults named as the injected type",
+   "value": 1.0,
+   "n": "15 alarmed",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter); injected: effente.fault_types signatures on those rows"
+  }
+ ],
+ "detail": [
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 14.0,
+   "named": "unbalance_like",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 42.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 11.0,
+   "named": "misalignment_like",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 30.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 12.0,
+   "named": "speed_change",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 33.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 285.0,
+   "named": "electrical_motor",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "unbalance_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 4.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "speed_change",
+   "symptom": "speed_changed"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "moved": [
+    "imu_temp_c"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 111.0,
+   "named": "overheating",
+   "symptom": "too_hot"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "device_moved",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 14.0,
+   "named": "unbalance_like",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 43.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 10.0,
+   "named": "misalignment_like",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 29.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 11.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 29.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 51.0,
+   "named": "electrical_motor",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "unbalance_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "speed_change",
+   "symptom": "speed_changed"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "moved": [
+    "imu_temp_c"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 12.0,
+   "named": "overheating",
+   "symptom": "too_hot"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "device_moved",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 14.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 42.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 10.0,
+   "named": "misalignment_like",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 28.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 10.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 26.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 55.0,
+   "named": "electrical_motor",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 6.0,
+   "named": "unbalance_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 7.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "speed_change",
+   "symptom": "speed_changed"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "moved": [
+    "imu_temp_c"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 255.0,
+   "named": "overheating",
+   "symptom": "too_hot"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 113.0,
+   "named": "device_moved",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 12.0,
+   "named": "unbalance_like",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 36.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 8.0,
+   "named": "misalignment_like",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 25.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 8.0,
+   "named": "unbalance_like",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 25.0,
+   "named": "speed_change",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal",
+   "symptom_expected": false
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 59.0,
+   "named": "electrical_motor",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "unbalance_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 63.0,
+   "named": "bearing_defect_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "speed_change",
+   "symptom": "speed_changed"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 4.0,
+   "named": "electrical_motor",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "moved": [
+    "imu_temp_c"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "overheating",
+   "symptom": "too_hot"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "device_moved",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "idler_seized",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_rub",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "belt_slip",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 15.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "unbalance",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 42.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 10.0,
+   "named": "misalignment_like",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "looseness",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 30.0,
+   "named": "looseness_or_rattle",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 15.0,
+   "named": "unbalance_like",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "misalignment",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 39.0,
+   "named": "misalignment_like",
+   "symptom": "vibration_too_high",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "splice_damage",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "jam",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "overload",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "cooling_blocked",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 55.0,
+   "named": "electrical_motor",
+   "symptom": "unusual_vibration",
+   "symptom_expected": true
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "electrical",
+   "severity": 0.3,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 10.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "speed_change",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "moved": [
+    "imu_temp_c"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 585.0,
+   "named": "overheating",
+   "symptom": "too_hot"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 5.0,
+   "named": "device_moved",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "conveyor",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "ups_alarm",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "rack_bump",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "hdd_clicking",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "fan5_failure",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 400.0,
+   "named": "impacts",
+   "symptom": "heating_fast"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 1,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "ups_alarm",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "rack_bump",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "heating_fast"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "hdd_clicking",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "fan5_failure",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "heating_fast"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "heating_fast"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 2,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "ups_alarm",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "rack_bump",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "hdd_clicking",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "fan5_failure",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 14.0,
+   "named": "unbalance_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 3,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "ups_alarm",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "rack_bump",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "hdd_clicking",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "fan5_failure",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 9.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 4,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "twin",
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "ups_alarm",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "rack_bump",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "outside_normal"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "hdd_clicking",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "simulated",
+   "fault": "fan5_failure",
+   "severity": 1.0,
+   "twin_alarmed": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "vibration_too_high",
+   "moved": [
+    "vib_rms_x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "vibration_too_high",
+   "symptom": "vibration_too_high"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unbalance_like",
+   "moved": [
+    "vib_1x",
+    "vib_velocity_mm_s"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "misalignment_like",
+   "moved": [
+    "vib_2x",
+    "vib_3x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 412.0,
+   "named": "misalignment_like",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "looseness_or_rattle",
+   "moved": [
+    "vib_harm_3_10",
+    "vib_half",
+    "vib_crest",
+    "gyr_rms"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "looseness_or_rattle",
+   "symptom": "unusual_vibration"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "repeating_knock",
+   "moved": [
+    "vib_kurtosis"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "impacts",
+   "moved": [
+    "trend_shocks_10m",
+    "vib_peak_g"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": true,
+   "alarmed": true,
+   "seconds_to_alarm": 2.0,
+   "named": "impacts",
+   "symptom": "knocking_or_jolts"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "bearing_defect_like",
+   "moved": [
+    "vib_env_peak"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "speed_change",
+   "moved": [
+    "vib_speed_hz",
+    "slow_peak1_hz"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "electrical_motor",
+   "moved": [
+    "vib_line_2x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "new_tone_whine_squeal",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "grinding_or_hiss",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "alarm_or_beeping",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "overheating",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "heating_up_over_time",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "local_hot_spot",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "area_running_cold",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "excess_temperature_fluctuation",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "unsteady_vibration_or_sound",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "room_too_hot_or_humid",
+   "skipped": "this machine's model reads none of its readings"
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "device_moved",
+   "moved": [
+    "vib_gravity_x"
+   ],
+   "twin_alarmed": false,
+   "named_as_injected": false,
+   "alarmed": false,
+   "seconds_to_alarm": null,
+   "named": null,
+   "symptom": null
+  },
+  {
+   "entry": "generic_rotating",
+   "seed": 5,
+   "calibration_s": 300,
+   "how": "injected",
+   "fault": "camera_moved_or_blocked",
+   "skipped": "this machine's model reads none of its readings"
+  }
+ ]
+}
