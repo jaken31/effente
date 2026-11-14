@@ -1,6 +1,7 @@
 """Row R0 and row M2 of docs/scan-and-log-plan.md section 15.2: the `state.log`
-additions of INTERFACES.md addition 22 and `state.setup` of addition 24 exist, as
-stubs on the live state and with the samples of additions 22 and 25 on the fake one."""
+additions of INTERFACES.md addition 22 and `state.setup` of addition 24 exist, with
+the samples of additions 22 and 25 on the fake one. `state.setup` is still a stub on
+the live state; the live part readings are tested in test_data_readings.py."""
 
 import pytest
 
@@ -31,7 +32,7 @@ def test_the_objects_have_the_agreed_names(cls, names):
         assert hasattr(cls, name), name
 
 
-def test_the_live_state_has_stubs_and_setup_gets_every_snapshot_and_event(make_host, make_state, qtbot):
+def test_the_live_setup_has_stubs_and_gets_every_snapshot_and_event(make_host, make_state, qtbot):
     host = make_host()
     state = make_state(host, wait=False)
     seen, failed = [], []
@@ -42,18 +43,16 @@ def test_the_live_state_has_stubs_and_setup_gets_every_snapshot_and_event(make_h
     ApiClient(host.url).put("/api/devices/effente-01/settings", {"sensitivity": 0.7})
     qtbot.waitUntil(lambda: "settings" in seen, timeout=5000)
 
-    log, setup = state.log, state.setup
+    setup = state.setup
     assert type(setup) is Setup
-    assert log.probe_part() is None and log.readings("part-0001") is None and log.normal_spectrum() is None
     assert setup.profile() is None and setup.choice() is None and setup.run() is None and not setup.run_running()
     assert setup.wanted_entry() is None and setup.device_entry() is None and setup.local_profile() is None
     assert setup.draft() == dict.fromkeys(FIELDS)
-    log.set_probe_part("part-0001")
     setup.start_run({"What kind of machine is it?": "a belt conveyor"})
     setup.set_draft(drive="belt")
     setup.confirm()
     setup.set_local_profile("Sam", "technician")
-    assert failed == ["Part readings are not built yet."] + ["Setup is not built yet."] * 4
+    assert failed == ["Setup is not built yet."] * 4
 
 
 def test_the_answerer_is_the_local_profiles_name_first(make_host, make_state, monkeypatch):

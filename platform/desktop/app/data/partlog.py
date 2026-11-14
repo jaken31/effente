@@ -17,9 +17,16 @@ A part review is `python3 platform/part_review.py`, run as a local process, as
 the report agent is: never over HTTP (contract section 8.8). Its runs come back
 on the stream and are read from the runs the state holds.
 
-The part readings of contract section 9 (INTERFACES.md addition 22) are stubs:
-`probe_changed`, `readings_changed`, `probe_part()`, `readings()`,
-`normal_spectrum()` and `set_probe_part()`. Nothing behind them is built yet.
+The part readings of contract section 9 (INTERFACES.md addition 22). The probe's
+part comes with every snapshot and `probe` event. A part's readings and a normal
+spectrum are fetched in the background the first time they are asked for, and
+None is the answer until they are in. After that the copy held is the answer,
+and a `reading` event for a part, or a new snapshot, fetches again while the old
+copy is still shown. One that failed is not asked for again until then, so a
+page that redraws on every failure cannot keep the receiver busy.
+
+The receiver sends no `part` event when a part's newest reading moves, so a
+`reading` event also updates the part's `reading` here.
 """
 
 from __future__ import annotations
@@ -36,7 +43,6 @@ REVIEW_AGENT = "part_review"  # `agent` of a part review run (contract section 8
 REVIEW_SCRIPT = paths.PLATFORM / "part_review.py"
 REVIEW_MODES = ("standin", "local")
 EVERY_PART = ""  # what `_reviewing` holds while one process reviews every part
-READINGS_NOT_BUILT = "Part readings are not built yet."
 
 
 def _when(entry) -> float:
@@ -64,6 +70,11 @@ class PartLog(QObject):
         self._review_process = None  # QProcess of the part review this app started
         self._reviewing = None  # the part it reviews, or EVERY_PART
         self._review_output = b""
+        self._probes: dict = {}  # machine_id -> its selection (contract 9.1)
+        self._fetched: dict = {}  # key -> the reply held; a key is ("readings", part_id, since) or ("normal", machine, part_id)
+        self._loading: set = set()  # keys being fetched now
+        self._stale: set = set()  # keys held whose reply may have moved: fetched again when next asked for
+        self._failed: set = set()  # keys whose last fetch failed: not asked for again until a snapshot or an event
 
     # ---- fed by the state -------------------------------------------------
 
@@ -76,8 +87,13 @@ class PartLog(QObject):
             if isinstance(listed, list)
         }
         self._entries_loaded.clear()  # entries may have been added while the stream was down
+        probes = snap.get("probe")
+        self._probes = {m: p for m, p in (probes.items() if isinstance(probes, dict) else ()) if isinstance(p, dict)}
+        self._stale.update(self._fetched)  # readings may have moved while the stream was down
+        self._failed.clear()
         self.parts_changed.emit()
         self.entries_changed.emit()
+        self.probe_changed.emit()
 
     def apply_event(self, name: str, data: dict) -> None:
         """One stream event, of any name."""
@@ -87,6 +103,82 @@ class PartLog(QObject):
             self._take_entry(data)
         elif name == "agent_run" and data.get("agent") == REVIEW_AGENT:
             self.reviews_changed.emit()
+        elif name == "probe":
+            self._take_probe(data.get("machine_id"), data.get("probe"))
+        elif name == "reading":
+            self._take_reading(data)
+
+    def _take_probe(self, machine, probe) -> None:
+        """Keep a machine's selection, or its clearing, from an event or a reply."""
+        if not isinstance(machine, str):
+            return
+        probe = probe if isinstance(probe, dict) else None
+        if self._probes.get(machine) != probe:
+            if probe is None:
+                self._probes.pop(machine, None)
+            else:
+                self._probes[machine] = probe
+            self.probe_changed.emit()
+
+    def _take_reading(self, data) -> None:
+        """A part's reading was made, grew or closed: its readings and its machine's
+        normal spectra may have moved. Fetch again what is held, and keep the part's `reading`."""
+        part_id, machine, reading = data.get("part_id"), data.get("machine_id"), data.get("reading")
+        if not isinstance(part_id, str) or not isinstance(reading, dict):
+            return
+        moved = {k for k in self._fetched.keys() | self._failed
+                 if (k[0] == "readings" and k[1] == part_id) or (k[0] == "normal" and k[1] == machine)}
+        self._failed -= moved
+        self._stale |= moved & self._fetched.keys()
+        for key in moved & self._fetched.keys():
+            self._fetch(key)
+        part = self._machine_parts.get(machine, {}).get(part_id)
+        if part is not None:
+            newest = part.get("reading")
+            if not newest or newest.get("at") is None or (reading.get("start") or "") >= newest["at"]:
+                short = {"velocity_mm_s": reading.get("velocity_mm_s"), "at": reading.get("start"),
+                         "open": reading.get("open"), "simulated": reading.get("simulated")}
+                if short != newest:
+                    self._take_part(dict(part, reading=short))
+
+    def _route(self, key) -> tuple:
+        """The path and query of the route a key is fetched from."""
+        if key[0] == "readings":
+            return f"/api/parts/{quote(key[1])}/readings", {"since": key[2]}
+        return f"/api/machines/{quote(key[1])}/normal-spectrum", {"part": key[2]}
+
+    def _held(self, key):
+        """The reply held for a key, or None. Starts a fetch if none is held, or the one held is stale."""
+        if key not in self._loading and key not in self._failed and (key not in self._fetched or key in self._stale):
+            self._fetch(key)
+        return self._fetched.get(key)
+
+    def _fetch(self, key) -> None:
+        api = getattr(self.state, "api", None)
+        if api is None or key in self._loading:
+            return
+        self._loading.add(key)
+        path, query = self._route(key)
+
+        def done(reply, error):
+            self._loading.discard(key)
+            self._stale.discard(key)
+            if error:
+                self._failed.add(key)
+                what = "Readings" if key[0] == "readings" else "Normal spectrum"
+                self.state.action_failed.emit(f"{what} not loaded: {error}")
+                return
+            if self._fetched.get(key) == reply:
+                return
+            self._fetched[key] = reply
+            if key[0] == "readings":
+                self.readings_changed.emit(key[1])
+            else:  # the machine's normal is drawn for whichever part is selected
+                part_id = key[2] or self.selected_part()
+                if part_id:
+                    self.readings_changed.emit(part_id)
+
+        self.state._background(lambda: api.get(path, **query), done)
 
     def _take_part(self, part) -> None:
         """Keep a part from an event or a reply. Either may come first, so the same one twice changes nothing."""
@@ -174,18 +266,23 @@ class PartLog(QObject):
         return bool(newest) and newest.get("status") == "running"
 
     def probe_part(self):
-        """The `part_id` the probe is on for the current machine, or None. A stub: always None."""
-        return
+        """The `part_id` the probe is on for the current machine, or None."""
+        return (self._probes.get(self.state.current_machine()) or {}).get("part_id")
 
     def readings(self, part_id, since=None):
         """The reply of the part's readings route (contract 9.3), or None while it
-        is being fetched. Asking starts the fetch. A stub: always None."""
-        return
+        is first being fetched. Asking starts the fetch."""
+        if not part_id:
+            return None
+        return self._held(("readings", str(part_id), since))
 
     def normal_spectrum(self, part_id=None):
         """The reply of contract 9.4 for this part, or for the whole machine when
-        None. None while it is being fetched. A stub: always None."""
-        return
+        None. None while it is first being fetched."""
+        machine = self.state.current_machine()
+        if not machine:
+            return None
+        return self._held(("normal", machine, part_id or None))
 
     def _review_alive(self) -> bool:
         return self._review_process is not None and self._review_process.state() != QProcess.NotRunning
@@ -210,8 +307,14 @@ class PartLog(QObject):
             self.selection_changed.emit()
 
     def set_probe_part(self, part_id) -> None:
-        """Say the probe is on this part. None clears it. A stub: reports "not built yet"."""
-        self.state.action_failed.emit(READINGS_NOT_BUILT)
+        """Say the probe is on this part of the current machine. None clears it."""
+        machine = self.state.current_machine()
+        if not machine:
+            self.state.action_failed.emit("Probe part not set: no machine is shown.")
+            return
+        api, body = self.state.api, {"part_id": part_id, "by": self.state.answerer()}
+        self._send("Probe part not set", lambda: api.put(f"/api/machines/{quote(machine)}/probe", body),
+                   lambda reply: self._take_probe(machine, reply.get("probe")))
 
     def create_part(self, name, kind, position=None) -> None:
         """Make a part on the current machine."""
