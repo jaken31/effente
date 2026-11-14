@@ -181,8 +181,9 @@ def test_the_list_marks_are_the_pins_looks(page):
 def test_nothing_found_reads_as_nothing_found_never_as_healthy(page, state):
     assert row(page, BELT).line.text() == "Nothing found"
     state.log.select_part(BELT)
-    assert page.detail_panel.headline.text().startswith("Nothing found since ")
-    assert "not a check of the part itself" in page.detail_panel.means.text()
+    assert page.part_column.head.headline.text() == "Nothing found"
+    assert page.part_column.head.headline.toolTip().startswith("Nothing found since ")
+    assert "not a check of the part itself" in page.part_column.head.means.text()
     words = " ".join(w.text().lower() for w in page.findChildren(QLabel))
     for wrong in ("healthy", "good", "fine", " ok", "no problem"):
         assert wrong not in words
@@ -211,7 +212,7 @@ def test_a_click_on_a_pin_selects_that_part_through_the_log(page, state):
     assert state.log.selected_part() == MOTOR_MOUNT
     assert pin(page, MOTOR_MOUNT)["selected"] and page.view.pins[-1]["id"] == MOTOR_MOUNT  # drawn on top
     assert row(page, MOTOR_MOUNT).row["selected"]
-    assert page.detail_panel.title() == "Motor mount"
+    assert page.part_column.head.name.text() == "Motor mount"
 
 
 def test_a_click_on_a_row_selects_that_part(qtbot, page, state):
@@ -222,15 +223,15 @@ def test_a_click_on_a_row_selects_that_part(qtbot, page, state):
 def test_the_page_follows_a_selection_made_elsewhere(page, state):
     state.log.select_part(DRIVE_ROLLER)  # as the Log page's "Show on machine" does
     assert pin(page, DRIVE_ROLLER)["selected"]
-    assert page.detail_panel.title() == "Drive roller"
-    assert "Needs repair since" in page.detail_panel.headline.text()
+    assert page.part_column.head.name.text() == "Drive roller"
+    assert "Needs repair since" in page.part_column.head.headline.toolTip()
 
 
 def test_a_click_beside_the_model_clears_the_selection(page, state):
     state.log.select_part(DRIVE_ROLLER)
     page.view.missed.emit()
     assert state.log.selected_part() is None
-    assert page.detail_panel.empty.isVisible()
+    assert page.part_column.blank.isVisible() and page.part_column.blank.title.text() == "Pick a part"
 
 
 def test_a_click_on_the_model_with_no_mode_changes_nothing(page, state):
@@ -239,20 +240,21 @@ def test_a_click_on_the_model_with_no_mode_changes_nothing(page, state):
     assert len(state.log.parts()) == before and not page.stage.form.isVisible()
 
 
-def test_the_selected_part_shows_its_last_entries_and_the_simulated_chip(page, state):
+def test_the_log_column_lists_the_parts_entries_and_marks_simulated_ones(page, state):
     state.log.select_part(DRIVE_ROLLER)
-    texts = [w.text() for w in page.detail_panel.entries.findChildren(QLabel)]
+    texts = [w.text() for w in page.log_panel.findChildren(QLabel) if w.isVisibleTo(page.log_panel)]
     assert "added weight found on the drive roller" in texts
-    assert any(text.endswith("Finding") for text in texts)
-    assert page.detail_panel.sim_chip.isVisible()  # that finding is about a simulated alarm
+    finding = next(r for r in page.log_panel.rows if "Finding" in r.head.text())
+    assert finding.head.text().endswith("· simulated")  # that finding is about a simulated alarm
     state.log.select_part(BELT)
-    assert not page.detail_panel.sim_chip.isVisible()
+    assert not any("simulated" in r.head.text() for r in page.log_panel.rows)
+    assert [r.head.text().split(" · ")[1] for r in page.log_panel.rows] == ["Inspection", "Repair"]
 
 
 def test_open_log_selects_the_part_and_asks_for_the_log_page(qtbot, page, state):
     state.log.select_part(MOTOR_MOUNT)
     with qtbot.waitSignal(page.navigate) as asked:
-        click(qtbot, page.detail_panel.log_button)
+        click(qtbot, page.log_panel.log_button)
     assert asked.args == ["log"] and state.log.selected_part() == MOTOR_MOUNT
 
 
@@ -367,8 +369,8 @@ def test_a_part_with_no_pin_can_be_placed_from_its_row(qtbot, page, state):
 
 def test_move_pin_moves_the_selected_parts_pin(qtbot, page, state):
     state.log.select_part(DRIVE_ROLLER)
-    assert page.detail_panel.pin_button.text() == "Move pin"
-    click(qtbot, page.detail_panel.pin_button)
+    assert page.part_column.head.pin_button.text() == "Move pin"
+    click(qtbot, page.part_column.head.pin_button)
     page.view.picked.emit(*POINT)
     assert state.log.part(DRIVE_ROLLER)["position"]["at"] == list(POINT)
 
@@ -379,8 +381,8 @@ def test_a_part_pinned_on_an_older_scan_says_so_and_can_be_placed(page, state):
     assert row(page, BELT).place_button is not None
     assert BELT not in {p["id"] for p in page.view.pins}
     state.log.select_part(BELT)
-    assert "older scan" in page.detail_panel.pin_note.text()
-    assert page.detail_panel.pin_button.text() == "Place pin"
+    assert "older scan" in page.part_column.head.means.text()
+    assert page.part_column.head.pin_button.text() == "Place pin"
 
 
 # ---- the states with no model to show ----------------------------------------------------------------------
@@ -391,7 +393,7 @@ def test_no_scan_yet(qtbot, page, state, monkeypatch):
     assert page.view_state["name"] == "no_scan" and not page.stage.model_shown()
     assert page.stage.card.title.text() == "No scan yet"
     assert page.stage.card.button.text() == stage.IMPORT and not page.stage.card.steps.isVisible()
-    assert page.scan_panel.isVisible() and not page.detail_panel.isVisible()  # the way to get one is open
+    assert page.scan_panel.isVisible()  # the way to get one is open, over the card
     assert not page.scan_panel.close_button.isVisible()
     assert len(page.parts_panel.rows) == 4  # the list works with no scan
     assert row(page, IDLE_ROLLER).line.text() == "Not checked" and row(page, IDLE_ROLLER).place_button is None
@@ -459,7 +461,7 @@ def test_a_laptop_whose_graphics_cannot_draw_3d_gets_the_parts_list(qtbot, state
     assert "parts list and the log work without it" in p.stage.card.text.text()
     assert len(p.parts_panel.rows) == 4 and row(p, IDLE_ROLLER).place_button is None
     state.log.select_part(DRIVE_ROLLER)
-    assert p.detail_panel.title() == "Drive roller" and not p.detail_panel.pin_button.isVisible()
+    assert p.part_column.head.name.text() == "Drive roller" and not p.part_column.head.pin_button.isVisible()
 
 
 def test_a_view_that_cannot_start_says_why(qtbot, state):
@@ -532,7 +534,7 @@ def test_a_machine_that_shows_up_with_its_first_record_is_followed(page, state, 
 def test_new_scan_shows_the_pairing_code_and_the_same_line_as_text(qtbot, page, state):
     assert not page.scan_panel.isVisible()
     click(qtbot, page.stage.scan_button)
-    assert page.scan_panel.isVisible() and not page.detail_panel.isVisible()
+    assert page.scan_panel.isVisible()
     line = state.scans.qr_text(state.current_machine())
     assert line.startswith("effente://scan?v=1&base=")
     assert page.scan_panel.code.text() == line and page.scan_panel.code.isVisible()
@@ -541,7 +543,7 @@ def test_new_scan_shows_the_pairing_code_and_the_same_line_as_text(qtbot, page, 
     assert page.scan_panel.line.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
     assert page.scan_panel.note.text() == side.SCAN_HOW
     click(qtbot, page.scan_panel.close_button)
-    assert not page.scan_panel.isVisible() and page.detail_panel.isVisible()
+    assert not page.scan_panel.isVisible()
 
 
 def test_the_code_is_drawn_from_segnos_matrix(qtbot, page, state):
@@ -610,7 +612,7 @@ def test_a_cancelled_file_picker_sends_nothing(qtbot, page, state, monkeypatch):
 def test_picking_a_part_puts_the_pairing_code_away(qtbot, page, state):
     click(qtbot, page.stage.scan_button)
     click(qtbot, row(page, BELT))
-    assert page.detail_panel.isVisible() and not page.scan_panel.isVisible()
+    assert not page.scan_panel.isVisible() and page.part_column.head.name.text() == "Belt"
 
 
 # ---- red is for shapes only --------------------------------------------------------------------------------

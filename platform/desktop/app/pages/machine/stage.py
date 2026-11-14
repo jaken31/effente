@@ -10,7 +10,7 @@ from __future__ import annotations
 from app.theme import fonts
 from app.theme import tokens as t
 from app.widgets import Button, Panel
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -176,6 +176,8 @@ class Stage(Panel):
         self.card.pressed.connect(self.card_pressed)
         self.stack.addWidget(self.card)
         self.view: QWidget | None = None
+        self._holder: QWidget | None = None
+        self.overlay: QWidget | None = None
         self.add(self.stack, 1)
         self.show_hint("", False)
         self.show_form(False)
@@ -189,19 +191,45 @@ class Stage(Panel):
         lay.setContentsMargins(0, 0, 0, t.R - 4)
         lay.addWidget(view)
         self.stack.addWidget(holder)
+        self._holder = holder
+        self._place()
+
+    def set_overlay(self, overlay: QWidget) -> None:
+        """A card shown over the model or the state card, such as the New scan panel."""
+        self.overlay = overlay
+        overlay.setParent(self.stack)
+        overlay.hide()
+        self.stack.installEventFilter(self)
+        self._place()
+
+    def show_overlay(self, shown: bool) -> None:
+        if self.overlay is not None:
+            self.overlay.setVisible(shown)
+            if shown:
+                self.overlay.raise_()
+                self._place()
+
+    def _place(self) -> None:
+        if self.overlay is not None:
+            self.overlay.setGeometry(self.stack.rect().adjusted(10, 2, -10, -10))
+
+    def eventFilter(self, obj, e) -> bool:
+        if obj is self.stack and e.type() == QEvent.Type.Resize:
+            self._place()
+        return super().eventFilter(obj, e)
 
     def show_model(self) -> None:
         if self.view is not None:
-            self.stack.setCurrentIndex(1)
+            self.stack.setCurrentWidget(self._holder)
         self.reset_button.setVisible(self.view is not None)
 
     def show_card(self, title: str, text: str, steps: list[dict], button: str) -> None:
         self.card.show_state(title, text, steps, button)
-        self.stack.setCurrentIndex(0)
+        self.stack.setCurrentWidget(self.card)
         self.reset_button.setVisible(False)
 
     def model_shown(self) -> bool:
-        return self.stack.currentIndex() == 1
+        return self.view is not None and self.stack.currentWidget() is self._holder
 
     def show_hint(self, text: str, can_cancel: bool) -> None:
         self.hint_text.setText(text)

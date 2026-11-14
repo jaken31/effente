@@ -28,7 +28,7 @@ LIMIT_MM_S = 11.0
 LIMIT_LABEL = "limit for any machine, 11 mm/s"
 
 RANGES = (("7d", "7 d", 7), ("30d", "30 d", 30), ("60d", "60 d", 60), ("all", "All", None))
-DEFAULT_RANGE = "60d"
+DEFAULT_RANGE = "30d"
 
 
 def since(range_key: str, now: datetime) -> str | None:
@@ -158,22 +158,22 @@ def tiles(reply: dict | None, part: dict | None, tz=None) -> list[Tile]:
     newest = (part or {}).get("reading") or {}
     highest = summary.get("highest") or {}
     count = summary.get("count") or 0
-    now_sub = f"mm/s, {when(newest.get('at'), tz)}" + (", visit still going" if newest.get("open") else "")
+    now_sub = when(newest.get("at"), tz) + (", still going" if newest.get("open") else "")
     out = [
-        Tile("Now", number(newest.get("velocity_mm_s")), now_sub if newest else "no reading yet",
+        Tile("Now, mm/s", number(newest.get("velocity_mm_s")), now_sub if newest else "no reading yet",
              newest.get("simulated") is True),
-        Tile("Average", number(summary.get("average_mm_s")),
-             f"mm/s, {count} reading{'' if count == 1 else 's'}", sim and count > 0),
-        Tile("Highest", number(highest.get("velocity_mm_s")),
-             f"mm/s, {day(highest.get('at'), tz)}" if highest else "mm/s", sim and bool(highest)),
+        Tile("Average, mm/s", number(summary.get("average_mm_s")), f"{count} reading{'' if count == 1 else 's'}",
+             sim and count > 0),
+        Tile("Highest, mm/s", number(highest.get("velocity_mm_s")), day(highest.get("at"), tz) or "none",
+             sim and bool(highest)),
     ]
     slope = projection.get("slope_per_day")
     if _num(slope):
         text = number(slope)
-        out.append(Tile("Change", text if text.startswith("-") else f"+{text}", "model score a day",
+        out.append(Tile("Change a day", text if text.startswith("-") else f"+{text}", "model score",
                         projection.get("simulated") is True))
     else:
-        out.append(Tile("Change", DASH, "not enough history" if projection else "no projection", False))
+        out.append(Tile("Change a day", DASH, "not enough history" if projection else "no projection", False))
     return out
 
 
@@ -358,7 +358,7 @@ def spectrum(record: dict | None, own: dict | None, machine: dict | None, edges=
 # ---- the review column -------------------------------------------------------------------------------------
 
 ADVICE = {"yes": "Yes", "no": "No", "not_sure": "Not sure"}
-ADVICE_NOTE = "Advice from this part's review, not a decision. Nothing is added to the log unless you add it."
+ADVICE_NOTE = "Advice, not a decision. Nothing is added to the log unless you add it."
 AGREE = "Agree: add a finding"
 RUN_REVIEW = "Run review"
 REVIEWING = "Reviewing…"
@@ -419,8 +419,7 @@ NEEDS_ANSWER = ("finding", "inspection")  # these must say whether the part need
 
 @dataclass(frozen=True)
 class Entry:
-    head: str  # "14 Nov 11:06 · Review"
-    by: str
+    head: str  # "14 Nov 11:06 · Review · Sam", with "simulated" last when it is
     text: str
     simulated: bool
 
@@ -437,8 +436,10 @@ def entries(items: list, tz=None) -> list[Entry]:
     out = []
     for e in items or []:
         kind = str(e.get("kind") or "").replace("_", " ")
-        head = " · ".join(x for x in (when(e.get("at"), tz), kind[:1].upper() + kind[1:]) if x)
-        out.append(Entry(head, str(e.get("by") or ""), entry_text(e), e.get("simulated") is True))
+        sim = e.get("simulated") is True
+        head = " · ".join(x for x in (when(e.get("at"), tz), kind[:1].upper() + kind[1:], str(e.get("by") or ""),
+                                      SIMULATED if sim else "") if x)
+        out.append(Entry(head, entry_text(e), sim))
     return out
 
 
@@ -447,3 +448,6 @@ def entry_problem(kind, text, needs_repair) -> str:
     if kind in NEEDS_ANSWER:
         return "" if needs_repair in (True, False) else "Say whether it needs repair."
     return "" if str(text or "").strip() else "Type what happened."
+
+NO_ENTRIES_FOR = "No entries for this part yet."
+NO_PART_LOG = "Pick a part to see its log."

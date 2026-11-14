@@ -94,10 +94,10 @@ def test_tiles_from_the_fake_drive_roller(qapp):
 
     reply, part = reply_for(DRIVE_ROLLER)
     now, avg, high, change = rd.tiles(reply, part, UTC)
-    assert (now.label, now.value, now.sub) == ("Now", "2.94", "mm/s, 14 Nov 09:10")
-    assert (avg.value, avg.sub) == ("2.27", "mm/s, 20 readings")
-    assert (high.value, high.sub) == ("2.94", "mm/s, 14 Nov")
-    assert (change.value, change.sub) == ("+0.012", "model score a day")  # a score, never mm/s
+    assert (now.label, now.value, now.sub) == ("Now, mm/s", "2.94", "14 Nov 09:10")
+    assert (avg.label, avg.value, avg.sub) == ("Average, mm/s", "2.27", "20 readings")
+    assert (high.value, high.sub) == ("2.94", "14 Nov")
+    assert (change.label, change.value, change.sub) == ("Change a day", "+0.012", "model score")  # never mm/s
     assert all(tile.simulated for tile in (now, avg, high, change))
 
 
@@ -112,7 +112,7 @@ def test_tiles_with_one_reading_have_no_change(qapp):
 def test_an_open_visit_says_it_is_still_going():
     part = {"reading": {"velocity_mm_s": 3.1, "at": "2026-11-14T16:01:41Z", "open": True, "simulated": False}}
     now = rd.tiles(None, part, UTC)[0]
-    assert now.sub == "mm/s, 14 Nov 16:01, visit still going" and not now.simulated
+    assert now.sub == "14 Nov 16:01, still going" and not now.simulated
 
 
 def test_numbers_are_shown_as_given():
@@ -229,4 +229,4 @@ def test_entry_rules():
     assert rd.entry_problem("note", "  ", None) == "Type what happened."
     e = rd.entries([{"at": "2026-11-14T16:05:00Z", "kind": "finding", "text": "", "needs_repair": True,
                      "by": "Sam", "simulated": True}], UTC)[0]
-    assert (e.head, e.text, e.by, e.simulated) == ("14 Nov 16:05 · Finding", "needs repair", "Sam", True)
+    assert (e.head, e.text, e.simulated) == ("14 Nov 16:05 · Finding · Sam · simulated", "needs repair", True)
