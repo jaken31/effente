@@ -15,3 +15,6 @@ build/
 
 # Scans are large. Share them another way (see README).
 *.usdz
+
+# Each person's signing team (see README)
+Local.xcconfig

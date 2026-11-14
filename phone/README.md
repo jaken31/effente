@@ -20,7 +20,7 @@ An iPhone app with one job: scan a machine, build the 3D model on the phone, sen
 You need a Mac with Xcode 16 or newer, and an iPhone with a LiDAR scanner, an A14 chip or later and iOS 18 or later. Apple's sample states those device requirements, and that it does not run in the Simulator.
 
 1. Open `EffenteScan/EffenteScan/EffenteScan.xcodeproj`.
-2. Select the EffenteScan target, Signing and Capabilities, and pick your team.
+2. Copy `EffenteScan/Configuration/Local.xcconfig.example` to `Local.xcconfig` in the same folder and put your Apple team id in it. That file is not committed. Do not pick the team in Xcode's Signing and Capabilities editor: that writes your team id into the shared project file.
 3. Plug in the iPhone, choose it as the destination, and run.
 4. The first time, on the phone: Settings, General, VPN and Device Management, and trust your developer certificate.
 
