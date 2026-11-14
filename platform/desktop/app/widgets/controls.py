@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from PySide6.QtCore import (
     Property,
     QEasingCurve,
+    QEvent,
     QPointF,
     QPropertyAnimation,
     QRectF,
@@ -14,13 +15,16 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
     QHBoxLayout,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyleOptionButton,
+    QStylePainter,
     QWidget,
 )
 
@@ -32,7 +36,13 @@ KINDS = ("primary", "secondary", "ghost")
 
 
 class Button(QPushButton):
-    """A rounded button. kind is "primary" (red fill, dark text), "secondary" or "ghost"."""
+    """A rounded button. kind is "primary" (red fill, dark text), "secondary" or "ghost".
+
+    The stylesheet says how it looks at rest and under the pointer. The button eases
+    between the two and dips a little while it is held down.
+    """
+
+    DIP = 0.035  # how much smaller it is drawn held down
 
     def __init__(self, text: str = "", kind: str = "secondary", parent: QWidget | None = None, *, small: bool = False):
         super().__init__(text, parent)
@@ -43,6 +53,68 @@ class Button(QPushButton):
         self.setFont(fonts.button())
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._hover = motion.Glide(self)  # 0 at rest, 1 under the pointer
+        self._down = motion.Glide(self, motion.PRESS)  # 0 up, 1 held down
+        self.pressed.connect(lambda: self._press(True))
+        self.released.connect(lambda: self._press(False))
+
+    def _lit(self) -> float:
+        return 1.0 if self.isEnabled() and self.underMouse() else 0.0
+
+    def _press(self, down: bool) -> None:
+        self._down.setDuration(motion.PRESS if down else motion.RELEASE)
+        self._down.to(1.0 if down else 0.0)
+
+    def enterEvent(self, e) -> None:
+        super().enterEvent(e)
+        self._hover.to(self._lit())
+
+    def leaveEvent(self, e) -> None:
+        super().leaveEvent(e)
+        self._hover.to(0.0)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._hover.jump(self._lit())
+        self._down.jump(0.0)
+
+    def changeEvent(self, e) -> None:
+        super().changeEvent(e)
+        if e.type() == QEvent.Type.EnabledChange:
+            self._hover.jump(self._lit())
+            self._down.jump(0.0)
+
+    def paintEvent(self, _event) -> None:
+        """The stylesheet's rest look, with its hover look drawn over as far as the hover has got."""
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        rest = QStyleOptionButton(opt)
+        rest.state &= ~QStyle.StateFlag.State_MouseOver
+        over = QStyleOptionButton(opt)
+        over.state |= QStyle.StateFlag.State_MouseOver
+        hover, down = self._hover.at, self._down.at
+        p = QStylePainter(self)
+        if down > 0:
+            c = QPointF(self.rect().center()) + QPointF(0.5, 0.5)
+            scale = 1.0 - self.DIP * down
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            p.translate(c)
+            p.scale(scale, scale)
+            p.translate(-c)
+        if hover <= 0.0 or hover >= 1.0:
+            p.drawControl(QStyle.ControlElement.CE_PushButton, over if hover else rest)
+            return
+        # Part way: the hover look goes over as one layer, so the words keep their weight.
+        p.drawControl(QStyle.ControlElement.CE_PushButton, rest)
+        ratio = self.devicePixelRatioF()
+        layer = QPixmap(self.size() * ratio)
+        layer.setDevicePixelRatio(ratio)
+        layer.fill(Qt.GlobalColor.transparent)
+        lp = QStylePainter(layer, self)
+        lp.drawControl(QStyle.ControlElement.CE_PushButton, over)
+        lp.end()
+        p.setOpacity(hover)
+        p.drawPixmap(0, 0, layer)
 
     @property
     def kind(self) -> str:

@@ -10,7 +10,8 @@ With it off every helper here lands on its end value straight away.
 
 The moves: Glide (a number easing), fade_in and fade_out (a card coming or going),
 lift_in, cascade and swap (cards settling into place, words changing in place),
-Reveal (part of a card opening or closing) and Sweep (a busy line).
+set_shown (a card that comes and goes without moving its neighbours), Reveal (part of
+a card opening or closing) and Sweep (a busy line).
 """
 
 from __future__ import annotations
@@ -40,6 +41,8 @@ from PySide6.QtWidgets import (
 
 # Milliseconds. HOVER and TOGGLE are the mockup's .12s and .15s transitions.
 HOVER = 120
+PRESS = 80  # a button going down under the pointer
+RELEASE = 220  # and coming back up
 TOGGLE = 150
 SLIDE = 180  # a selection moving to another option
 ENTER = 180  # a card appearing
@@ -242,6 +245,48 @@ def swap(widget: QWidget) -> None:
     """Call right after a visible widget's words change: the new words fade up into place."""
     if widget.isVisible():
         lift_in(widget, ms=SWAP, drop=3.0)
+
+
+def set_shown(widget: QWidget, on: bool, drop: float = 8.0) -> None:
+    """In place of `setVisible`, for a card that lies over others or keeps its own room.
+
+    Shown, it fades in while it settles `drop` pixels up into place; hidden, it fades out
+    first. Asking for what it already is, or is on its way to, does nothing, so a page
+    that redraws every second can call it each time. Use Reveal where the neighbours
+    should make room instead.
+    """
+    on = bool(on)
+    was = getattr(widget, "_motion_shown", None)
+    if was is None:
+        was = not widget.isHidden()
+    widget._motion_shown = on
+    parent = widget.parentWidget()
+    if not enabled() or parent is None or not parent.isVisible():
+        old = getattr(widget, "_motion_fade", None)
+        if old is not None:
+            old.stop()
+            widget._motion_fade = None
+        if widget.graphicsEffect() is not None:
+            widget.setGraphicsEffect(None)
+        widget.setVisible(on)
+        return
+    if on == was:
+        return
+    if on:
+        effect = widget.graphicsEffect()
+        if widget.isVisible() and isinstance(effect, QGraphicsOpacityEffect):
+            _fade(widget, effect.opacity(), 1.0, ENTER, None)  # turned back halfway: up from where it is
+        else:
+            widget.show()
+            lift_in(widget, ms=ENTER + 60, drop=drop)
+        return
+
+    def gone() -> None:
+        if not widget._motion_shown:  # not asked back in the meantime
+            widget.hide()
+            widget.setGraphicsEffect(None)
+
+    fade_out(widget, gone)
 
 
 # ---- reveal: a part that opens and closes ------------------------------------------
