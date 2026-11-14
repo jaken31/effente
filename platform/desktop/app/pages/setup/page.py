@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from app.data import model_server
 from app.theme import tokens as t
+from app.widgets import motion
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
@@ -48,7 +49,8 @@ class SetupPage(QWidget):
         col = QVBoxLayout(column)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(t.PAGE_GAP)
-        for w in (self.local, self.questions, self.profile, self.model, self.device):
+        self.steps = (self.local, self.questions, self.profile, self.model, self.device)
+        for w in self.steps:
             col.addWidget(w)
         col.addStretch(1)
         row = QHBoxLayout(self)
@@ -56,6 +58,10 @@ class SetupPage(QWidget):
         row.addStretch(1)
         row.addWidget(column, 100)  # as wide as it may be; what is left is shared by the two sides
         row.addStretch(1)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        motion.cascade(self.steps)  # the steps settle in, top to bottom, each time the page opens
 
     # ---- state ------------------------------------------------------------
 

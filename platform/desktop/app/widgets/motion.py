@@ -7,6 +7,10 @@ between would be numbers the device did not measure.
 Motion is off when EFFENTE_REDUCE_MOTION is set (main.py's --no-motion sets it) and
 on the offscreen platform, so tests and screenshots see the finished state at once.
 With it off every helper here lands on its end value straight away.
+
+The moves: Glide (a number easing), fade_in and fade_out (a card coming or going),
+lift_in, cascade and swap (cards settling into place, words changing in place),
+Reveal (part of a card opening or closing) and Sweep (a busy line).
 """
 
 from __future__ import annotations
@@ -17,11 +21,22 @@ from collections.abc import Callable
 from PySide6.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
+    QEvent,
+    QObject,
+    QPointF,
     QRectF,
+    QSequentialAnimationGroup,
+    Qt,
     QVariantAnimation,
 )
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
+from PySide6.QtGui import QColor, QLinearGradient, QPainter
+from PySide6.QtWidgets import (
+    QGraphicsEffect,
+    QGraphicsOpacityEffect,
+    QLayout,
+    QVBoxLayout,
+    QWidget,
+)
 
 # Milliseconds. HOVER and TOGGLE are the mockup's .12s and .15s transitions.
 HOVER = 120
@@ -30,8 +45,15 @@ SLIDE = 180  # a selection moving to another option
 ENTER = 180  # a card appearing
 EXIT = 140  # a card leaving
 PULSE = 420  # the freshness dot's beat for a record
+RISE = 340  # a page's cards settling in when it opens
+STAGGER = 45  # between one card and the next as they settle
+REVEAL = 240  # a part of a card opening or closing
+SWAP = 220  # words changing in place
+SWEEP = 1300  # one pass of the busy line
 
 EASE = QEasingCurve.Type.OutCubic
+SETTLE = QEasingCurve.Type.OutQuint  # longer moves: quick start, long soft landing
+_MAX = 16777215  # QWIDGETSIZE_MAX
 
 _forced: bool | None = None
 
@@ -138,3 +160,237 @@ def fade_out(widget: QWidget, done: Callable[[], None], ms: int = EXIT) -> None:
         _fade(widget, 1.0, 0.0, ms, done)
     else:
         done()
+
+
+# ---- lift: fade and settle -------------------------------------------------------
+
+
+class Lift(QGraphicsEffect):
+    """Paints its widget faded and lowered: `opacity` 0 to 1, `drop` in pixels.
+
+    Paint only: the layout never sees the drop, so nothing around the widget moves.
+    """
+
+    def __init__(self, parent: QObject | None = None, opacity: float = 1.0, drop: float = 0.0):
+        super().__init__(parent)
+        self.opacity = opacity
+        self.drop = drop
+        self._room = max(0.0, drop)
+
+    def set(self, opacity: float, drop: float) -> None:
+        self.opacity, self.drop = opacity, drop
+        self.update()
+
+    def boundingRectFor(self, rect: QRectF) -> QRectF:
+        return rect.adjusted(0, 0, 0, self._room + 1)  # room for the drop, so its trail repaints
+
+    def draw(self, painter: QPainter) -> None:
+        if self.opacity >= 1.0 and not self.drop:
+            self.drawSource(painter)
+            return
+        if self.opacity <= 0.0:
+            return
+        # PySide6 returns only the pixmap, not its offset. Unpadded, the pixmap covers the
+        # source's own rect exactly, so that rect's corner is the offset.
+        logical = Qt.CoordinateSystem.LogicalCoordinates
+        pixmap = self.sourcePixmap(logical, None, QGraphicsEffect.PixmapPadMode.NoPad)
+        painter.save()
+        painter.setOpacity(self.opacity)
+        painter.drawPixmap(self.sourceBoundingRect(logical).topLeft() + QPointF(0, self.drop), pixmap)
+        painter.restore()
+
+
+def lift_in(widget: QWidget, delay: int = 0, ms: int = RISE, drop: float = 10.0) -> None:
+    """Fade `widget` in while it settles `drop` pixels up into place, after `delay` ms.
+    It is clear from the moment this is called, so a delayed card never flashes first."""
+    if not enabled():
+        return
+    old = getattr(widget, "_motion_fade", None)
+    if old is not None:
+        old.stop()
+    effect = Lift(widget, 0.0, drop)
+    widget.setGraphicsEffect(effect)
+    anim = QVariantAnimation()
+    anim.setDuration(ms)
+    anim.setEasingCurve(SETTLE)
+    anim.setStartValue(0.0)
+    anim.setEndValue(1.0)
+    # Opacity arrives a little ahead of the position: the card is solid before it lands.
+    anim.valueChanged.connect(lambda f: effect.set(min(1.0, float(f) * 1.35), drop * (1.0 - float(f))))
+    group = QSequentialAnimationGroup(widget)
+    if delay:
+        group.addPause(delay)
+    group.addAnimation(anim)
+
+    def finished() -> None:
+        widget._motion_fade = None
+        widget.setGraphicsEffect(None)
+
+    group.finished.connect(finished)
+    widget._motion_fade = group
+    group.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
+
+
+def cascade(widgets, step: int = STAGGER, drop: float = 10.0) -> None:
+    """Settle shown widgets in one after another, top to bottom."""
+    shown = [w for w in widgets if not w.isHidden()]
+    for i, w in enumerate(shown):
+        lift_in(w, delay=i * step, drop=drop)
+
+
+def swap(widget: QWidget) -> None:
+    """Call right after a visible widget's words change: the new words fade up into place."""
+    if widget.isVisible():
+        lift_in(widget, ms=SWAP, drop=3.0)
+
+
+# ---- reveal: a part that opens and closes ------------------------------------------
+
+
+class Reveal(QWidget):
+    """Holds one widget and opens or closes it: the height eases while the content fades.
+
+    Use `set_open` in place of the child's `setVisible`. Closed, the Reveal is hidden,
+    so the child reads as not visible. The child keeps its own size while the Reveal
+    clips it, so its words never reflow on the way.
+    """
+
+    def __init__(self, child: QWidget, parent: QWidget | None = None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        lay.addWidget(child)
+        self.child = child
+        self._open = True
+        self._from = 0.0
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(REVEAL)
+        self._anim.setEasingCurve(EASE)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.valueChanged.connect(self._step)
+        self._anim.finished.connect(self._landed)
+
+    def is_open(self) -> bool:
+        return self._open
+
+    def moving(self) -> bool:
+        return self._anim.state() == QAbstractAnimation.State.Running
+
+    def _natural(self) -> float:
+        lay = self.layout()
+        if lay.hasHeightForWidth() and self.width() > 0:
+            return float(lay.totalHeightForWidth(self.width()))
+        return float(lay.totalSizeHint().height())
+
+    def set_open(self, on: bool) -> None:
+        if on == self._open:
+            return
+        self._open = on
+        parent = self.parentWidget()
+        if not enabled() or parent is None or not parent.isVisible():
+            self._anim.stop()
+            self._landed()
+            return
+        self._from = float(self.height()) if (self.isVisible() and (self.moving() or not on)) else 0.0
+        self._anim.stop()
+        if on:
+            self.setMaximumHeight(round(self._from))
+            self.show()
+            if parent.layout() is not None:
+                parent.layout().activate()  # give it its width now, so its natural height is right
+        old = getattr(self.child, "_motion_fade", None)
+        if old is not None:
+            old.stop()
+            self.child._motion_fade = None
+        self.child.setGraphicsEffect(Lift(self.child, 0.0 if on else 1.0))
+        self._anim.start()
+
+    def _step(self, f) -> None:
+        f = float(f)
+        to = self._natural() if self._open else 0.0
+        self.setMaximumHeight(max(0, round(self._from + (to - self._from) * f)))
+        effect = self.child.graphicsEffect()
+        if isinstance(effect, Lift):
+            # In: the words wait for the room to open. Out: they go first.
+            effect.set(min(1.0, max(0.0, f * 1.6 - 0.4)) if self._open else max(0.0, 1.0 - f * 1.8), 0.0)
+
+    def _landed(self) -> None:
+        if isinstance(self.child.graphicsEffect(), Lift):
+            self.child.setGraphicsEffect(None)
+        self.setMaximumHeight(_MAX)
+        self.setVisible(self._open)
+
+
+# ---- sweep: something is being worked on --------------------------------------------
+
+
+class Sweep(QWidget):
+    """A short bright line running along the top edge of its parent while busy.
+
+    It says only "working": it never stands for an amount done. With motion off it is
+    not drawn at all, since a still line would read as a progress bar.
+    """
+
+    H = 2
+
+    def __init__(self, parent: QWidget, color: QColor):
+        super().__init__(parent)
+        self._color = QColor(color)
+        self._at = 0.0
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(SWEEP)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setLoopCount(-1)
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._anim.valueChanged.connect(self._moved)
+        parent.installEventFilter(self)
+        self._fit()
+        self.hide()
+
+    def _fit(self) -> None:
+        self.setGeometry(0, 0, self.parentWidget().width(), self.H)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
+            self._fit()
+        return False
+
+    def _moved(self, v) -> None:
+        self._at = float(v)
+        self.update()
+
+    def running(self) -> bool:
+        return self._anim.state() == QAbstractAnimation.State.Running
+
+    def set_running(self, on: bool) -> None:
+        on = on and enabled()
+        if on == self.running():
+            return
+        if on:
+            self._fit()
+            self.raise_()
+            self.show()
+            self._anim.start()
+        else:
+            self._anim.stop()
+            self.hide()
+
+    def paintEvent(self, _event) -> None:
+        w = float(self.width())
+        if w <= 0:
+            return
+        seg = w * 0.32
+        x = -seg + (w + seg) * self._at
+        grad = QLinearGradient(x, 0, x + seg, 0)
+        clear = QColor(self._color)
+        clear.setAlphaF(0.0)
+        grad.setColorAt(0.0, clear)
+        grad.setColorAt(0.5, self._color)
+        grad.setColorAt(1.0, clear)
+        p = QPainter(self)
+        p.fillRect(QRectF(x, 0, seg, self.H), grad)

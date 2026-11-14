@@ -12,8 +12,15 @@ from app.pages.log.marks import Strip, label
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
-from app.widgets import Button, Panel, SimChip
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from app.widgets import Button, Panel, SimChip, motion
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    QPointF,
+    QRectF,
+    Qt,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
@@ -63,15 +70,49 @@ class DeviceMark(QWidget):
         view.NOTHING_SENT: ("MUTED", "dashed"),
     }
 
+    SPIN_MS = 3200  # one turn of the dashed ring while the device has not answered
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.status = ""
+        self.angle = 0.0
         self.setFixedSize(MARK + 2, MARK + 2)
+        self._spin = QVariantAnimation(self)
+        self._spin.setDuration(self.SPIN_MS)
+        self._spin.setStartValue(0.0)
+        self._spin.setEndValue(360.0)
+        self._spin.setLoopCount(-1)
+        self._spin.valueChanged.connect(self._turned)
 
     def set_status(self, status: str) -> None:
         if status != self.status:
             self.status = status
+            self._draw_spin()
             self.update()
+
+    def spinning(self) -> bool:
+        return self._spin.state() == QAbstractAnimation.State.Running
+
+    def _turned(self, v) -> None:
+        self.angle = float(v)
+        self.update()
+
+    def _draw_spin(self) -> None:
+        """Only "waiting" turns: the ask has gone and no answer has come back."""
+        on = self.status == view.WAITING and self.isVisible() and motion.enabled()
+        if on and not self.spinning():
+            self._spin.start()
+        elif not on:
+            self._spin.stop()
+            self.angle = 0.0
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._draw_spin()
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self._draw_spin()
 
     def paintEvent(self, _event) -> None:
         look = self.LOOK.get(self.status)
@@ -87,6 +128,10 @@ class DeviceMark(QWidget):
             p.drawEllipse(c, MARK / 2, MARK / 2)
             return
         pen = QPen(color, 1.6)
+        if self.angle:
+            p.translate(c)
+            p.rotate(self.angle)
+            p.translate(-c)
         if look[1] == "dashed":
             pen.setStyle(Qt.PenStyle.CustomDashLine)
             pen.setDashPattern([1.6, 1.6])
@@ -140,8 +185,8 @@ class LocalProfile(Panel):
         self.fallback = label("", "muted", fonts.small(), wrap=True)
         for w in (self.ask, self.why, self.form, self.fallback):
             col.addWidget(w)
-        self.add(inner)
         self.inner = inner
+        self.reveal = self.add(motion.Reveal(inner))
         self._editing = False
         self._asked = False  # the form is open because no local profile is set, not because "Change" was pressed
         self._answerer = None
@@ -180,10 +225,7 @@ class LocalProfile(Panel):
     def _draw(self) -> None:
         editing = self._editing
         self.set_hint(view.local_hint(self._local))
-        self.inner.setVisible(editing)
-        self.ask.setVisible(editing)
-        self.why.setVisible(editing)
-        self.form.setVisible(editing)
+        self.reveal.set_open(editing)  # ask, why and the form go with it
         self.fallback.setVisible(editing and not self._local and bool(self.fallback.text()))
         self.change_button.setVisible(not editing and bool(self._local))
         self.cancel_button.setVisible(editing and bool(self._local))
@@ -270,8 +312,11 @@ class Questions(Panel):
         self.result_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         rl.addLayout(head)
         rl.addWidget(self.result_text)
+        self.sweep = motion.Sweep(self.result, t.qcolor(t.ACCENT))
         self.add(inner)
-        self.add(self.result)
+        self.result_reveal = self.add(motion.Reveal(self.result))
+        self.result_reveal.set_open(False)
+        self._status = view.NOT_RUN
         self._can_fill = True
         self._draw()
 
@@ -291,11 +336,21 @@ class Questions(Panel):
         self._draw()
 
     def set_run(self, r: view.Run) -> None:
-        self.result.setVisible(r.status != view.NOT_RUN)
+        changed = r.status != self._status
+        was_open = self.result_reveal.is_open()
+        self._status = r.status
         self.result_title.setText(r.title)
         self.result_text.setText(r.text)
-        self.standin_chip.setVisible(r.standin and r.status == view.DONE)
+        chip = r.standin and r.status == view.DONE
+        self.standin_chip.setVisible(chip)
         _restyle(self.result_text, "strong" if r.status == view.FAILED else "soft")
+        self.result_reveal.set_open(r.status != view.NOT_RUN)
+        self.sweep.set_running(r.status == view.RUNNING)
+        if changed and was_open and r.status != view.NOT_RUN:
+            for w in (self.result_title, self.result_text):
+                motion.swap(w)  # "Reading your answers" gives way to what came back
+            if chip:
+                motion.fade_in(self.standin_chip, motion.SWAP)
 
     def _draw(self) -> None:
         self.count.setText(view.answered_text(self.answers()))
@@ -341,8 +396,10 @@ class ProfileForm(Panel):
         col.addLayout(grid)
         self.speed_problem = label("", "strong", fonts.small())
         self.note = label("", "muted", wrap=True)
-        col.addWidget(self.speed_problem)
-        col.addWidget(self.note)
+        self.speed_problem_reveal = motion.Reveal(self.speed_problem)
+        self.note_reveal = motion.Reveal(self.note)
+        col.addWidget(self.speed_problem_reveal)
+        col.addWidget(self.note_reveal)
         self.add(inner)
         self.problem = ""
 
@@ -360,7 +417,7 @@ class ProfileForm(Panel):
                 w.setStyleSheet(EMPTY_COMBO if w.currentData() is None else "")
         self.set_hint(hint)
         self.note.setText(view.profile_note(draft))
-        self.note.setVisible(bool(self.note.text()))
+        self.note_reveal.set_open(bool(self.note.text()))
         self._draw_problem()
 
     def _picked(self, field: str) -> None:
@@ -379,8 +436,9 @@ class ProfileForm(Panel):
             self.edited.emit({"speed_rpm": value})
 
     def _draw_problem(self) -> None:
-        self.speed_problem.setText(self.problem)
-        self.speed_problem.setVisible(bool(self.problem))
+        if self.problem:
+            self.speed_problem.setText(self.problem)  # kept while it closes, so the words go with it
+        self.speed_problem_reveal.set_open(bool(self.problem))
 
 
 # ---- step 3: the starting model ---------------------------------------------------
@@ -413,7 +471,6 @@ class StartingModel(Panel):
             self.values[key] = v
         self.warning = label("", "soft", wrap=True)
         self.problem = label("", "strong", wrap=True)
-        self.problem.hide()
         self.by_code = label(view.PICKED_BY_CODE, "muted", fonts.small(), wrap=True)
         bar = QHBoxLayout()
         bar.setSpacing(12)
@@ -422,32 +479,54 @@ class StartingModel(Panel):
         self.confirm_line = label("", "soft", wrap=True)
         bar.addWidget(self.use_button)
         bar.addWidget(self.confirm_line, 1)
-        for w in (self.entry, self.problem, self.rows, self.warning, self.by_code):
+        self.problem_reveal = motion.Reveal(self.problem)
+        self.rows_reveal = motion.Reveal(self.rows)
+        self.warning_reveal = motion.Reveal(self.warning)
+        for w in (self.entry, self.problem_reveal, self.rows_reveal, self.warning_reveal, self.by_code):
             col.addWidget(w)
+        self.problem_reveal.set_open(False)
         col.addSpacing(4)
         col.addLayout(bar)
         self.add(inner)
+        self._confirmed = False
 
     def set_choice(self, choice, problem: str = "") -> None:
-        self.entry.setText(view.choice_title(choice) if choice else view.NO_CHOICE if problem else view.LOOKING_UP)
+        title = view.choice_title(choice) if choice else view.NO_CHOICE if problem else view.LOOKING_UP
+        if title != self.entry.text():
+            self.entry.setText(title)
+            motion.swap(self.entry)
         _restyle(self.entry, "strong" if choice else "muted")
-        self.problem.setText(problem if not choice else "")
-        self.problem.setVisible(bool(self.problem.text()))
+        shown = problem if not choice else ""
+        if shown:
+            self.problem.setText(shown)  # the old words stay while it closes
+        self.problem_reveal.set_open(bool(shown))
         rows = dict(view.choice_rows(choice))
-        for key, v in self.values.items():
-            v.setText(rows.get(key, ""))
-        self.rows.setVisible(bool(rows))
-        self.warning.setText(view.choice_warning(choice))
-        self.warning.setVisible(bool(self.warning.text()))
+        if rows:
+            for key, v in self.values.items():
+                v.setText(rows.get(key, ""))
+        self.rows_reveal.set_open(bool(rows))
+        warning = view.choice_warning(choice)
+        if warning:
+            self.warning.setText(warning)
+        self.warning_reveal.set_open(bool(warning))
 
     def set_confirm(self, line: str, problem: str) -> None:
-        self.confirm_line.setText(line)
+        if line != self.confirm_line.text():
+            self.confirm_line.setText(line)
+            motion.swap(self.confirm_line)
         self.use_button.setEnabled(not problem)
         self.use_button.setToolTip(problem)
 
     def set_confirmed(self, confirmed: bool) -> None:
         """A confirmed profile shows who confirmed it, not a dead button."""
-        self.use_button.setVisible(not confirmed)
+        if confirmed == self._confirmed:
+            return
+        self._confirmed = confirmed
+        if confirmed:
+            motion.fade_out(self.use_button, lambda: self.use_button.setVisible(not self._confirmed))
+        else:
+            self.use_button.show()
+            motion.fade_in(self.use_button)
 
 
 # ---- step 4: the device ----------------------------------------------------------
@@ -465,13 +544,17 @@ class DeviceAnswer(Panel):
         row.addWidget(self.mark)
         row.addWidget(self.line, 1)
         self.note = label("", "muted", wrap=True)
+        self.note_reveal = motion.Reveal(self.note)
         col.addLayout(row)
-        col.addWidget(self.note)
+        col.addWidget(self.note_reveal)
         self.add(inner)
 
     def set_device(self, d: view.Device) -> None:
         self.status = d.status
         self.mark.set_status(d.status)
-        self.line.setText(d.line)
-        self.note.setText(d.note)
-        self.note.setVisible(bool(d.note))
+        if d.line != self.line.text():
+            self.line.setText(d.line)
+            motion.swap(self.line)
+        if d.note:
+            self.note.setText(d.note)
+        self.note_reveal.set_open(bool(d.note))
