@@ -61,8 +61,8 @@ def test_the_stubs_read_empty_and_say_not_built(make_host, make_state, qtbot):
     assert state.log.parts() == [] and state.log.entries() == [] and state.log.selected_part() is None
     assert state.log.review("part-0001") is None and state.log.review_running("part-0001") is False
     with qtbot.waitSignal(state.action_failed) as said:
-        state.log.start_review("part-0001")  # the rest of state.log is built: test_data_partlog.py
-    assert said.args == ["The part review is not built yet."]
+        state.log.create_part("Drive roller", "roller")  # state.log is built: test_data_partlog.py
+    assert said.args == ["Part not added: no machine is shown."]
     with qtbot.waitSignal(state.action_failed) as said:
         state.scans.import_file("scan.usdz")
     assert said.args == ["Scans are not built yet."]

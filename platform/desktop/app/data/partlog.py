@@ -13,20 +13,25 @@ the first `entries()` for a machine fetches its log, and `entries_changed` says
 when it is there. A part's state is the receiver's (contract section 8.7) and is
 never worked out here.
 
-Not built yet: `start_review` (the part review agent, plan item J4). `review()`
-and `review_running()` already read the `part_review` runs the state holds.
+A part review is `python3 platform/part_review.py`, run as a local process, as
+the report agent is: never over HTTP (contract section 8.8). Its runs come back
+on the stream and are read from the runs the state holds.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
+import sys
 
-from . import logic
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
+
+from . import logic, model_server, paths
 from .api import ApiError, quote
 
 LOG_LIMIT = 2000  # the most entries the receiver gives in one read
 REVIEW_AGENT = "part_review"  # `agent` of a part review run (contract section 8.8)
-REVIEW_NOT_BUILT = "The part review is not built yet."
+REVIEW_SCRIPT = paths.PLATFORM / "part_review.py"
+REVIEW_MODES = ("standin", "local")
+EVERY_PART = ""  # what `_reviewing` holds while one process reviews every part
 
 
 def _when(entry) -> float:
@@ -49,6 +54,9 @@ class PartLog(QObject):
         self._entries_loaded: set = set()  # machines whose log has been fetched since the last snapshot
         self._entries_loading: set = set()
         self._selected = None
+        self._review_process = None  # QProcess of the part review this app started
+        self._reviewing = None  # the part it reviews, or EVERY_PART
+        self._review_output = b""
 
     # ---- fed by the state -------------------------------------------------
 
@@ -152,9 +160,14 @@ class PartLog(QObject):
         return max(self._reviews(part_id), key=lambda r: r.get("at") or "", default=None)
 
     def review_running(self, part_id) -> bool:
-        """True while a review of this part runs."""
+        """True while a review of this part runs: one this app started, or one its newest run says is running."""
+        if self._review_alive() and self._reviewing in (EVERY_PART, part_id):
+            return True
         newest = self.review(part_id)
         return bool(newest) and newest.get("status") == "running"
+
+    def _review_alive(self) -> bool:
+        return self._review_process is not None and self._review_process.state() != QProcess.NotRunning
 
     # ---- actions ----------------------------------------------------------
 
@@ -221,8 +234,57 @@ class PartLog(QObject):
 
     def start_review(self, part_id=None, mode="standin") -> None:
         """Run the part review for one part, or for every part when None.
-        `mode` is 'standin' or 'local', as for the report agent. Not built yet (plan item J4)."""
-        self.state.action_failed.emit(REVIEW_NOT_BUILT)
+        `mode` is 'standin' or 'local', as for the report agent. One process at a
+        time: the reviews are advice, and none changes a part's state."""
+        machine = self.state.current_machine()
+        if mode not in REVIEW_MODES:
+            self.state.action_failed.emit(f"Part review not started: unknown mode: {mode}")
+            return
+        if not machine:
+            self.state.action_failed.emit("Part review not started: no machine is shown.")
+            return
+        if self._review_alive() or (part_id and self.review_running(part_id)):
+            self.state.action_failed.emit("Part review not started: one is already running.")
+            return
+        args = [str(REVIEW_SCRIPT), "--machine", machine, "--port", str(self.state.api.port), "--backend", mode]
+        if part_id:
+            args += ["--part", str(part_id)]
+        if mode == "local":
+            url = self.state.models.url
+            answer, why = model_server.probe(url)
+            if answer != model_server.READY:
+                self.state.action_failed.emit(f"Part review not started: {why}")
+                return
+            args += ["--llm-url", url]  # named on every run, so nothing in the environment points it elsewhere
+        process = QProcess(self)
+        process.setProcessEnvironment(QProcessEnvironment.systemEnvironment())
+        process.setProcessChannelMode(QProcess.MergedChannels)
+        process.readyReadStandardOutput.connect(self._review_read)
+        process.finished.connect(self._review_finished)
+        process.errorOccurred.connect(self._review_error)
+        self._review_process, self._reviewing, self._review_output = process, part_id or EVERY_PART, b""
+        process.start(sys.executable, args)
+        self.reviews_changed.emit()
+
+    def _review_read(self) -> None:
+        if self._review_process is not None:
+            self._review_output += bytes(self._review_process.readAllStandardOutput())
+
+    def _review_error(self, error) -> None:
+        if error == QProcess.FailedToStart:
+            self._review_process = None
+            self.state.action_failed.emit(f"Part review not started: could not run {REVIEW_SCRIPT}.")
+            self.reviews_changed.emit()
+
+    def _review_finished(self, code, status) -> None:
+        self._review_read()
+        lines = [line for line in self._review_output.decode("utf-8", errors="replace").splitlines() if line.strip()]
+        self._review_process = None
+        if status != QProcess.NormalExit:
+            self.state.action_failed.emit("The part review stopped before it finished.")
+        elif code != 0:  # a part got no checked review: the command's last line says why
+            self.state.action_failed.emit(f"Part review: {lines[-1] if lines else f'exit code {code}'}")
+        self.reviews_changed.emit()
 
     def export_csv(self, path) -> None:
         """Save the log as a CSV file: the receiver's own, so the app and the route give the same file."""

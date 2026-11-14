@@ -118,12 +118,12 @@ def test_a_refused_action_says_why(qtbot, state, host, make_host, make_state):
         state.log.answer_alarm_for_part("alarm-9999", "real", "part-0001")
     assert said.args == ["Answer not saved: no such alarm: alarm-9999"]
     with qtbot.waitSignal(state.action_failed, timeout=5000) as said:
-        state.log.start_review("part-0001")
-    assert said.args == ["The part review is not built yet."]
+        state.log.start_review("part-0001", mode="cloud")
+    assert said.args == ["Part review not started: unknown mode: cloud"]
 
     empty = make_state(make_host(port=0, data_dir=host.data_dir.parent / "empty"))  # no machine yet
     for action in (lambda: empty.log.create_part("Belt", "belt"), lambda: empty.log.add_entry("note", "x"),
-                   lambda: empty.log.export_csv("nowhere.csv")):
+                   lambda: empty.log.export_csv("nowhere.csv"), lambda: empty.log.start_review()):
         with qtbot.waitSignal(empty.action_failed, timeout=1000) as said:
             action()
         assert said.args[0].endswith("no machine is shown.")
@@ -201,7 +201,46 @@ def test_the_log_is_saved_as_the_receivers_csv(qtbot, state, tmp_path):
     assert said.args[0].startswith("Log not exported: ")
 
 
-# ---- part review runs: read only, the agent is plan item J4 ----------------------
+# ---- part reviews ------------------------------------------------------------------
+
+
+def test_a_part_review_is_run_with_the_stand_in(qtbot, state, client):
+    log = state.log
+    roller, belt = made(qtbot, log), made(qtbot, log, "Belt", "belt")
+    with qtbot.waitSignal(log.entries_changed, timeout=5000):
+        log.add_entry("finding", "crack in the shell", roller["part_id"], needs_repair=True)
+    qtbot.waitUntil(lambda: log.part(roller["part_id"])["state"]["name"] == "needs_repair", timeout=5000)
+    before = log.part(roller["part_id"])["state"]
+
+    with qtbot.waitSignal(log.reviews_changed, timeout=1000):
+        log.start_review(roller["part_id"])
+    assert log.review_running(roller["part_id"]) is True and log.review_running(belt["part_id"]) is False
+    with qtbot.waitSignal(state.action_failed, timeout=1000) as said:
+        log.start_review(belt["part_id"])
+    assert said.args == ["Part review not started: one is already running."]
+    qtbot.waitUntil(lambda: not log.review_running(roller["part_id"]) and log.review(roller["part_id"]) is not None, timeout=30000)
+
+    run = log.review(roller["part_id"])
+    assert (run["agent"], run["status"], run["ok"], run["simulated"]) == ("part_review", "done", True, True)
+    assert run["review"]["needs_repair"] == "yes" and run["report"] is None
+    qtbot.waitUntil(lambda: len(log.entries(part_id=roller["part_id"], kind="review")) == 1, timeout=5000)
+    assert log.entries(kind="review")[0]["run_id"] == run["run_id"]
+    assert log.part(roller["part_id"])["state"] == before  # advice: a review never changes the state
+    assert log.review(belt["part_id"]) is None
+
+    log.start_review()  # every part
+    assert log.review_running(belt["part_id"]) is True
+    qtbot.waitUntil(lambda: not log.review_running(belt["part_id"]) and log.review(belt["part_id"]) is not None, timeout=30000)
+    qtbot.waitUntil(lambda: len(log.entries(kind="review")) == 3, timeout=5000)
+
+
+def test_a_local_part_review_is_refused_with_no_model_server(qtbot, state):
+    part = made(qtbot, state.log)
+    state.models.url = "http://127.0.0.1:9"  # nothing listens there
+    with qtbot.waitSignal(state.action_failed, timeout=10000) as said:
+        state.log.start_review(part["part_id"], mode="local")
+    assert said.args[0].startswith("Part review not started: ") and state.log.review_running(part["part_id"]) is False
+
 
 
 def test_part_review_runs_are_read(qtbot, state, client):
