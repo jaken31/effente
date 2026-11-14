@@ -37,10 +37,9 @@
 // The MIC line also goes to USB, with how long one set of readings took to work out.
 //
 // The sound maths is checked against the Python on a computer (device/intake/tests/test_mic_features.py), and
-// this sketch compiles for the ESP32-S3 (arduino-esp32 3.3.12). IT HAS NOT RUN ON THE BOARD YET (13 Nov):
-// unverified there are the time one set takes (it must stay under 256 ms; the USB line prints it), and that
-// the UNO Q's sketch receives the paced frames whole. The I2S setup and the pins are the test version's,
-// which did run on the hardware.
+// this sketch compiles for the ESP32-S3 (arduino-esp32 3.3.12). On the board since 14 Nov: the UNO Q's sketch
+// receives the paced frames whole (none bad in two minutes). One set takes about 267 ms to work out (the USB
+// line prints it), a little over the 256 ms between sets, so about 1 set in 20 is skipped: 3.7 a second.
 
 #include <ESP_I2S.h>
 #include <math.h>

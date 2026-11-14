@@ -31,8 +31,9 @@ DATA = os.environ.get("EFFENTE_DATA", "/app/data")
 MACHINE = os.environ.get("EFFENTE_MACHINE", "machine-1")
 DEVICE = "effente-01"
 
-# Sensors not fitted yet, off until wired (the pipeline waits for every sensor it is told about):
-# EFFENTE_MIC=1 for the INMP441 microphone, EFFENTE_THERMAL=1 for the MLX90640-D55 thermal camera.
+# Raw-sample slots no sketch fills, off unless asked for (the pipeline waits for every sensor it is told about):
+# EFFENTE_MIC=1 for raw audio over the Bridge, EFFENTE_THERMAL=1 for a thermal camera on the microcontroller.
+# The microphone and camera as fitted need neither: see "snd" below and ThermalLink.
 MIC = os.environ.get("EFFENTE_MIC") == "1"
 THERMAL = os.environ.get("EFFENTE_THERMAL") == "1"
 
