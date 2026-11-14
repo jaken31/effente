@@ -11,7 +11,9 @@ is ever drawn in a colour that reads as "good", and a link the probe suggests is
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import math
+import re
+from datetime import UTC, datetime
 
 STATE_WORDS = {
     "needs_repair": "needs repair",
@@ -51,10 +53,10 @@ def _time(value) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        when = datetime.fromisoformat(value)
     except ValueError:
         return None
-    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def ago(since, now: datetime | None = None) -> str:
@@ -62,7 +64,7 @@ def ago(since, now: datetime | None = None) -> str:
     when = _time(since)
     if when is None:
         return ""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     seconds = max(0, int((now - when).total_seconds()))
     if seconds < 60:
         return "under 1 min"
@@ -97,7 +99,7 @@ def _point(value) -> tuple[float, float, float] | None:
         x, y, z = (float(v) for v in value)
     except (TypeError, ValueError):
         return None
-    return (x, y, z) if all(v == v and abs(v) != float("inf") for v in (x, y, z)) else None
+    return (x, y, z) if all(math.isfinite(v) for v in (x, y, z)) else None
 
 
 def pins(parts: list[dict], scan: dict | None, selected: str | None, palette: dict) -> list[dict]:
@@ -238,3 +240,149 @@ def parts_note(parts: list[dict], scan: dict | None) -> str:
     if scan is not None and (scan.get("model") or {}).get("status") == "ready":
         return "No parts yet. Press Add part, then click the model."
     return "No parts yet. Press Add part to list one without a pin."
+
+
+# ---- words the page shows ---------------------------------------------------------------------------------
+
+# Contract section 8.5. The Log page keeps its own copy: the two pages share no code, only state.log.
+PART_KINDS = ("motor", "bearing", "roller", "belt", "gearbox", "coupling", "fan", "pump", "mount", "frame",
+              "probe_point", "other")
+DEFAULT_PART_KIND = "other"
+
+# What each state means, from the contract's rules (section 8.7). The app must use these words for
+# `nothing_found`: it is not a health check.
+STATE_MEANS = {
+    "needs_repair": "A finding or an inspection says it needs repair, and no repair is logged since.",
+    "possible": "An open alarm on this machine is of a kind linked to this part. Nobody has confirmed it.",
+    "nothing_found": "The probe has been on the machine and nothing points at this part. "
+                     "That is not a check of the part itself.",
+    "not_checked": "The probe has not been on the machine since this part was added or repaired.",
+}
+
+
+def capitalise(text) -> str:
+    text = str(text or "")
+    return text[:1].upper() + text[1:]
+
+
+def kind_label(kind) -> str:
+    """"probe_point" -> "Probe point"."""
+    return capitalise(str(kind or "").replace("_", " "))
+
+
+def when(iso, tz=None) -> str:
+    """"14 Nov 16:05" in local time (or `tz`). "" if unknown."""
+    at = _time(iso)
+    if at is None:
+        return ""
+    at = at.astimezone(tz)
+    return f"{at.day} {at:%b %H:%M}"
+
+
+def scan_line(scan: dict | None, tz=None) -> str:
+    """The line beside the scan panel's title: when the shown scan was made, and its file's name."""
+    if scan is None:
+        return ""
+    made = when(scan.get("at") or scan.get("received_at"), tz)
+    name = str((scan.get("file") or {}).get("name") or "")
+    return " \u00b7 ".join(x for x in (f"scanned {made}" if made else "", name) if x)
+
+
+# ---- a scan on its way ------------------------------------------------------------------------------------
+
+STEP_LABELS = ("Received", "Converted", "On this laptop")
+
+
+def steps(view_state_name: str) -> list[dict]:
+    """The three steps a scan goes through before it can be shown, each with a mark: "done", "now",
+    "failed" or "todo". [] for a state with no scan on its way."""
+    marks = {
+        "arriving": ("done", "todo", "todo"),
+        "converting": ("done", "now", "todo"),
+        "failed": ("done", "failed", "todo"),
+        "fetching": ("done", "done", "now"),
+    }.get(view_state_name)
+    return [{"label": label, "mark": mark} for label, mark in zip(STEP_LABELS, marks, strict=True)] if marks else []
+
+
+# ---- the New scan panel -----------------------------------------------------------------------------------
+
+MACHINE_ID = re.compile(r"[a-z0-9-]{1,40}")
+NO_MACHINE_ID = "Type the machine's id to get its code."
+BAD_MACHINE_ID = "A machine id is 1 to 40 lowercase letters, digits or -."
+NO_QR_TEXT = "This app cannot make the pairing line yet, so there is no code to scan. Import a scan file instead."
+
+
+def machine_id_problem(text) -> str:
+    """Why this is not a machine id the QR code can carry (contract section 8.2). "" when it is one."""
+    text = str(text or "")
+    if not text:
+        return NO_MACHINE_ID
+    return "" if MACHINE_ID.fullmatch(text) else BAD_MACHINE_ID
+
+
+def other_machine_note(machine_id: str, current) -> str:
+    """A scan for a machine that is not the one shown arrives out of sight: say where it will be."""
+    if not machine_id or machine_id == current or machine_id_problem(machine_id):
+        return ""
+    return f"The scan will arrive under {machine_id}. Pick that machine in the sidebar to see it."
+
+
+# ---- the selected part ------------------------------------------------------------------------------------
+
+SHOWN_ENTRIES = 3
+
+
+def entry_text(entry: dict) -> str:
+    """An entry's own words. A finding or inspection may have none: then what it decided."""
+    text = str(entry.get("text") or "").strip()
+    if text:
+        return text
+    if entry.get("needs_repair") is True:
+        return "needs repair"
+    if entry.get("needs_repair") is False:
+        return "does not need repair"
+    return ""
+
+
+def detail(part: dict | None, entries: list[dict], scan: dict | None, model_shown: bool,
+           now: datetime | None = None, tz=None) -> dict | None:
+    """What the panel under the parts list says about the selected part. `entries` are that part's,
+    newest first. None when no part is selected."""
+    if part is None or part.get("removed"):
+        return None
+    name = state_name(part)
+    since = when((part.get("state") or {}).get("since"), tz)
+    held = ago((part.get("state") or {}).get("since"), now)
+    headline = capitalise(STATE_WORDS[name])
+    if since:
+        headline += f" since {since}" + (f" ({held})" if held and name in ("needs_repair", "possible") else "")
+    place = pin_place(part, scan)
+    pin_note = {"here": "", "other": "Its pin is on an older scan, so it has none on this one.",
+                "none": "It has no pin."}[place] if scan is not None else ""
+    pin_action = ""
+    if model_shown:
+        pin_action = "Move pin" if place == "here" else "Place pin"
+    shown = entries[:SHOWN_ENTRIES]
+    more = len(entries) - len(shown)
+    return {
+        "part_id": part["part_id"],
+        "name": str(part.get("name") or ""),
+        "kind": kind_label(part.get("kind")),
+        "state": name,
+        "headline": headline,
+        "means": STATE_MEANS[name],
+        "pin_note": pin_note,
+        "pin_action": pin_action,
+        "entries": [{"when": when(e.get("at"), tz), "kind": kind_label(e.get("kind")), "text": entry_text(e)}
+                    for e in shown],
+        "more": f"and {more} more in the log" if more > 0 else "",
+        "no_entries": "" if entries else "No entries yet. Open the log to add one.",
+        "simulated": any(bool(e.get("simulated")) for e in shown),
+    }
+
+
+def new_part_id(before: set, parts: list[dict]):
+    """The id of the part that was not there before, so a part just added can be selected."""
+    fresh = [p["part_id"] for p in parts if p["part_id"] not in before]
+    return fresh[-1] if fresh else None
