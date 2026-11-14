@@ -234,7 +234,7 @@ class UnoQSource:
         self._closed = False
         # the microphone's readings (an ESP32 on the header's UART): the last few sets, as (window end, readings)
         self._sound: list[tuple[float, np.ndarray]] = []
-        self.stats.update(sound_frames=0, sound_bad=0, sound_age_s=None)
+        self.stats.update(sound_frames=0, sound_wifi_frames=0, sound_bad=0, sound_age_s=None)
         # the thermal camera's frames, fetched over WiFi from the ESP32 (device/intake/thermal_link.py): the last
         # few, as (when it arrived, frame in deg C)
         self._heat: list[tuple[float, np.ndarray]] = []
@@ -243,6 +243,7 @@ class UnoQSource:
     # ------------------------------------------------------------ the microphone's readings (an ESP32, by UART)
     SOUND_NAMES = tuple(n for n in F.FEATURE_NAMES if n.startswith("snd_"))
     SOUND_SENT = tuple(n for n in SOUND_NAMES if n != "snd_env_order")  # what the ESP32 sends, in order
+    SOUND_WIFI_S = 0.01  # a set's time on WiFi, about
     SOUND_FRAME_S = 0.095  # the frame's time on the UART line (sent 8 bytes every 4 ms): stamped at its last byte
     # How far a set's window may end before or after the row's. Sets come one a second, and each takes about
     # 0.4 s to get here, so a row's set ended up to about 1.4 s before the row does.
@@ -273,7 +274,21 @@ class UnoQSource:
             elif t_us > self.last_us and t_us - self.last_us > 2 ** 31:
                 wraps -= 1
             arrived = self.offset + (t_us + wraps * 2 ** 32) / 1e6
-        end = arrived - self.SOUND_FRAME_S - min(int(age_ms), 60000) / 1000.0
+        self._sound_set(arrived - self.SOUND_FRAME_S - min(int(age_ms), 60000) / 1000.0, v)
+
+    def on_sound_wifi(self, age_ms, seq, payload) -> None:
+        """One set of sound readings straight from the ESP32 over WiFi (device/intake/thermal_link.py SoundLink):
+        every set, about 4 a second, at no cost to the microcontroller. `payload` is the 45 float32 readings,
+        `age_ms` as in on_sound. Timed by its arrival: WiFi adds a few ms, which SOUND_WIFI_S allows for."""
+        raw = bytes(payload)
+        if len(raw) != 4 * len(self.SOUND_SENT):
+            self.stats["sound_bad"] += 1
+            return
+        self.stats["sound_wifi_frames"] += 1
+        self._sound_set(self.clock() - self.SOUND_WIFI_S - min(int(age_ms), 60000) / 1000.0, np.frombuffer(raw, "<f4"))
+
+    def _sound_set(self, end: float, v) -> None:
+        """Keep a set whose window ended at `end` (our clock)."""
         row = np.full(len(self.SOUND_NAMES), np.nan)
         row[[self.SOUND_NAMES.index(n) for n in self.SOUND_SENT]] = v
         self._sound = (self._sound + [(end, row)])[-8:]  # replaced, not changed: the pipeline thread reads it

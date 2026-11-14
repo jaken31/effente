@@ -13,7 +13,9 @@
 // the sound readings of the last 1.024 s (sound_features.h, a copy of effente/features.py _sound()) and sends
 // on the UART (115200 baud), one after the other:
 //
-//   1. About once a second (every 4th set), a binary frame for the model, little-endian, 189 bytes:
+//   1. About once a second (every 4th set), a binary frame for the model, little-endian, 189 bytes. (With WiFi
+//      up and the UNO Q's Linux side connected to TCP port 8769, every set's frame goes there instead and
+//      none by UART: see thermal.h.)
 //        0xEF 0x53 | sequence (u16) | age (u16): ms from the window's last sample to the start of sending
 //        | count (u8) = 45 | 45 float32, the "snd_" readings in FEATURE_NAMES order without snd_env_order
 //        | CRC-16/CCITT-FALSE over everything after the two start bytes (u16)
@@ -194,11 +196,6 @@ static void sendTask(void *) {
       if (i2sOk) sendLevel();
       continue;
     }
-    if (!o.withFrame) {
-      Serial1.println(o.line);
-      sendLevel();
-      continue;
-    }
     uint32_t age = (micros() - o.windowEndUs) / 1000;
     if (age > 65535) age = 65535;
     o.frame[0] = 0xEF;
@@ -212,9 +209,17 @@ static void sendTask(void *) {
     o.frame[FRAME - 2] = crc & 0xFF;
     o.frame[FRAME - 1] = crc >> 8;
     seq++;
-    for (size_t i = 0; i < FRAME; i += 8) {
-      Serial1.write(o.frame + i, FRAME - i < 8 ? FRAME - i : 8);
-      vTaskDelay(pdMS_TO_TICKS(4));
+    // Every set has its frame. By WiFi when the UNO Q's Linux side is listening (thermal.h): all of them, and
+    // nothing for the UNO Q's microcontroller to take in. Otherwise by UART, about one a second.
+    bool byWifi = false;
+#if HAVE_THERMAL
+    byWifi = soundToWifi(o.frame, FRAME);
+#endif
+    if (!byWifi && o.withFrame) {
+      for (size_t i = 0; i < FRAME; i += 8) {
+        Serial1.write(o.frame + i, FRAME - i < 8 ? FRAME - i : 8);
+        vTaskDelay(pdMS_TO_TICKS(4));
+      }
     }
     Serial1.println(o.line);
     sendLevel();
@@ -249,7 +254,7 @@ void setup() {
   I2S.setPins(PIN_SCK, PIN_WS, -1, PIN_SD);
   i2sOk = I2S.begin(I2S_MODE_STD, RATE_HZ, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
   xTaskCreatePinnedToCore(captureTask, "mic", 4096, NULL, 5, NULL, 0);
-  xTaskCreatePinnedToCore(sendTask, "send", 4096, NULL, 4, NULL, 0);
+  xTaskCreatePinnedToCore(sendTask, "send", 8192, NULL, 4, NULL, 0);
   thermalBegin();
 }
 

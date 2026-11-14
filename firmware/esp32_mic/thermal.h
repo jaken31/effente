@@ -22,6 +22,11 @@
 //
 // A client that can't keep up misses frames; nobody waits for it. Up to 3 raw and 3 HTTP clients.
 //
+// The microphone's sound readings go out here too, on TCP port 8769: connect and every set follows, about 4 a
+// second, each the same 189-byte frame the UART carries (esp32_mic.ino). While someone is connected the sets
+// stop going by UART, which spares the UNO Q's microcontroller (every byte it takes in or passes on costs
+// accelerometer samples: measured 13 Nov); when nobody is, they go by UART as before.
+//
 // NOT RUN YET (13 Nov): compiles for the ESP32-S3 with the Adafruit MLX90640 library, but written without
 // the camera or the WiFi's details at hand. Unverified: the pins, the camera's settings, the frame rate,
 // and whether WiFi disturbs the microphone's timing.
@@ -50,6 +55,9 @@ static char thJson[TH_PIXELS * 7 + 160];
 static uint32_t thSeq = 0, thFrames = 0, thFailed = 0;
 static WiFiServer thRaw(THERMAL_RAW_PORT), thHttp(THERMAL_HTTP_PORT);
 static WiFiClient thRawClients[TH_CLIENTS], thSseClients[TH_CLIENTS];
+const uint16_t SOUND_PORT = 8769;
+static WiFiServer thSound(SOUND_PORT);
+static WiFiClient thSoundClients[TH_CLIENTS];
 static char thIp[20] = "";  // this board's address once WiFi is up (read by the sender, for the UART and USB lines)
 
 static void thWifiKeep() {
@@ -179,6 +187,37 @@ static void thServe(bool fresh) {
       }
     } else if (s) s.stop();
   }
+}
+
+// Called by the microphone's sender for every set (and only by it: these clients are its own). True if a
+// client took the set.
+static bool soundToWifi(const uint8_t *frame, size_t len) {
+  static bool serving = false;
+  if (!thIp[0]) return false;
+  if (!serving) {
+    thSound.begin();
+    serving = true;
+  }
+  WiFiClient c = thSound.accept();
+  if (c) {
+    c.setNoDelay(true);
+    bool kept = false;
+    for (int i = 0; i < TH_CLIENTS && !kept; i++)
+      if (!thSoundClients[i] || !thSoundClients[i].connected()) {
+        thSoundClients[i].stop();
+        thSoundClients[i] = c;
+        kept = true;
+      }
+    if (!kept) c.stop();
+  }
+  bool sent = false;
+  for (int i = 0; i < TH_CLIENTS; i++) {
+    WiFiClient &s = thSoundClients[i];
+    if (s && s.connected()) {
+      if (s.availableForWrite() >= (int)len && s.write(frame, len) == len) sent = true;
+    } else if (s) s.stop();
+  }
+  return sent;
 }
 
 // Its own task: WiFi, the camera, and whoever is reading. Nothing here is on the microphone's path.

@@ -24,7 +24,7 @@ from arduino.app_utils import App, Bridge  # noqa: E402
 from device.intake.device_app import DeviceApp  # noqa: E402
 from device.intake.source import UnoQSource  # noqa: E402
 from device.intake.stream import Stream  # noqa: E402
-from device.intake.thermal_link import ThermalLink  # noqa: E402
+from device.intake.thermal_link import SoundLink, ThermalLink  # noqa: E402
 from device.intake.uploader import ENV_URL, Uploader  # noqa: E402
 
 DATA = os.environ.get("EFFENTE_DATA", "/app/data")
@@ -57,6 +57,9 @@ def on_esp(ip):
 
 Bridge.provide("esp", on_esp)
 thermal = ThermalLink(source.on_thermal_frame, host=lambda: esp["ip"]).start()
+# Sound comes the same way when the ESP32 is on WiFi: every set, and nothing of it on the Bridge line. The
+# ESP32 then stops sending sets by UART; if WiFi goes, it goes back to one a second there.
+sound_link = SoundLink(source.on_sound_wifi, host=lambda: esp["ip"]).start()
 Bridge.provide("thermal", source.on_thermal)  # ignored unless EFFENTE_THERMAL=1
 
 mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and screen found, bus state

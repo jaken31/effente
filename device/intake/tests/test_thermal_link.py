@@ -15,7 +15,8 @@ from effente import features as F
 from device.intake.extract import feature_stream
 from device.intake.source import UnoQSource
 from device.intake.tests.test_mic import Clock, imu_batch
-from device.intake.thermal_link import ThermalLink, pack_frame
+from device.intake.tests.test_mic import SENT, readings
+from device.intake.thermal_link import SoundLink, ThermalLink, crc16, pack_frame, pack_sound
 
 
 def scene(hot=45.0, at=(10, 20)):
@@ -154,6 +155,43 @@ def test_heat_goes_missing_when_the_camera_stops_and_rows_never_wait():
     late = [x for t0, x in with_camera if t0 - 1_700_000_000.0 > 6.0]
     assert late and all("heat" in F.missing_sensors(x) or np.isnan(x[F.INDEX["th_max_c"]]) for x in late)
     assert all(np.isnan(x[F.INDEX["th_max_c"]]) for _, x in without)
+
+
+def test_sound_sets_arrive_by_wifi_and_damaged_ones_are_dropped():
+    assert crc16(b"123456789") == 0x29B1  # the standard check value for CRC-16/CCITT-FALSE
+    esp, got = FakeEsp32(), []
+    esp.start()
+    link = SoundLink(lambda age, seq, payload: got.append((age, seq, payload)), host="127.0.0.1", port=esp.port).start()
+    try:
+        good = pack_sound(7, 150, readings(63.5))
+        bad = bytearray(pack_sound(8, 150, readings(64.5)))
+        bad[40] ^= 1
+        esp.outbox += [good[:50]]
+        time.sleep(0.1)
+        esp.outbox += [good[50:] + bytes(bad) + pack_sound(9, 140, readings(65.5))]
+        assert wait(lambda: len(got) == 2)
+        assert [(a, s) for a, s, _ in got] == [(150, 7), (140, 9)]
+        assert np.frombuffer(got[0][2], "<f4")[SENT.index("snd_level_db")] == 63.5
+    finally:
+        link.close()
+        esp.stop = True
+
+
+def test_wifi_sound_reaches_the_rows_at_full_rate():
+    clock = Clock()
+    src = UnoQSource(clock=clock)
+    seq = 0
+    for first in range(0, 4000, 25):
+        imu_batch(src, clock, first)
+        if first % 250 == 0:  # a set every quarter of a second, as the ESP32 makes them
+            src.on_sound_wifi(120, seq, readings(60.0 + seq).tobytes())
+            seq += 1
+    src.close()
+    rows = list(feature_stream(src))
+    assert src.stats["sound_wifi_frames"] == 16 and src.stats["sound_bad"] == 0
+    levels = [x[F.INDEX["snd_level_db"]] for _, x in rows]
+    got = [v for v in levels if not np.isnan(v)]
+    assert got == sorted(got) and len(set(got)) >= 6  # rows a quarter of a second apart keep taking newer sets
 
 
 if __name__ == "__main__":
