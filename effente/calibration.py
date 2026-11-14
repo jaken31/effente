@@ -115,19 +115,29 @@ def _number(v) -> bool:
 def _entry_settings(entry_model: dict, columns: list[str]):
     """What the entry itself says about calibrating it: (widen factors or None, held mask).
 
-    A model file may carry "calibration": {"widen": one factor per reading, "hold": names or prefixes
-    ending in "_"}. widen multiplies the spread fitted here; hold names readings that are not judged.
-    The library's entries on master do not carry it (theirs is in manifest.json, which calibrate
+    A model file may carry "calibration": {"widen": {reading name: factor}, "hold": [names, or
+    prefixes ending in "_"]}, the shapes training/library writes in its manifests. widen multiplies
+    the spread fitted here and must name every reading the entry uses (names it does not use are
+    ignored); hold names readings that are not judged. Any other shape raises ValueError.
+    The library's entries on master do not carry the key (theirs is in manifest.json, which calibrate
     never reads), so for them this returns no widening and nothing held, and the entry's own spreads
     are then the floor (refit_prep)."""
     cal = entry_model.get("calibration")
     cal = cal if isinstance(cal, dict) else {}
     widen = cal.get("widen")
     if widen is not None:
-        widen = np.asarray(widen, float)
-        if widen.shape != (len(columns),) or not (np.isfinite(widen).all() and (widen > 0).all()):
-            raise ValueError(f"the entry's widen factors must be {len(columns)} numbers above 0")
-    hold = [str(h) for h in (cal.get("hold") or ())]
+        if not isinstance(widen, dict):
+            raise ValueError("the entry's widen factors must be given by reading name: {name: factor}")
+        factors = [widen.get(c) for c in columns]
+        bad = [c for c, f in zip(columns, factors) if not (_number(f) and math.isfinite(f) and f > 0)]
+        if bad:
+            raise ValueError(f"the entry's widen factors must be numbers above 0 for every reading it uses; "
+                             f"not so for {len(bad)} of {len(columns)}, the first {bad[0]}")
+        widen = np.asarray(factors, float)
+    hold = cal.get("hold")
+    hold = [] if hold is None else hold
+    if not isinstance(hold, (list, tuple)) or not all(isinstance(h, str) and h for h in hold):
+        raise ValueError("the entry's hold must be a list of reading names or prefixes")
     prefixes = tuple(h for h in hold if h.endswith("_"))
     whole = {h for h in hold if not h.endswith("_")}
     held = np.array([c in whole or (bool(prefixes) and c.startswith(prefixes)) for c in columns], bool)

@@ -372,11 +372,13 @@ def library_style_entry():
     held readings under "calibration", no fault classifier and no baseline, and its own extra keys."""
     d, manifest = entry()
     lib = copy.deepcopy(d)
-    n = len(lib["prep"]["columns"])
+    cols = lib["prep"]["columns"]
+    n = len(cols)
     lib["prep"]["centre"], lib["prep"]["scale"] = [0.0] * n, [1.0] * n
     lib.pop("fault_classifier"), lib.pop("baseline")
     lib.update(library_entry="fixture_conveyor", entry_version="0.1.0", source="entry",
-               calibration={"widen": [2.0] * n, "hold": ["trend_", "env_room_c"], "min_s": 300})
+               calibration={"widen": dict({c: 2.0 for c in cols}, a_reading_the_entry_does_not_use=3.0),
+                            "hold": ["trend_", "env_room_c"], "min_s": 300})  # by name, as the manifests have it
     man = {"manifest": "effente-entry-1", "entry": "fixture_conveyor", "version": "0.1.0", "status": "unverified",
            "features_version": d["features_version"],
            "fit_check": {"entry_heldout_score_median": manifest["held_out_score_quantiles"]["p50"], "rule": "open"}}
@@ -408,11 +410,30 @@ def test_a_library_entrys_widen_factors_and_held_readings_are_used():
     held[:, F.INDEX["env_room_c"]] += 30.0
     res = watch(cal, t[:200] + 300, held)
     assert all(r["diagnosis"] in ("normal", "warming_up") for r in res), {r["diagnosis"] for r in res}
-    bad = copy.deepcopy(lib)
-    bad["calibration"]["widen"] = bad["calibration"]["widen"][:-1]
-    raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
-    bad["calibration"]["widen"] = [0.0] * len(cols)
-    raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
+    good = lib["calibration"]["widen"]
+    for widen in ({c: f for c, f in good.items() if c != "vib_1x"},  # a reading the entry uses is not named
+                  dict(good, vib_1x=0.0), dict(good, vib_1x=float("nan")), dict(good, vib_1x="2"),
+                  [2.0] * len(cols), 2.0):  # one factor per column in a list is not the library's shape
+        bad = dict(lib, calibration=dict(lib["calibration"], widen=widen))
+        raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
+    for hold in ("trend_", ["trend_", 3], {"trend_": True}):  # a bare string used to hold nothing, silently
+        bad = dict(lib, calibration=dict(lib["calibration"], hold=hold))
+        raises(lambda: C.calibrate(bad, t, X, NAMES), "hold must be a list")
+
+
+def test_the_committed_manifests_widen_and_hold_are_accepted_when_copied_into_the_model():
+    """The shape on master (training/library/entries/conveyor/manifest.json), copied into the model
+    file: calibrate reads it. As shipped the model file has no such key, so this is not what runs."""
+    from training.library.load import load_entry
+    manifest, model = load_entry(Path(__file__).resolve().parents[2] / "library" / "entries", "conveyor")
+    t, X = seconds(300, seed=21, start=85_000, vib=0.3)
+    cal, report = C.calibrate(dict(model, calibration=manifest["calibration"]), t, X, NAMES)
+    assert report["spreads"] == "widened by the entry's factors"
+    cols = model["prep"]["columns"]
+    j = cols.index("vib_1x")
+    q1, q3 = np.percentile(X[:255, F.INDEX["vib_1x"]], [25, 75])
+    assert math.isclose(cal["prep"]["scale"][j], manifest["calibration"]["widen"]["vib_1x"] * (q3 - q1) / 1.349, rel_tol=1e-9)
+    assert report["readings_held"] and all(c.startswith(("time_", "trend_")) or c == "imu_temp_c" for c in report["readings_held"])
 
 
 def test_the_committed_conveyor_entry_calibrates_with_its_own_spreads_as_the_floor():
