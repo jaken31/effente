@@ -710,9 +710,9 @@ What not to say on stage:
 - Any size or measurement taken from the scan.
 - That the fault type to part table is validated. It is a starting value.
 
-## 15. Per-part readings (proposal for contract 3.5)
+## 15. Per-part readings (contract 3.5)
 
-Status: proposal, written Sat 14 Nov 2026. Not agreed by the team, and nothing in it is built. It is stretch work on top of sections 1 to 14 and follows every rule in section 3. The interface is section 9 of [platform/CONTRACT.md](../platform/CONTRACT.md). This section says who builds what.
+Status: agreed by the whole team on Sat 14 Nov 2026. Not a proposal any more. Nothing in it is built. It is stretch work on top of sections 1 to 14 and follows every rule in section 3. The interface is section 9 of [platform/CONTRACT.md](../platform/CONTRACT.md). This section says who builds what.
 
 ### 15.1 What it adds
 
@@ -744,7 +744,7 @@ Four things in the drawing are not to be built as drawn:
 
 ### 15.2 Who builds what
 
-Owners follow the folders in section 2. The simulator and the device link have no owner in this plan, so those two rows are proposals for the team to settle.
+Owners follow the folders in section 2. The simulator and the device link have no owner in section 2. When the team agreed this section it gave those three rows (V1, S1, S2) to Jake.
 
 | Piece | What | Files | Who |
 |-------|------|-------|-----|
@@ -752,10 +752,10 @@ Owners follow the folders in section 2. The simulator and the device link have n
 | R1. Receiver: the probe's part | Contract 9.1: the route, the stamp, the 60 second and 5 minute rules, the file that keeps the pick across a restart, the `probe` event. | `platform/server/log_store.py`, `log_api.py` | Jake |
 | R2. Receiver: readings | Contract 9.3: visits and readings as plain functions, the route, the part's `reading`, the `reading` event at most every 10 seconds. | `platform/partlog/readings.py` (new), `log_store.py`, `log_api.py` | Jake |
 | R3. Receiver: normal spectrum | Contract 9.4. | `platform/partlog/normal_spectrum.py` (new), `log_api.py` | Jake |
-| V1. Velocity, device link | Contract 9.2 for the link. | `platform/link/device_link.py` | Track 5, person to be agreed |
+| V1. Velocity, device link | Contract 9.2 for the link. | `platform/link/device_link.py` | Jake |
 | V2. Velocity, device | Contract 9.2 for the uploader. The one change asked of track 1. | `device/intake/uploader.py` | Track 1 |
-| S1. Simulator: velocity | Every simulated record carries `readings.vib_velocity_mm_s`, in step with its case. | `platform/sim/` | To be agreed (proposed: Jake) |
-| S2. Simulator: history | Contract 9.6: a command that writes weeks of visits, past findings and a repair, through the routes, and refuses on a live machine. | `platform/sim/` | To be agreed (proposed: Jake) |
+| S1. Simulator: velocity | Every simulated record carries `readings.vib_velocity_mm_s`, in step with its case. | `platform/sim/` | Jake |
+| S2. Simulator: history | Contract 9.6: a command that writes weeks of visits, past findings and a repair, through the routes, and refuses on a live machine. | `platform/sim/` | Jake |
 | M1. The Machine page | The one-screen layout of the drawing, on top of the page in PR #63: the probe control, tiles, chart, evidence panel, the review and log columns, and every "simulated" mark in contract 9.6. | `platform/desktop/app/pages/machine/` | Cameron |
 | M2. `state.log` additions | 15.3, and the fakes. | `platform/desktop/app/data/partlog.py`, `tests/fake_partlog.py` | Jake |
 | P1. The projection | Contract 9.5 as one plain function: readings and the newest repair in, the projection out. No model call anywhere near it. | `platform/partlog/projection.py` (new) | Jake |
@@ -773,7 +773,7 @@ Order:
  S2 needs R1 and R2, so its history can be seen.
 ```
 
-No times are set here. The team sets them when it agrees the proposal. Proposed: none of this starts before gate 2 of section 11 has passed, because the working demo and the Machine page of PR #63 come first.
+No times are set here. None were written down when the section was agreed. Still a proposal, not part of what was agreed: none of this starts before gate 2 of section 11 has passed, because the working demo and the Machine page of PR #63 come first.
 
 If it is not working, cut in this order, and the page falls back to what PR #63 builds:
 

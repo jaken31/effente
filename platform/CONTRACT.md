@@ -1,12 +1,12 @@
 # Device and platform contract
 
-Version 3.5, pending the team's sign-off. Section 9 is a proposal: not yet agreed, and not built. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 3.5. Section 9 was agreed by the whole team on Sat 14 Nov 2026. It is not a proposal any more, and it is still not built. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
 It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds nine fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq` and `part_id`.
 
 ## Changes from version 3.4
 
-Additions only. A version 3.4 device, dashboard or phone app keeps working. All of it is in section 9. It is a proposal, and none of it is built: see the note there.
+Additions only. A version 3.4 device, dashboard or phone app keeps working. All of it is in section 9. The whole team agreed it on Sat 14 Nov 2026. None of it is built: see the note there.
 
 - A person says which part the probe is on, and the platform stamps that machine's records with the `part_id` (section 9.1). The handheld changes nothing for this.
 - Every record carries the vibration velocity in mm/s, in `readings.vib_velocity_mm_s` (section 9.2). This is the one change on the sending side.
@@ -784,7 +784,7 @@ The rule-based stand-in writes a review with no model, labelled as a stand-in an
 
 ## 9. Part readings
 
-Added in version 3.5. **A proposal: not yet agreed by the team, and not built.** Device authors need 9.2 only. The work plan, and who builds which piece, is in section 15 of [docs/scan-and-log-plan.md](../docs/scan-and-log-plan.md).
+Added in version 3.5. **Agreed by the whole team on Sat 14 Nov 2026. Not built yet.** Device authors need 9.2 only. The work plan, and who builds which piece, is in section 15 of [docs/scan-and-log-plan.md](../docs/scan-and-log-plan.md).
 
 The page this section serves is drawn in [docs/design/machine-onepage.html](../docs/design/machine-onepage.html). The machine in that file is a drawing, not a scan, and every number in it is sample data, not a measurement. Its "alarm threshold 4.5 mm/s" is one of those: see 9.5 for the line that is really used. Where the drawing and this section differ, this section wins.
 
