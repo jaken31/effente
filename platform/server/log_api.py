@@ -5,11 +5,11 @@ scan_api.py for what `request` offers. The log store is `request.server.store.pa
 The answer that names a part (section 8.6) needs no route here: it comes in on
 the alarm answer route and reaches the log store through its `alarm_answered` hook.
 
-Of the three routes of section 9 (part readings), those not built yet are stubs
-at the end that answer 400 "not built yet".
+The three routes of section 9 (part readings) are at the end.
 """
 
 from log_store import DEFAULT_LOG_LIMIT, ENTRY_KINDS
+import normal_spectrum  # noqa: E402  platform/partlog, put on the path by log_store
 from receiver_store import MAX_HISTORY_LIMIT, BadRequest, parse_time
 
 DEFAULT_READINGS_LIMIT = 300
@@ -70,14 +70,7 @@ def get_machine_log_csv(request, query, machine_id):
     request.send_bytes(200, _log(request).machine_csv(machine_id, **_filters(query)), "text/csv; charset=utf-8")
 
 
-# ---- section 9: part readings. Stubs. ------------------------------------
-
-NOT_BUILT = "not built yet"
-
-
-def _not_built(request):
-    request.discard_body()  # unread bytes would be taken as the next request
-    raise BadRequest(NOT_BUILT)
+# ---- section 9: part readings ---------------------------------------------
 
 
 def put_probe(request, query, machine_id):
@@ -103,5 +96,14 @@ def get_part_readings(request, query, part_id):
 
 
 def get_normal_spectrum(request, query, machine_id):
-    """GET /api/machines/<machine_id>/normal-spectrum (section 9.4)"""
-    _not_built(request)
+    """GET /api/machines/<machine_id>/normal-spectrum (section 9.4). With `part`, only its records."""
+    part_id = query.get("part", [None])[-1] or None
+    store = request.server.store
+    with store.lock:
+        part = _log(request).parts.get(part_id) if part_id is not None else None
+        if part_id is not None and (part is None or part["machine_id"] != machine_id):
+            raise BadRequest(f"no such part on {machine_id}: {part_id}")
+        records = list(store.by_machine.get(machine_id, ()))
+        models = dict(store.models)
+    reply = normal_spectrum.normal_spectrum(machine_id, records, part_id, lambda version: (models.get(version) or {}).get("spectrum_edges_hz"))
+    request.send_json(200, dict({"ok": True}, **reply))
