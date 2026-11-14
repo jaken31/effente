@@ -66,12 +66,16 @@ def band_features(x: np.ndarray, rate: float, edges: np.ndarray) -> np.ndarray:
     return np.vstack([bands, np.log10(rms), (x ** 4).mean(0) / rms ** 4 - 3, np.abs(x).max(0) / rms]).T.ravel()
 
 
+SND_EDGES_LOG64 = np.geomspace(50.0, 8000.0, 65)  # the first round's sound bands (64 log bands)
+
+
 def window_row(accel_g: np.ndarray, audio: np.ndarray, accel_rate: float = 1000.0,
-               audio_rate: float = 16000.0, audio_full_scale: float = 32767.0) -> np.ndarray:
-    """One second: (n, 3) acceleration in g and (m,) sound -> N_VIB + N_SND inputs (vibration first).
+               audio_rate: float = 16000.0, audio_full_scale: float = 32767.0,
+               snd_edges: np.ndarray = SND_EDGES) -> np.ndarray:
+    """One second: (n, 3) acceleration in g and (m,) sound -> N_VIB + len(snd_edges) + 2 inputs (vibration first).
     The sound's scale only shifts its log levels, which the robust scaling removes; keep it fixed per device."""
     return np.r_[band_features(accel_g, accel_rate, VIB_EDGES),
-                 band_features(np.asarray(audio, float) / audio_full_scale, audio_rate, SND_EDGES)]
+                 band_features(np.asarray(audio, float) / audio_full_scale, audio_rate, snd_edges)]
 
 
 def default_groups(n_inputs: int = N_VIB + N_SND) -> list[np.ndarray]:
@@ -351,6 +355,21 @@ class BandModel:
     @classmethod
     def load(cls, path) -> "BandModel":
         return cls.from_dict(json.loads(Path(path).read_text()))
+
+
+# Named settings. "lin50" is the round-2 final (frozen before its confirmation run). "log64" is the first round's
+# recommendation (64 log sound bands, groups fused by the maximum, group levels from two halves in time taken inside
+# each recording, judged by one model on all rows, 99th percentile line), with that normaliser fix: use it with
+# window_row(..., snd_edges=SND_EDGES_LOG64). On SSCC's held-back set the two catch about as many real faults
+# (see SSCC_RESULTS.md, round 2); lin50 is stronger under loud background noise and on the screwdrop, log64 in quiet.
+PRESETS = {
+    "lin50": {},
+    "log64": {"q": 0.99, "fuse": "max", "norm": "halves", "judge_with": "full", "vib_floor": None},
+}
+
+
+def make_model(preset: str = "lin50", **kw) -> "BandModel":
+    return BandModel(**{**PRESETS[preset], **kw})
 
 
 class BandModes:

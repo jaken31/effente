@@ -41,6 +41,20 @@ def check_rows(folder="normal__heavy_vel80_noise", clips=(0, 7)):
     return worst
 
 
+def check_preset_log64(cond="heavy_vel60_noise"):
+    d = E.data()
+    learn, hold = C.split_normal(d, cond)
+    RL, grp = E.rows("v1+a64", learn)
+    RH = E.rows("v1+a64", hold)[0]
+    flat = lambda a: a.reshape(-1, a.shape[-1])
+    cfg = E.cfg_parse("v1+a64|norm=halves,judge=full")
+    ref = E.make(cfg, grp, cfg["fs"]).learn(flat(RL))
+    m = BM.make_model("log64").learn(flat(RL))
+    a, b = ref.scores(flat(RH)), m.scores(flat(RH))
+    print(f"4. make_model('log64') vs explore 'v1+a64|norm=halves,judge=full' on {cond}: line {m.line:.6f} vs "
+          f"{ref.line:.6f}; scores largest relative difference {float(np.max(np.abs(a - b) / b)):.2e}")
+
+
 def check_model(cond="light_vel80_noise"):
     d = E.data()
     learn, hold = C.split_normal(d, cond)
@@ -65,3 +79,4 @@ def check_model(cond="light_vel80_noise"):
 if __name__ == "__main__":
     check_rows()
     check_model()
+    check_preset_log64()
