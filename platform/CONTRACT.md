@@ -1,8 +1,19 @@
 # Device and platform contract
 
-Version 3.3, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 3.4, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
 It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds eight fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq`.
+
+## Changes from version 3.3
+
+Additions only. A version 3.3 device or dashboard keeps working. All of it is in section 8, and none of it is built yet: see the note there.
+
+- `GET /api/hello`, a small reply the phone scan app uses to find the laptop (section 8.1).
+- Scans: the phone uploads a 3D scan of a machine as a raw file, the platform stores and converts it (sections 8.2 to 8.4).
+- Parts and log entries for each machine, and a state for each part worked out from entries, alarms and records (sections 8.5 to 8.7).
+- An alarm answer may name a part (section 8.6).
+- A second agent, `part_review`, posts its runs with message 4 (section 8.8).
+- `GET /api/state` gains `scans` and `parts`. The stream gains the events `scan`, `part` and `log_entry`.
 
 ## Changes from version 3.2
 
@@ -484,7 +495,279 @@ While a value is set, every reply to message 2 and message 3 carries it. When it
 
 The device's own `/settings` on port 8765 and `data/settings.json` stay for bench use. While the dashboard has a value set, the next reply overwrites a local change. Clear the dashboard's value to tune on the device.
 
-## Not in version 3.3
+## 8. Scans, parts and the log
+
+Added in version 3.4. Device authors can skip this section: the handheld sends nothing new. Three things use it: the phone scan app (track 6), the desktop app, and the part review agent.
+
+Everything in Basics still holds. The work plan, and who builds which part, is in [docs/scan-and-log-plan.md](../docs/scan-and-log-plan.md).
+
+**Not built yet.** Version 3.4 is wired in but not built. Until a part lands, each of its routes answers HTTP 400 with `{"ok": false, "error": "not built yet"}`, `GET /api/state` has no `scans` or `parts`, the stream sends none of the new events, and an alarm answer's `part_id` and `needs_repair` are stored and passed on like any unknown field.
+
+Ids made by the platform (`scan_id`, `part_id`, `entry_id`) are opaque. They hold only letters, digits and `-`. Never build one yourself and never read meaning out of one.
+
+| Word | Meaning |
+|------|---------|
+| Machine | One piece of equipment. Its `machine_id` is the one the probe already sends, for example `conveyor-07`. |
+| Scan | One 3D capture of a machine, made by the phone. A machine can have several. The newest is the one shown. |
+| Part | One functional part of a machine that can fail on its own: a motor, a bearing, a roller, a mount. |
+| Pin | Where a part sits on a scan. A part can exist with no pin. |
+| Entry | One line in the log: a finding, an inspection, a repair, a note, or an agent's review. Entries are only ever added. |
+| Part state | What the log says about a part now: `needs_repair`, `possible`, `nothing_found` or `not_checked`. Worked out by the platform from entries and alarms. |
+| Review | What the part review agent wrote for one part. Advice only. |
+
+### 8.1 Hello (Cameron)
+
+`GET /api/hello`
+
+```json
+{"ok": true, "service": "effente", "contract": "3.4", "now": "2026-11-14T18:15:02Z", "max_scan_bytes": 268435456}
+```
+
+The phone calls this to show "laptop found" before a scan starts. It is small and fast, unlike `/api/state`.
+
+### 8.2 The QR code (Cameron draws it, Rohan reads it)
+
+The desktop app shows a QR code that holds one line of text:
+
+```
+effente://scan?v=1&base=http%3A%2F%2F192.168.43.10%3A8000&machine=conveyor-07&name=Conveyor%207
+```
+
+| Part | Rule |
+|------|------|
+| `v` | `1`. The app refuses any other value with "update the app". |
+| `base` | The receiver's address, URL-encoded, no trailing slash. The app sends every request to it. |
+| `machine` | The `machine_id` the scan is for. Lowercase letters, digits and `-`, 1 to 40 characters. |
+| `name` | Optional. What to show the person on the phone. |
+
+The same line can be pasted into the app by hand. That is the fallback when the camera cannot read the code.
+
+### 8.3 Upload a scan (Rohan sends, Cameron receives)
+
+`POST /api/machines/conveyor-07/scans?client_id=6F9619FF-8B86-D011-B42D-00C04FC964FF&at=2026-11-14T18:14:40Z&name=scan.usdz&app=effente-scan%200.1`
+
+The body is the file's raw bytes. Not JSON and not a multipart form: the receiver uses only the Python standard library, which has no multipart parser any more.
+
+| Thing | Rule |
+|-------|------|
+| `Content-Length` | Required. 1 byte to 268,435,456 bytes (256 MB). Chunked uploads are refused. |
+| `Content-Type` | `model/vnd.usdz+zip` for a USDZ file, `model/gltf-binary` for a GLB. The receiver does not trust it: it reads the first four bytes. `PK\x03\x04` is a USDZ (a USDZ is a zip file), `glTF` is a GLB. Anything else is a 400. |
+| `client_id` | Required. Made by the phone, one per scan, 8 to 64 letters, digits or `-`. Sending the same `client_id` again stores nothing and returns the first scan with `"duplicate": true`. This makes a retry after a dropped connection safe. |
+| `at` | When the scan was captured. Missing means the platform's time. |
+| `name`, `app` | Optional. The file name, and the app's name and version, for people. |
+
+Reply:
+
+```json
+{"ok": true, "duplicate": false, "scan": {"...": "the scan, as in 8.4"}}
+```
+
+The receiver writes the body to disk as it arrives and never holds it in memory. A body that is too large or not a known file type gets a 400 and the connection is closed.
+
+### 8.4 The scan (Cameron)
+
+```json
+{
+  "scan_id": "scan-20261114181502-3fa9",
+  "machine_id": "conveyor-07",
+  "client_id": "6F9619FF-8B86-D011-B42D-00C04FC964FF",
+  "at": "2026-11-14T18:14:40Z",
+  "received_at": "2026-11-14T18:15:02Z",
+  "format": "usdz",
+  "file": {"name": "scan.usdz", "bytes": 18234112},
+  "app": "effente-scan 0.1",
+  "model": {
+    "status": "ready",
+    "reason": "",
+    "bytes": 9120344,
+    "bounds": {"min": [-0.21, 0.0, -0.09], "max": [0.21, 0.14, 0.09]}
+  }
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `format` | `usdz` or `glb`, from the file's first bytes. |
+| `model.status` | `waiting` (stored, not yet converted), `converting`, `ready`, or `failed`. A GLB upload is `ready` at once. |
+| `model.reason` | A plain sentence when `failed`, for example "Blender is not installed on this laptop". Empty otherwise. |
+| `model.bytes`, `model.bounds` | Present when `ready`. `bounds` is the smallest box around the model, in the model's own coordinates. |
+
+**Coordinates.** Every position in this section is in the coordinates of the converted file, `model.glb`: three numbers `[x, y, z]`, right-handed, Y up, in the file's own units. For a scan from Apple's Object Capture that should be metres (unverified). A position belongs to one scan. It means nothing on another scan of the same machine.
+
+Routes:
+
+| Route | Returns |
+|-------|---------|
+| `GET /api/machines/conveyor-07/scans?limit=20` | `{"ok": true, "scans": [...]}`, newest `received_at` first |
+| `GET /api/scans/scan-20261114181502-3fa9` | `{"ok": true, "scan": {...}}` |
+| `GET /api/scans/scan-20261114181502-3fa9/model.glb` | The converted file's bytes. A 400 with the status as the error while it is not `ready`. |
+| `GET /api/scans/scan-20261114181502-3fa9/file` | The file as the phone sent it |
+
+`GET /api/state` gains `"scans": {"conveyor-07": {"...": "that machine's newest scan"}}`. A machine with a scan appears in `machines` even if no probe has ever reported on it.
+
+The stream gains the event `scan`, with the scan as data, sent when a scan is stored and each time `model.status` changes.
+
+Stored under `platform/server/data/`, which is not committed: `scans.jsonl` (the newest line for a `scan_id` wins), and `scans/<scan_id>/` holding the original file and `model.glb`.
+
+### 8.5 Parts (Jake)
+
+```json
+{
+  "part_id": "part-0007",
+  "machine_id": "conveyor-07",
+  "name": "Drive roller",
+  "kind": "roller",
+  "fault_types": ["unbalance_like"],
+  "position": {"scan_id": "scan-20261114181502-3fa9", "at": [0.18, 0.06, 0.0]},
+  "note": "",
+  "created": {"at": "2026-11-14T18:20:11Z", "by": "Sam"},
+  "removed": false,
+  "state": {
+    "name": "possible",
+    "since": "2026-11-14T19:02:11Z",
+    "reason": "alarm open: unbalance_like",
+    "alarm_id": "alarm-1234",
+    "entry_id": null
+  }
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `name` | Required. What people call it. |
+| `kind` | Required. One of `motor`, `bearing`, `roller`, `belt`, `gearbox`, `coupling`, `fan`, `pump`, `mount`, `frame`, `probe_point`, `other`. `probe_point` marks where the sensor head sits. |
+| `fault_types` | The `diagnosis` names that point at this part. If left out when the part is made, the platform fills it from a table by `kind`. That table is a starting value, not checked on real faults, so every link it makes is shown as "possible". A person can edit the list. |
+| `position` | Where the pin is, or `null`. See Coordinates in 8.4. |
+| `removed` | `true` hides the part. Parts are never deleted, because entries point at them. |
+| `state` | Set by the platform. Never sent by a client. Rules in 8.7. |
+
+| Route | Body | Reply |
+|-------|------|-------|
+| `POST /api/machines/conveyor-07/parts` | `name`, `kind`, `by`, and optionally `position`, `fault_types`, `note` | `{"ok": true, "part": {...}}` |
+| `PUT /api/parts/part-0007` | `by`, and any of `name`, `kind`, `position`, `fault_types`, `note`, `removed` | `{"ok": true, "part": {...}}` |
+| `GET /api/machines/conveyor-07/parts` | | `{"ok": true, "parts": [...]}`, in the order they were made. Add `?removed=1` to include removed parts. |
+
+`GET /api/state` gains `"parts": {"conveyor-07": [...]}`, without removed parts. A machine with a part appears in `machines`.
+
+The stream gains the event `part`, with the part as data, sent when a part is made or changed, and when its `state` changes.
+
+### 8.6 Log entries (Jake)
+
+```json
+{
+  "entry_id": "entry-000123",
+  "machine_id": "conveyor-07",
+  "part_id": "part-0007",
+  "at": "2026-11-14T19:12:03Z",
+  "received_at": "2026-11-14T19:12:04Z",
+  "kind": "finding",
+  "text": "added weight found on the drive roller",
+  "by": "Sam",
+  "needs_repair": true,
+  "alarm_id": "alarm-1234",
+  "diagnosis": "unbalance_like",
+  "source": "alarm_answer",
+  "run_id": null,
+  "simulated": false
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `part_id` | The part, or `null` for an entry about the whole machine. |
+| `kind` | `finding` (a problem was found or ruled out), `inspection` (someone looked), `repair` (work was done), `note` (anything else), `review` (written by the part review agent). |
+| `text` | What happened, in the person's own words. Required, except for `finding` and `inspection`, where it may be empty. |
+| `by` | Required. The name the person gave. There is no login, so this is not proof. For a `review` it is `part review agent`. |
+| `needs_repair` | Required for `finding` and `inspection`: `true` or `false`. `null` for every other kind. |
+| `alarm_id`, `diagnosis` | The alarm this entry is about, and that alarm's `diagnosis`, or `null`. The platform fills `diagnosis` from the alarm. |
+| `source` | `person` (typed in the app), `alarm_answer` (made by the platform from an alarm answer), `agent`, or `import` (from an old spreadsheet). Set by the platform, except `import`. |
+| `run_id` | For a `review`, the agent run that wrote it. |
+| `simulated` | `true` if the alarm it is about was simulated, or the review was not written by a real model call. |
+
+Entries are only ever added. To correct one, add another. This is the same rule as alarm answers.
+
+| Route | Body | Reply |
+|-------|------|-------|
+| `POST /api/machines/conveyor-07/log` | `kind`, `by`, and `text`, `part_id`, `at`, `needs_repair`, `alarm_id` as the table says | `{"ok": true, "entry": {...}, "part": {"...": "the part with its new state, or null"}}` |
+| `GET /api/machines/conveyor-07/log?part=part-0007&kind=repair&since=2026-11-01T00:00:00Z&limit=300` | | `{"ok": true, "entries": [...]}`, newest `at` first. Every filter is optional. Default 300, at most 2,000. |
+| `GET /api/machines/conveyor-07/log.csv` | | The same entries as a CSV file that opens in a spreadsheet, with the same filters. Columns, in order: `at`, `part`, `kind`, `text`, `by`, `needs_repair`, `alarm_id`, `diagnosis`, `source`, `entry_id`. |
+
+The stream gains the event `log_entry`, with the entry as data.
+
+**Answering an alarm with a part.** `POST /api/alarms/alarm-1234/answers` (section 6) may now also carry `part_id` and `needs_repair`. When `part_id` is there, the platform adds a `finding` entry for that part: `text` is the answer's `finding`, `alarm_id` is the alarm, `source` is `alarm_answer`. A `false` verdict always stores `needs_repair: false`. For a `real` verdict, a missing `needs_repair` counts as `true`. The alarm and its answers are unchanged.
+
+### 8.7 Part state (Jake)
+
+The platform works a part's state out again whenever an entry is added, an alarm changes, or a record arrives. First rule that fits wins:
+
+| State | When | `since` |
+|-------|------|---------|
+| `needs_repair` | The part's newest `finding` or `inspection` says `needs_repair: true`, and no `repair` entry is newer than it. | That entry's `at` |
+| `possible` | An alarm on this machine is open or has no answer, it started after the part's newest `repair` entry, and its `diagnosis` is in the part's `fault_types`. | The `start` of the oldest such alarm |
+| `nothing_found` | The platform has at least one record from this machine newer than the part's newest `repair` entry, or newer than the part if it has none. | The `at` of the oldest such record |
+| `not_checked` | Otherwise: the probe has not been on this machine since the part was made or repaired. | `null` |
+
+`nothing_found` does not mean the part is healthy. It means the probe has been on the machine and nothing points at this part. The app must use those words.
+
+A `review` entry never changes the state. Neither does a `note`.
+
+### 8.8 The part review agent (Jake)
+
+One run per part. Each run reads only that part's own history. It answers the four questions a planner asks: what is wrong, how that kind of fault comes about, how long it has been there, and whether it needs repair.
+
+A person starts it, from a terminal or a button in the desktop app. Never over HTTP, as section 4 already says for the report agent.
+
+The run is posted with message 4, with three differences: `agent` is `part_review`, there is a `part_id`, and the result is in `review` while `report` stays `null`.
+
+```json
+{
+  "run_id": "review-20261114-193000-part-0007",
+  "agent": "part_review",
+  "machine_id": "conveyor-07",
+  "part_id": "part-0007",
+  "at": "2026-11-14T19:30:00Z",
+  "status": "done",
+  "model": "local: small.gguf",
+  "ok": true,
+  "reason": "",
+  "problems": [],
+  "tool_calls": [{"at": "2026-11-14T19:30:01Z", "name": "get_part_history", "input": {"part_id": "part-0007"}, "output": "{\"entries\": 3, \"alarms\": 1}"}],
+  "report": null,
+  "review": {
+    "what": "Possible unbalance on the drive roller, confirmed by Sam on 14 Nov.",
+    "how": "once-per-turn vibration grown (unbalance, a bent shaft, a lost blade)",
+    "since": "2026-11-14T19:02:11Z",
+    "needs_repair": "yes",
+    "why": "One alarm, answered as a real problem, and no repair entry since.",
+    "cited_alarms": ["alarm-1234"],
+    "cited_entries": ["entry-000123"]
+  },
+  "simulated": false
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `what`, `why` | Written by the model. |
+| `how` | Not written by the model. The code copies the fault type's own `text` from the model announcement (message 1). If there is no fault type, it is empty. This keeps the agent from inventing a cause the readings do not show. |
+| `since` | Not written by the model. The code copies the part's `state.since`. |
+| `needs_repair` | `yes`, `no` or `not_sure`. Advice. A person turns it into a `finding` or `inspection` entry if they agree. |
+| `cited_alarms`, `cited_entries` | Only ids that were in the history the agent was given. |
+
+Checks in code, for every review, whoever wrote it. They follow the report agent's checks in [docs/TRD.md](../docs/TRD.md):
+
+- The shape: these keys, these types, nothing extra.
+- Every cited id was in the history supplied.
+- Every number in `what` and `why` appears in the history supplied.
+- `what` and `why` name no fault type and no part that is not in the history supplied.
+- With no alarm and no entry that says `needs_repair: true`, `needs_repair` must not be `yes`.
+- One retry on a failed check. A second failure is discarded and the run says why.
+
+When a review passes, the command also adds a `review` entry to the log, so the review is part of the part's history.
+
+The rule-based stand-in writes a review with no model, labelled as a stand-in and as simulated, exactly as the report agent's stand-in does. The local model is opt-in.
+
+## Not in version 3.4
 
 - No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The model runs on the laptop or elsewhere on the site, so there is no key, and nothing is sent off the site.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
