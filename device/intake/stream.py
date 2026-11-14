@@ -15,7 +15,8 @@ platform or curl connects. No UI here, only the data.
                   On connect a client first gets the last 30 s of its topics, then live
                   data. Reconnecting with Last-Event-ID (EventSource does this by
                   itself) resumes after the last item it got, without repeats.
-  GET /latest     the last item of each topic, as one JSON object
+  GET /latest     the last item of each topic, as one JSON object; with "you_can_send": every setting and
+                  command the device takes, what each does, the values it takes and what it is now
   GET /features   name, text, unit and sensor of every feature, in row order
   GET /health     the server is up; how old the last result is
   GET /controls   everything a connected program can tell the device (settings and commands), each with
@@ -278,6 +279,8 @@ class Stream:
             last = {t: (self._rings[t][-1] if self._rings[t] else None) for t in ("results", "features", "events")}
         parts = [f'"{t}":' + (it.data() if it else "null") for t, it in last.items()]
         parts.append('"status":' + dumps(self.status()))
+        if self.controls is not None:  # what whoever reads this may send back: every setting and command, in full
+            parts.append('"you_can_send":' + dumps(self.controls()))
         return "{" + ",".join(parts) + "}"
 
     # ------------------------------------------------------------ clients

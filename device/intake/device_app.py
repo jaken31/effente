@@ -97,6 +97,10 @@ def _wrap(text: str, width: int = 21) -> list[str]:
     return lines + [cur] if cur else lines
 
 
+# The commands that do something in each mode (the others are refused or change nothing there).
+USEFUL_NOW = {"display": ["record", "detect", "clear_history"], "recording": ["stop", "idle"],
+              "training": [], "watching": ["record", "idle", "clear_history"]}
+
 ADD_MIN_S = 30.0  # the least recording worth adding to earlier ones, in seconds
 JOIN_MAX_ROWS = 400_000  # rows of several recordings joined in memory: about 4 days at one a second
 
@@ -790,6 +794,12 @@ class DeviceApp:
             # platform contract's values (display, recording, training, watching)
             s = {"mode": self.mode, "state": SCREEN_NAMES[self.mode], "mode_shown": SCREEN_NAMES[self.mode].lower(),
                  "message": self.message, "readings": readings(self.latest)}
+            # What may be sent back, in short, in every status message (once a second on the stream); the full
+            # list, with what each does and takes, is "you_can_send" in GET /latest, and GET /controls.
+            s["you_can_send"] = {"commands": {"how": 'POST /command {"command": "<name>"}', "names": list(COMMANDS),
+                                              "useful_now": USEFUL_NOW[self.mode]},
+                                 "settings": {"how": 'POST /settings {"<name>": <value>}', "names": list(SETTINGS)},
+                                 "details": "GET /controls"}
             if self.mode == "recording" and self.record_started:
                 s["learning_s"] = round(self.clock() - self.record_started, 1)
             if self.mode == "training":
