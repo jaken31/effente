@@ -57,16 +57,19 @@ def test_the_probe_is_set_changed_and_cleared(qtbot, state, client):
     assert log.probe_part() == ROLLER
     stored = client.json("GET", "/api/state")[1]["probe"][MACHINE]
     assert (stored["part_id"], stored["by"]) == (ROLLER, state.answerer())
+    assert log.probe() == stored  # with its `since`, as the receiver keeps it
+    log.probe()["part_id"] = "changed"  # a copy
+    assert log.probe_part() == ROLLER
     with qtbot.waitSignal(log.probe_changed, timeout=5000):  # someone else moves it: the stream says so
         client.json("PUT", f"/api/machines/{MACHINE}/probe", {"part_id": BELT, "by": "Ana"})
     qtbot.waitUntil(lambda: log.probe_part() == BELT, timeout=5000)
     with qtbot.waitSignal(log.probe_changed, timeout=5000):
         log.set_probe_part(None)
-    assert log.probe_part() is None
+    assert log.probe_part() is None and log.probe() is None
     state.set_machine("another-machine")
     client.json("PUT", f"/api/machines/{MACHINE}/probe", {"part_id": ROLLER, "by": "Ana"})
     qtbot.waitUntil(lambda: state.log._probes.get(MACHINE) is not None, timeout=5000)
-    assert log.probe_part() is None  # the probe is on a part of the machine shown, or on none
+    assert log.probe_part() is None and log.probe() is None  # the probe is on a part of the machine shown, or on none
 
 
 def test_a_refused_probe_part_says_why(qtbot, state):

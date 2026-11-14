@@ -215,6 +215,7 @@ class FakeLog(PartLog):
         self._readings: dict = {}  # part_id -> its readings, oldest first
         self._projections: dict = {}  # part_id -> its projection
         self._probe = None
+        self._pick = None  # the selection with its `since` and `by`, as probe() gives it
         self.started_reviews: list = []  # (part_id, mode) of each start_review call
         self.exported: list = []  # paths export_csv wrote
 
@@ -280,6 +281,9 @@ class FakeLog(PartLog):
     def probe_part(self):
         return self._probe if self._here() else None
 
+    def probe(self):
+        return dict(self._pick) if self._pick and self._here() else None
+
     def readings(self, part_id, since=None):
         """The whole reply at once: nothing is fetched. None for a part the sample does not have."""
         if not self._here() or part_id not in self._readings:
@@ -320,6 +324,8 @@ class FakeLog(PartLog):
             return
         if part_id != self._probe:
             self._probe = part_id
+            self._pick = None if part_id is None else {
+                "machine_id": self.machine, "part_id": part_id, "since": self._now(), "by": self.state.answerer()}
             self.probe_changed.emit()
 
     def create_part(self, name, kind, position=None) -> None:
@@ -402,7 +408,7 @@ class FakeLog(PartLog):
     def clear(self) -> None:
         """No parts, entries, reviews or readings yet, and the probe on no part."""
         self._parts, self._entries, self._reviews, self._selected = [], [], [], None
-        self._readings, self._projections, self._probe = {}, {}, None
+        self._readings, self._projections, self._probe, self._pick = {}, {}, None, None
         self.probe_changed.emit()
         self.parts_changed.emit()
         self.entries_changed.emit()
