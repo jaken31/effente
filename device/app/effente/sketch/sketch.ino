@@ -391,20 +391,21 @@ bool sndByte(uint8_t b) {  // true: the byte belonged to a binary frame
 const uint32_t SND_EVERY_MS = 0;
 uint32_t sndSentMs = 0;
 
-void sndSend() {  // called after a read of the sensor's FIFO, when there is the most time before it fills
+bool sndSend() {  // called after a read of the sensor's FIFO, when there is the most time before it fills; true: sent
   if (espTell) {  // rare and small (about 25 bytes)
     espTell = false;
     espSaidMs = millis();
     Bridge.notify("esp", MsgPack::str_t(espIp));
-    return;
+    return true;
   }
-  if (!sndReady || (SND_EVERY_MS && millis() - sndSentMs < SND_EVERY_MS)) return;
+  if (!sndReady || (SND_EVERY_MS && millis() - sndSentMs < SND_EVERY_MS)) return false;
   sndSentMs = millis();
   sndReady = false;
   MsgPack::bin_t<uint8_t> v;
   v.reserve(SND_PAYLOAD);
   for (uint16_t i = 0; i < SND_PAYLOAD; i++) v.push_back(sndOut[i]);
   Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);  // 180 + about 25 bytes: inside the RPC buffer
+  return true;
 }
 
 void micPoll() {
@@ -631,13 +632,22 @@ void composeTiles() {
 
 // A line starting with '^' is drawn inverted (the header bar); with '#', double size over this line and
 // the next (the Linux side leaves the next line empty). A first line starting with '@': design B's tiles.
-// ---- thermal camera: an MLX90640 (24 x 32 pixels) on this bus at 0x33 (the user, 14 Nov). Screen only.
-// The picture is RELATIVE: lighter means warmer within the picture, and no temperature is worked out here.
-// Each pixel's reading has its own fixed offset taken off (from the camera's own memory); the rest of the
-// maker's calibration (sensitivity, the chip's own temperature, supply voltage) is left out, so a number in
-// degrees would be wrong and none is shown. The real calibration is to be done on the computer from the
-// raw readings (not built yet: nothing of the camera goes to the Linux side so far). Unverified against a
-// thermometer or the maker's code.
+// ---- thermal camera: an MLX90640 (24 x 32 pixels) on this bus at 0x33 (the user, 14 Nov).
+// The picture on the screen is RELATIVE: lighter means warmer within the picture, and no temperature is
+// worked out here. Each pixel's reading has its own fixed offset taken off (from the camera's own memory);
+// the rest of the maker's calibration (sensitivity, the chip's own temperature, supply voltage) is left out,
+// so a number in degrees would be wrong and none is shown.
+// The degrees are worked out on the Linux side (device/intake/mlx90640.py) from what goes there as read:
+//   "mlx_ee" (epoch, first word, words)     the camera's whole calibration memory, 832 words from 0x2400, a
+//                                           piece every half second, round and round (the Linux side may have
+//                                           started after this did). epoch: how many times it has been read
+//   "mlx" (frame, part, subpage, words)     every half-frame: the 384 pixels the camera has just measured
+//                                           (it measures in two halves), in pixel order, in parts 0 to 3 of
+//                                           96 pixels; part 4 is the camera's words 0x0700, 0x0708, 0x070A,
+//                                           0x0720, 0x0728, 0x072A and its control register 0x800D
+// Words are sent high byte first, as the camera gives them. A half-frame is 5 notifications of about 215
+// bytes, 4 times a second: about 4.3 kB/s on the Bridge line, which needs it at 460800 baud (BRIDGE_BAUD).
+// UNVERIFIED: what this costs in accelerometer samples has not been measured.
 // Read in small pieces, one per pass of loop() (at most 32 words, about 2 ms at 400 kHz), so the IMU's
 // FIFO is still read in between: a whole frame in one go would hold the bus for about 40 ms.
 const uint8_t MLX_ADDR = 0x33;
@@ -650,8 +660,18 @@ uint16_t mlxWord = 0, mlxChunk = 32;    // words done of the part being read; wo
 uint8_t mlxFailRun = 0;
 uint16_t mlxWord0 = 0;        // the first word of the frame as the camera gave it
 uint32_t mlxFrames = 0, mlxErrors = 0, mlxPollAt = 0, mlxTryAt = 0;
-uint16_t mlxEe[16];                     // the camera's memory, words 0x10 to 0x1F: the offsets' scales and parts
+uint16_t mlxEeAll[832];                 // the camera's whole calibration memory (0x2400 to 0x273F), as read
+uint16_t *const mlxEe = mlxEeAll + 16;  // words 0x10 to 0x1F: the offsets' scales and parts
+bool mlxEeCheck = false;                // reading the memory a second time, to compare
+uint32_t mlxEpoch = 0;                  // times the memory has been read whole (and read the same twice)
 int16_t mlxOffset[768], mlxRaw[768], mlxShown[768];
+uint8_t mlxSub = 0;                     // which half the frame being read is (the camera's status, bit 0)
+uint16_t mlxCtrl = 0;                   // the camera's control register as set
+uint16_t mlxAux[6];                     // 0x0700, 0x0708, 0x070A, 0x0720, 0x0728, 0x072A of the frame being read
+// A half-frame on its way to the Linux side: its 384 pixels as the camera gave them, then mlxAux and mlxCtrl.
+uint16_t mlxOut[384 + 7];
+uint8_t mlxOutSub = 0, mlxOutPart = 5;  // part 5: nothing waiting
+uint32_t mlxOutFrame = 0, mlxSent = 0, mlxSkipped = 0, mlxMixed = 0;
 
 // The camera must be asked and answered in ONE transfer (the register's address, then a repeated start, then
 // the read). This core's Wire always ends the write with a stop (its endTransmission ignores the argument),
@@ -703,28 +723,45 @@ void mlxPoll() {
     mlxTryAt = now;
     uint16_t ctrl;
     if (!mlxRead(0x800D, 1, &ctrl)) return;       // not there
-    mlxWrite(0x800D, (ctrl & ~(7u << 7)) | (3u << 7));  // 4 half-frames a second
-    if (!mlxRead(0x2410, 16, mlxEe)) { mlxErrors++; return; }
+    mlxCtrl = (ctrl & ~(7u << 7)) | (3u << 7);    // 4 half-frames a second
+    mlxWrite(0x800D, mlxCtrl);
     mlxWord = 0;
+    mlxEeCheck = false;
     mlxState = 1;
     return;
   }
-  uint16_t k = 768 - mlxWord < mlxChunk ? 768 - mlxWord : mlxChunk;
-  if (mlxState == 1) {  // each pixel's fixed offset, from the camera's memory (the datasheet's offset formula)
-    if (!mlxRead(0x2440 + mlxWord, k, buf)) { mlxFail(); return; }
+  if (mlxState == 1) {
+    // The camera's whole calibration memory, read twice: the Linux side works the degrees out from it, so
+    // one wrong word would make every temperature wrong for as long as this runs. The second read must
+    // give the same words; if not, both are done again.
+    uint16_t n = 832 - mlxWord < mlxChunk ? 832 - mlxWord : mlxChunk;
+    if (!mlxRead(0x2400 + mlxWord, n, buf)) { mlxFail(); return; }
+    mlxFailRun = 0;
+    if (!mlxEeCheck) {
+      memcpy(mlxEeAll + mlxWord, buf, n * 2);
+    } else if (memcmp(mlxEeAll + mlxWord, buf, n * 2) != 0) {
+      mlxErrors++;
+      mlxWord = 0;
+      mlxEeCheck = false;
+      return;
+    }
+    mlxWord += n;
+    if (mlxWord < 832) return;
+    mlxWord = 0;
+    if (!mlxEeCheck) { mlxEeCheck = true; return; }
+    // each pixel's fixed offset (the datasheet's offset formula), for the picture on the screen
     int remScale = mlxEe[0] & 0xF, colScale = (mlxEe[0] >> 4) & 0xF, rowScale = (mlxEe[0] >> 8) & 0xF;
     int ref = (int16_t)mlxEe[1];
-    for (uint16_t i = 0; i < k; i++) {
-      uint16_t p = mlxWord + i;
+    for (uint16_t p = 0; p < 768; p++) {
       int row = p / 32, col = p % 32;
-      int rem = buf[i] >> 10;
+      int rem = mlxEeAll[64 + p] >> 10;
       if (rem > 31) rem -= 64;
       mlxOffset[p] = (int16_t)(ref + mlxNibble(mlxEe[2 + row / 4], row % 4) * (1 << rowScale)
                                + mlxNibble(mlxEe[8 + col / 4], col % 4) * (1 << colScale) + rem * (1 << remScale));
     }
-    mlxFailRun = 0;
-    mlxWord += k;
-    if (mlxWord >= 768) { mlxState = 2; mlxOk = true; }
+    mlxEpoch++;
+    mlxState = 2;
+    mlxOk = true;
     return;
   }
   if (mlxState == 2) {  // a new half-frame ready?
@@ -735,20 +772,88 @@ void mlxPoll() {
     mlxFailRun = 0;
     if (status & 0x0008) {
       mlxWrite(0x8000, 0x0030);  // taken: the camera may measure the next one
+      mlxSub = status & 1;
       mlxWord = 0;
       mlxState = 3;
     }
     return;
   }
+  if (mlxState == 4 || mlxState == 5) {  // the frame's other readings: 0x0700 to 0x070A, then 0x0720 to 0x072A
+    if (!mlxRead(mlxState == 4 ? 0x0700 : 0x0720, 11, buf)) { mlxFail(); return; }
+    mlxFailRun = 0;
+    if (mlxState == 4) {
+      mlxAux[0] = buf[0];
+      mlxAux[1] = buf[8];
+      mlxAux[2] = buf[10];
+      mlxState = 5;
+      return;
+    }
+    mlxAux[3] = buf[0];
+    mlxAux[4] = buf[8];
+    mlxAux[5] = buf[10];
+    // The camera does not wait: if it finished its next half-frame while this one was being read, some of
+    // what was read is the next one's. Such a frame still does for the picture, but its numbers are not sent.
+    uint16_t status;
+    bool whole = mlxRead(0x8000, 1, &status) && !(status & 0x0008);
+    mlxTake();
+    if (!whole) mlxMixed++;
+    else if (mlxOutPart < 5) mlxSkipped++;  // the last one is still going out
+    else {
+      bool chess = mlxCtrl & 0x1000;
+      uint16_t n = 0;
+      for (uint16_t p = 0; p < 768 && n < 384; p++) {
+        uint8_t row = p / 32, col = p % 32;
+        if (((chess ? row + col : row) & 1) == mlxSub) mlxOut[n++] = (uint16_t)(mlxRaw[p] + mlxOffset[p]);  // as read
+      }
+      memcpy(mlxOut + 384, mlxAux, sizeof mlxAux);
+      mlxOut[390] = mlxCtrl;
+      mlxOutSub = mlxSub;
+      mlxOutFrame++;
+      mlxOutPart = 0;
+    }
+    mlxState = 2;
+    return;
+  }
+  uint16_t k = 768 - mlxWord < mlxChunk ? 768 - mlxWord : mlxChunk;
   if (!mlxRead(0x0400 + mlxWord, k, buf)) { mlxFail(); return; }
   if (mlxWord == 0) mlxWord0 = buf[0];
   for (uint16_t i = 0; i < k; i++) mlxRaw[mlxWord + i] = (int16_t)((int16_t)buf[i] - mlxOffset[mlxWord + i]);
   mlxFailRun = 0;
   mlxWord += k;
-  if (mlxWord >= 768) {
-    mlxTake();
-    mlxState = 2;
+  if (mlxWord >= 768) mlxState = 4;
+}
+
+// One notification for the Linux side, if one is due: the next part of a half-frame, or else, every half
+// second, the next piece of the calibration memory. Called where the sound sets go out (after a read of the
+// sensor's FIFO), and only when no sound set went out in that pass, so a pass sends one of them at most.
+void mlxSend() {
+  static uint32_t eeSentMs = 0;
+  static uint16_t eeAt = 0;
+  uint32_t a = 0;
+  const uint16_t *from;
+  uint16_t n;
+  if (mlxOutPart < 5) {
+    from = mlxOut + 96 * mlxOutPart;
+    n = mlxOutPart < 4 ? 96 : 7;
+  } else if (mlxOk && millis() - eeSentMs >= 500) {
+    eeSentMs = millis();
+    from = mlxEeAll + eeAt;
+    n = 832 - eeAt < 96 ? 832 - eeAt : 96;
+    a = eeAt;
+    eeAt = eeAt + n >= 832 ? 0 : eeAt + n;
+    MsgPack::bin_t<uint8_t> v;
+    v.reserve(n * 2);
+    for (uint16_t i = 0; i < n; i++) { v.push_back(from[i] >> 8); v.push_back(from[i] & 0xFF); }
+    Bridge.notify("mlx_ee", mlxEpoch, a, v);
+    return;
+  } else {
+    return;
   }
+  MsgPack::bin_t<uint8_t> v;
+  v.reserve(n * 2);
+  for (uint16_t i = 0; i < n; i++) { v.push_back(from[i] >> 8); v.push_back(from[i] & 0xFF); }
+  Bridge.notify("mlx", mlxOutFrame, (uint32_t)mlxOutPart, (uint32_t)mlxOutSub, v);  // 192 + about 20 bytes
+  if (++mlxOutPart == 5) mlxSent++;
 }
 
 // A frame has been read whole. Two things before it is shown (14 Nov: the first version's picture
@@ -1029,7 +1134,13 @@ void readFifo() {
 void loop() {
   micPoll();
   mlxPoll();  // the thermal camera, a small piece at a time
-  if (!mpuOk) sndSend();  // with the sensor running, parts go out after its reads (below)
+  if (!mpuOk) {  // with the sensor running, these go out after its reads (below)
+    static uint32_t idleSendAt = 0;
+    if (!sndSend() && millis() - idleSendAt >= 25) {
+      idleSendAt = millis();
+      mlxSend();
+    }
+  }
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
   // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
   // its power-on state (asleep, FIFO off) and reports an empty FIFO for ever (13 Nov, on the board: the
@@ -1060,7 +1171,7 @@ void loop() {
   if (mpuOk && now - lastRead >= READ_EVERY_US) {
     lastRead = now;
     readFifo();
-    sndSend();
+    if (!sndSend()) mlxSend();
   }
   static uint8_t nextPage = 8;  // 8: no frame being drawn
   if (oledOk && nextPage >= 8 && micros() - lastFrameAt >= FRAME_EVERY_MS * 1000) {  // a frame every FRAME_EVERY_MS
@@ -1102,7 +1213,8 @@ void loop() {
                   (uint32_t)outOfStep, (uint32_t)oddCounts, (uint32_t)mlxFrames, (uint32_t)mlxErrors, (uint32_t)(mlxRange < 0 ? 0 : mlxRange),
                   (int32_t)mlxLo2, (int32_t)mlxHi2, (int32_t)mlxWord0, (int32_t)mlxRaw[0], (int32_t)mlxRaw[400],
                   (int32_t)mlxOffset[0], (int32_t)mlxOffset[400], (int32_t)mlxEe[0], (int32_t)mlxEe[1],
-                  (int32_t)mlxShown[1], (int32_t)mlxShown[401], (int32_t)mlxChunk, (int32_t)showThermal);
+                  (int32_t)mlxShown[1], (int32_t)mlxShown[401], (int32_t)mlxChunk, (int32_t)showThermal,
+                  (uint32_t)mlxSent, (uint32_t)mlxSkipped, (uint32_t)mlxMixed, mlxEpoch);
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
   // Held for a second: what a press used to be (start or stop learning), sent once per hold. A short press
