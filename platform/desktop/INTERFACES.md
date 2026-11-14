@@ -55,6 +55,7 @@ Each page is `class XPage(QWidget)` with:
 - `title` and `subtitle`: strings shown in the top bar
 - `bind(state: DashboardState)`: connect signals and draw from the current state
 - signal `navigate(str)`: ask the shell to show another page
+- optional `shows_simulated() -> bool` and signal `simulated_changed()`: the page says whether anything it draws is simulated, and the top bar's Simulated data chip is on while it is (contract 9.6). A page without them goes by the latest record.
 
 Shortcuts 1 to 7 open the pages in the order above. Spectrum and Thermal sit under Live in the sidebar.
 
