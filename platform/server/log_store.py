@@ -19,8 +19,10 @@ answer from being stored. The exceptions: `alarm_answered` raises BadRequest
 to refuse an answer that names a part it cannot be about, and `stamp_record`
 may raise it to refuse a batch of records.
 
-Part readings (contract section 9) are not built yet: `stamp_record` and `tick`
-are stubs, and the three routes of section 9 in log_api.py answer "not built yet".
+The probe's part (contract 9.1) is kept in a third append-only file,
+`probe.jsonl`: one line each time a pick is set or cleared, the newest line for
+a machine wins. Its 5 minute rule runs on the wall clock (`self.clock`), not a
+monotonic one, so it still holds across a restart.
 """
 
 import bisect
@@ -29,6 +31,7 @@ import io
 import os
 import re
 import sys
+import time
 
 from receiver_store import BadRequest, JsonLines, parse_time, utc_now
 
@@ -41,6 +44,14 @@ import part_state  # noqa: E402
 
 PARTS_FILE = "parts.jsonl"
 ENTRIES_FILE = "log_entries.jsonl"
+PROBE_FILE = "probe.jsonl"
+
+# Contract 9.1 and 9.6. The times are starting values, unverified.
+CATCH_UP_S = 60  # a record measured this long before a pick is still stamped (clock difference)
+PROBE_QUIET_S = 5 * 60  # a pick clears itself after this long with no record from its machine
+PROBE_QUIET_REASON = "no records for 5 minutes"
+SAMPLE_MACHINE = "sample-machine"  # the only machine simulated history is written to
+HISTORY_DEVICE = "sim-history"  # the device the history command sends as
 
 ENTRY_KINDS = ("finding", "inspection", "repair", "note", "review")
 PART_FIELDS = ("name", "kind", "position", "fault_types", "note", "removed")  # what a person may set
@@ -144,6 +155,12 @@ def _entry_fields(body):
     return out
 
 
+def _iso(timestamp):
+    """A wall-clock timestamp as ISO 8601 UTC with milliseconds, as `utc_now` writes it."""
+    whole = time.gmtime(timestamp)
+    return time.strftime("%Y-%m-%dT%H:%M:%S.", whole) + f"{int(timestamp * 1000) % 1000:03d}Z"
+
+
 def _next_number(ids):
     """One more than the highest number at the end of these ids."""
     numbers = [int(m.group(1)) for m in map(ID_NUMBER.search, ids) if m]
@@ -162,6 +179,10 @@ class LogStore:
         self.part_entries = {}  # part_id -> its entries, likewise
         self.newness = {}  # entry_id -> (timestamp of `at`, order added), for newest first
         self.record_times = {}  # machine_id -> (timestamp, `at`) of each record, sorted
+        self.clock = time.time  # wall clock for the probe's 5 minute rule; tests replace it
+        self.probe_file = JsonLines(os.path.join(store.data_dir, PROBE_FILE))
+        self.probes = {}  # machine_id -> its selection (contract 9.1)
+        self.heard = {}  # machine_id -> wall-clock time its newest record was stored
         if part_kinds.PROBLEM:
             print(f"warning: part kind table: {part_kinds.PROBLEM}", file=sys.stderr)
         for part in self.parts_file.load():
@@ -181,6 +202,19 @@ class LogStore:
             self.record_times[machine_id] = sorted(t for t in times if t[0] is not None)
         for machine_id in self.machine_parts:
             self._refresh(machine_id, emit=False)
+        for line in self.probe_file.load():
+            machine_id = line.get("machine_id")
+            if isinstance(machine_id, str):
+                probe = line.get("probe")
+                if isinstance(probe, dict) and parse_time(probe.get("since")) is not None:
+                    self.probes[machine_id] = probe
+                else:
+                    self.probes.pop(machine_id, None)
+        for machine_id, records in store.by_machine.items():
+            heard = [parse_time(r.get("received_at")) for r in records[-1:]]
+            if heard and heard[0] is not None:
+                self.heard[machine_id] = heard[0]
+        self._expire_probes()
 
     def close(self):
         """The receiver is stopping. Every change is already on disk."""
@@ -311,7 +345,48 @@ class LogStore:
             shown = [self._view(self.parts[i]) for i in ids if not self.parts[i].get("removed")]
             if shown:
                 parts[machine_id] = shown
-        return {"parts": parts, "machines": list(parts)}
+        probe = {m: dict(p) for m, p in self.probes.items()}
+        return {"parts": parts, "machines": list(parts), "probe": probe}
+
+    # ---- the probe's part (section 9.1) -------------------------------------
+
+    def set_probe(self, machine_id, body):
+        """Set or clear which part the probe is on. Returns the selection, or None."""
+        body = _object(body, "probe")
+        by = _by(body, "probe")
+        if "part_id" not in body:
+            raise BadRequest("probe is missing required field 'part_id' (a part's id, or null to clear)")
+        part_id = body["part_id"]
+        if part_id is not None and (not isinstance(part_id, str) or not part_id):
+            raise BadRequest("probe 'part_id' must be a part's id or null")
+        with self.store.lock:
+            if part_id is None:
+                if machine_id in self.probes:
+                    self._put_probe(machine_id, None, "")
+                return None
+            if self._part_on(machine_id, part_id).get("removed"):
+                raise BadRequest(f"part {part_id} is removed: the probe cannot be on it")
+            probe = {"machine_id": machine_id, "part_id": part_id, "since": _iso(self.clock()), "by": by}
+            self._put_probe(machine_id, probe, "")
+            return dict(probe)
+
+    def _put_probe(self, machine_id, probe, reason):
+        """Keep a selection, or its clearing, and send the `probe` event. Inside the lock."""
+        self.probe_file.append([{"machine_id": machine_id, "probe": probe, "at": _iso(self.clock()), "reason": reason}])
+        if probe is None:
+            self.probes.pop(machine_id, None)
+        else:
+            self.probes[machine_id] = probe
+        self.store.emit("probe", {"machine_id": machine_id, "probe": dict(probe) if probe else None, "reason": reason})
+
+    def _expire_probes(self):
+        """Clear each pick whose machine has stored no record for 5 minutes,
+        counted from `since` if none came since then. Inside the lock."""
+        now = self.clock()
+        for machine_id, probe in list(self.probes.items()):
+            last = max(parse_time(probe["since"]), self.heard.get(machine_id, float("-inf")))
+            if now - last > PROBE_QUIET_S:
+                self._put_probe(machine_id, None, PROBE_QUIET_REASON)
 
     # ---- entries (section 8.6) ----------------------------------------------
 
@@ -358,12 +433,30 @@ class LogStore:
         """A record is about to be stored (message 2): checked, but with no `seq`
         or `received_at` yet, and `simulated` may be missing. Called for each
         record of a batch before any of them is stored. May add `part_id` to it
-        (contract 9.1). Raise BadRequest to refuse the whole batch: nothing of it
-        is stored (9.1 Already stamped, 9.6). A stub: does nothing."""
+        (contract 9.1). Raises BadRequest to refuse the whole batch: nothing of it
+        is stored (9.1 Already stamped, 9.6)."""
+        machine_id = record["machine_id"]
+        if machine_id == SAMPLE_MACHINE and record.get("simulated") is not True:
+            raise BadRequest(f'a record for {SAMPLE_MACHINE} must carry "simulated": true')
+        if record["device_id"] == HISTORY_DEVICE and machine_id != SAMPLE_MACHINE:
+            raise BadRequest(f"device {HISTORY_DEVICE} may only send records for {SAMPLE_MACHINE}")
+        if record.get("part_id") is not None:  # already stamped: by the simulator or an import
+            part_id = record["part_id"]
+            if not isinstance(part_id, str):
+                raise BadRequest("record 'part_id' must be a part's id")
+            self._part_on(machine_id, part_id)
+            return
+        record.pop("part_id", None)  # an explicit null is the same as none
+        self._expire_probes()
+        probe = self.probes.get(machine_id)
+        at = parse_time(record.get("at"))
+        if probe is not None and at is not None and at >= parse_time(probe["since"]) - CATCH_UP_S:
+            record["part_id"] = probe["part_id"]
 
     def tick(self):
         """Called about four times a second, with records arriving or not, so a
-        pick can clear itself (9.1) and a reading can close (9.3). A stub: does nothing."""
+        pick can clear itself (9.1) and a reading can close (9.3)."""
+        self._expire_probes()
 
     def record_stored(self, record):
         """A record was stored (message 2). Not called for records read at start.
@@ -371,10 +464,11 @@ class LogStore:
         A record can only move a part from `not_checked` to `nothing_found`, or,
         arriving late with an older `at`, move where `nothing_found` starts. So
         nothing is worked out for the usual record, one a second."""
+        machine_id = record["machine_id"]
+        self.heard[machine_id] = self.clock()
         timestamp = parse_time(record.get("at"))
         if timestamp is None:
             return
-        machine_id = record["machine_id"]
         bisect.insort(self.record_times.setdefault(machine_id, []), (timestamp, record["at"]))
         for part_id in self.machine_parts.get(machine_id, ()):
             state = self.states[part_id]

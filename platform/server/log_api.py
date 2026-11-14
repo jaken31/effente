@@ -5,8 +5,8 @@ scan_api.py for what `request` offers. The log store is `request.server.store.pa
 The answer that names a part (section 8.6) needs no route here: it comes in on
 the alarm answer route and reaches the log store through its `alarm_answered` hook.
 
-The three routes of section 9 (part readings) are stubs at the end: each answers
-400 "not built yet".
+Of the three routes of section 9 (part readings), those not built yet are stubs
+at the end that answer 400 "not built yet".
 """
 
 from log_store import DEFAULT_LOG_LIMIT, ENTRY_KINDS
@@ -80,7 +80,7 @@ def _not_built(request):
 
 def put_probe(request, query, machine_id):
     """PUT /api/machines/<machine_id>/probe (section 9.1)"""
-    _not_built(request)
+    request.send_json(200, {"ok": True, "probe": _log(request).set_probe(machine_id, request.read_json())})
 
 
 def get_part_readings(request, query, part_id):

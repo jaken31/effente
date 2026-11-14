@@ -178,7 +178,7 @@ def test_state_has_each_machines_newest_scan_and_a_machine_with_only_a_scan(make
     receiver, client = make_receiver()
     one_second_apart(receiver)
     state = ok(client, "GET", "/api/state")
-    assert set(state) == {"ok", "now", "devices", "models", "machines", "alarms", "parts", "scans"}
+    assert set(state) == {"ok", "now", "devices", "models", "machines", "alarms", "parts", "probe", "scans"}
     assert state["scans"] == {} and state["machines"] == []
 
     ok(client, "POST", "/api/records", make_record())  # conveyor-07, from a probe
