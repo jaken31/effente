@@ -295,8 +295,8 @@ float parseNum(const char *&p) {  // a number, then past the comma after it (by 
 // line: 0xEF 0x53 | sequence (u16) | age in ms (u16) | count (u8) = 45 | 45 float32 | CRC-16/CCITT-FALSE of
 // everything after the two start bytes (u16), little-endian, 189 bytes, sent 8 bytes every 4 ms so the serial
 // buffer never has to hold much. A whole frame with a good CRC goes to the Linux side as a notification
-// "snd" (see sndSend): (micros() when its last byte came, age, sequence, the readings as 45 half-precision
-// floats); device/intake/source.py on_sound takes it from there. 0xEF never occurs in a text line, so the two share the wire. With the test
+// "snd" (see sndSend): (micros() when its last byte came, age, sequence, the 180 bytes of readings);
+// device/intake/source.py on_sound takes it from there. 0xEF never occurs in a text line, so the two share the wire. With the test
 // firmware (text lines only) nothing here ever fires. Added 13 Nov; not yet run with the full firmware.
 const uint8_t SND_COUNT = 45;
 const uint16_t SND_PAYLOAD = 4 * SND_COUNT, SND_FRAME = 7 + SND_PAYLOAD + 2;
@@ -345,35 +345,12 @@ bool sndByte(uint8_t b) {  // true: the byte belonged to a binary frame
   return true;
 }
 
-// One set a second goes on to the Linux side, the newest, as half-precision floats (90 bytes): the Linux side
-// makes one row a second, and the Bridge line has no room to spare. Every byte on it is time the loop is not
-// reading the sensor, whose FIFO is 40 ms deep. Measured on the board, 13 Nov, in accelerometer samples a
-// second: 992 with no sets; about 905 with all four sets a second at full size (about 1 kB/s; nearly 3 FIFO
-// overflows a second); about 954 with one a second at full size. Half precision keeps 3 to 4 figures
-// (0.03 dB on a level, 4 Hz on a tone above 4 kHz).
-const uint32_t SND_EVERY_MS = 1000;
+// Every set goes on to the Linux side as it is (180 bytes, about 4 a second: under 1 kB/s). That needs the
+// Bridge line at 460800 baud (BRIDGE_BAUD): at the default 115200 the sensor's batches fill the line to 65 %,
+// and these sets on top cost about 9 % of the accelerometer's samples (measured on the board, 13 Nov). For a
+// board left at 115200, set SND_EVERY_MS to 1000 (one set a second) and FRAME_EVERY to 4 in the ESP32's firmware.
+const uint32_t SND_EVERY_MS = 0;
 uint32_t sndSentMs = 0;
-
-uint16_t halfFloat(float f) {  // IEEE 754 single to half precision, rounded
-  uint32_t x;
-  memcpy(&x, &f, 4);
-  uint16_t sign = (x >> 16) & 0x8000;
-  int32_t e = (int32_t)((x >> 23) & 0xFF) - 127 + 15;
-  uint32_t man = x & 0x7FFFFF;
-  if (((x >> 23) & 0xFF) == 0xFF) return sign | 0x7C00 | (man ? 0x200 : 0);  // infinity or not a number
-  if (e >= 31) return sign | 0x7C00;                                          // too big: infinity
-  if (e <= 0) {                                                               // too small for a normal half
-    if (e < -10) return sign;
-    man |= 0x800000;
-    uint32_t shift = 14 - e;
-    uint16_t h = man >> shift;
-    if ((man >> (shift - 1)) & 1) h++;
-    return sign | h;
-  }
-  uint16_t h = sign | (uint16_t)(e << 10) | (uint16_t)(man >> 13);
-  if (man & 0x1000) h++;  // a carry runs on into the exponent, which is right
-  return h;
-}
 
 void sndSend() {  // called after a read of the sensor's FIFO, when there is the most time before it fills
   if (espTell) {  // rare and small (about 25 bytes)
@@ -382,19 +359,13 @@ void sndSend() {  // called after a read of the sensor's FIFO, when there is the
     Bridge.notify("esp", MsgPack::str_t(espIp));
     return;
   }
-  if (!sndReady || millis() - sndSentMs < SND_EVERY_MS) return;
+  if (!sndReady || (SND_EVERY_MS && millis() - sndSentMs < SND_EVERY_MS)) return;
   sndSentMs = millis();
   sndReady = false;
   MsgPack::bin_t<uint8_t> v;
-  v.reserve(2 * SND_COUNT);
-  for (uint8_t i = 0; i < SND_COUNT; i++) {
-    float f;
-    memcpy(&f, sndOut + 4 * i, 4);
-    uint16_t h = halfFloat(f);
-    v.push_back(h & 0xFF);
-    v.push_back(h >> 8);
-  }
-  Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);
+  v.reserve(SND_PAYLOAD);
+  for (uint16_t i = 0; i < SND_PAYLOAD; i++) v.push_back(sndOut[i]);
+  Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);  // 180 + about 25 bytes: inside the RPC buffer
 }
 
 void micPoll() {

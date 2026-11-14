@@ -13,9 +13,7 @@
 // the sound readings of the last 1.024 s (sound_features.h, a copy of effente/features.py _sound()) and sends
 // on the UART (115200 baud), one after the other:
 //
-//   1. About once a second (every 4th set), a binary frame for the model, little-endian, 189 bytes. (With WiFi
-//      up and the UNO Q's Linux side connected to TCP port 8769, every set's frame goes there instead and
-//      none by UART: see thermal.h.)
+//   1. A binary frame for the model with every set (FRAME_EVERY), little-endian, 189 bytes:
 //        0xEF 0x53 | sequence (u16) | age (u16): ms from the window's last sample to the start of sending
 //        | count (u8) = 45 | 45 float32, the "snd_" readings in FEATURE_NAMES order without snd_env_order
 //        | CRC-16/CCITT-FALSE over everything after the two start bytes (u16)
@@ -33,6 +31,8 @@
 //      A sketch that doesn't know it ignores it.
 //
 //   4. With the thermal camera's WiFi up (thermal.h), every 5 s: IP,<this board's address>
+//
+// The raw sound itself never goes on the wire: it goes out by WiFi, for a dashboard (audio_wifi.h).
 //
 // The MIC line also goes to USB, with how long one set of readings took to work out.
 //
@@ -54,7 +54,10 @@ const size_t READ = 256;               // samples per I2S read: 16 ms
 const uint32_t HOP = 4096;             // new samples between two sets of readings: 0.256 s
 const uint32_t RING = SND_N + 2 * HOP; // samples kept: one window, and room to keep listening while it is worked on
 const size_t FRAME = 2 + 2 + 2 + 1 + 4 * SND_SENT + 2;
-const uint32_t FRAME_EVERY = 4;           // sets per binary frame: about one frame a second
+const uint32_t FRAME_EVERY = 1;           // sets per binary frame. 1: every set goes on the wire, which the UNO Q
+                                          // takes easily with its Bridge line at 460800 baud. With that line at
+                                          // its default 115200, use 4 (about one a second): more cost it
+                                          // accelerometer samples (measured 13 Nov)
 #ifndef FAST_LEVEL
 #define FAST_LEVEL 1                      // 1: also send the LVL lines (the screen's quick level); 0: don't
 #endif
@@ -76,6 +79,8 @@ static int32_t fastPeak = 0;
 static portMUX_TYPE stampLock = portMUX_INITIALIZER_UNLOCKED;
 
 static SoundFeatures sound;
+
+#include "audio_wifi.h"  // the raw sound over WiFi, for a dashboard; nothing unless secrets.h exists
 
 struct Outgoing {  // one set, ready for the UART
   bool withFrame;  // the binary frame goes about once a second; the text line every time
@@ -209,13 +214,7 @@ static void sendTask(void *) {
     o.frame[FRAME - 2] = crc & 0xFF;
     o.frame[FRAME - 1] = crc >> 8;
     seq++;
-    // Every set has its frame. By WiFi when the UNO Q's Linux side is listening (thermal.h): all of them, and
-    // nothing for the UNO Q's microcontroller to take in. Otherwise by UART, about one a second.
-    bool byWifi = false;
-#if HAVE_THERMAL
-    byWifi = soundToWifi(o.frame, FRAME);
-#endif
-    if (!byWifi && o.withFrame) {
+    if (o.withFrame) {  // the readings go by the wire, WiFi or no WiFi: the model must not depend on it
       for (size_t i = 0; i < FRAME; i += 8) {
         Serial1.write(o.frame + i, FRAME - i < 8 ? FRAME - i : 8);
         vTaskDelay(pdMS_TO_TICKS(4));
@@ -256,6 +255,7 @@ void setup() {
   xTaskCreatePinnedToCore(captureTask, "mic", 4096, NULL, 5, NULL, 0);
   xTaskCreatePinnedToCore(sendTask, "send", 8192, NULL, 4, NULL, 0);
   thermalBegin();
+  audioBegin();
 }
 
 void loop() {
@@ -294,9 +294,8 @@ void loop() {
   snprintf(o.line, sizeof o.line, "MIC,%lu,%d,%.1f,%.1f,%.0f,%u", (unsigned long)n++, alive ? 1 : 0,
            wrms > 1e-10 ? 20 * log10(wrms) + LEVEL_TRIM_DB : -200.0, peakDb, readings[SND_TONE_HZ], (unsigned)SND_N);
   o.windowEndUs = atUs;
-  // The frame about once a second (every 4th set): the UNO Q's sketch passes one set a second on, and every
-  // byte it has to take in is time it is not reading its sensor (measured on the board, 13 Nov).
-  o.withFrame = (n % FRAME_EVERY) == 1;
+  // Which sets carry their frame on the wire (FRAME_EVERY above).
+  o.withFrame = (n % FRAME_EVERY) == 0;
   if (xQueueSend(outbox, &o, 0) != pdTRUE) skipped++;  // the wire is behind: drop this set, never wait
 #if HAVE_THERMAL
   Serial.printf("%s | one set took %lu ms, %lu skipped | WiFi %s, camera %s, %lu frames\n", o.line, (unsigned long)lastWorkMs,

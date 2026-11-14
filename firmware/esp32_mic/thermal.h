@@ -18,18 +18,10 @@
 //   HTTP port 8768, for a dashboard:
 //     GET /frame.json   the newest frame: {"seq":..,"ms":..,"rows":24,"cols":32,"min":..,"max":..,"c":[768 numbers]}
 //     GET /stream       the same JSON for every frame, as server-sent events ("data: {...}"), until closed
-//     Both allow any origin, so a page served from elsewhere can read them.
+//     GET /audio.json   the newest 64 ms of the microphone's sound, to draw its wave (audio_wifi.h)
+//     All allow any origin, so a page served from elsewhere can read them.
 //
 // A client that can't keep up misses frames; nobody waits for it. Up to 3 raw and 3 HTTP clients.
-//
-// The microphone's sound readings go out here too, on TCP port 8769: connect and every set follows, about 4 a
-// second, each the same 189-byte frame the UART carries (esp32_mic.ino). While someone is connected the sets
-// stop going by UART, which spares the UNO Q's microcontroller (every byte it takes in or passes on costs
-// accelerometer samples: measured 13 Nov); when nobody is, they go by UART as before.
-//
-// NOT RUN YET (13 Nov): compiles for the ESP32-S3 with the Adafruit MLX90640 library, but written without
-// the camera or the WiFi's details at hand. Unverified: the pins, the camera's settings, the frame rate,
-// and whether WiFi disturbs the microphone's timing.
 
 #ifndef EFFENTE_THERMAL_H
 #define EFFENTE_THERMAL_H
@@ -55,9 +47,7 @@ static char thJson[TH_PIXELS * 7 + 160];
 static uint32_t thSeq = 0, thFrames = 0, thFailed = 0;
 static WiFiServer thRaw(THERMAL_RAW_PORT), thHttp(THERMAL_HTTP_PORT);
 static WiFiClient thRawClients[TH_CLIENTS], thSseClients[TH_CLIENTS];
-const uint16_t SOUND_PORT = 8769;
-static WiFiServer thSound(SOUND_PORT);
-static WiFiClient thSoundClients[TH_CLIENTS];
+static const char *audioJsonNow();  // in audio_wifi.h, which comes after this file
 static char thIp[20] = "";  // this board's address once WiFi is up (read by the sender, for the UART and USB lines)
 
 static void thWifiKeep() {
@@ -163,6 +153,12 @@ static void thServe(bool fresh) {
           kept = true;
         }
       if (!kept) h.stop();
+    } else if (req.startsWith("GET /audio.json")) {  // the newest sound, to draw (audio_wifi.h)
+      const char *body = audioJsonNow();
+      h.printf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n"
+               "Content-Length: %u\r\nConnection: close\r\n\r\n", (unsigned)strlen(body));
+      h.print(body);
+      h.stop();
     } else if (req.startsWith("GET /frame.json") || req.startsWith("GET / ")) {
       const char *body = thFrames ? thJson : "{\"seq\":null}";
       h.printf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n"
@@ -188,40 +184,6 @@ static void thServe(bool fresh) {
       else s.print("\n\n");
     } else if (s) s.stop();
   }
-}
-
-// Called by the microphone's sender for every set (and only by it: these clients are its own). True if a
-// client took the set.
-static bool soundToWifi(const uint8_t *frame, size_t len) {
-  static bool serving = false;
-  if (!thIp[0]) return false;
-  if (!serving) {
-    thSound.begin();
-    serving = true;
-  }
-  WiFiClient c = thSound.accept();
-  if (c) {
-    c.setNoDelay(true);
-    c.setTimeout(200);  // a write waits this long at most (not availableForWrite(): on this core it always says 0
-                        // for a network client, and with that as the test nothing was ever sent: found 13 Nov)
-    bool kept = false;
-    for (int i = 0; i < TH_CLIENTS && !kept; i++)
-      if (!thSoundClients[i] || !thSoundClients[i].connected()) {
-        thSoundClients[i].stop();
-        thSoundClients[i] = c;
-        kept = true;
-      }
-    if (!kept) c.stop();
-  }
-  bool sent = false;
-  for (int i = 0; i < TH_CLIENTS; i++) {
-    WiFiClient &s = thSoundClients[i];
-    if (s && s.connected()) {
-      if (s.write(frame, len) == len) sent = true;
-      else s.stop();  // it could not take a set in 200 ms: it may connect again
-    } else if (s) s.stop();
-  }
-  return sent;
 }
 
 // Its own task: WiFi, the camera, and whoever is reading. Nothing here is on the microphone's path.
