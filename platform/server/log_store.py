@@ -64,6 +64,7 @@ READING_EVENT_EVERY_S = 10  # a growing reading sends its `reading` event at mos
 ENTRY_KINDS = ("finding", "inspection", "repair", "note", "review")
 PART_FIELDS = ("name", "kind", "position", "fault_types", "note", "removed")  # what a person may set
 PART_SET_BY_PLATFORM = ("part_id", "machine_id", "created", "changed", "state", "reading", "by")
+PART_SET_WHEN_MADE = ("at", "simulated")  # only when a part is made, never changed (contract 8.5, 9.6)
 ENTRY_FIELDS = ("kind", "text", "by", "part_id", "at", "needs_repair", "alarm_id", "run_id", "simulated")
 ENTRY_SET_BY_PLATFORM = ("entry_id", "machine_id", "received_at", "diagnosis", "source")
 CSV_COLUMNS = ("at", "part", "kind", "text", "by", "needs_repair", "alarm_id", "diagnosis", "source", "entry_id")
@@ -124,8 +125,30 @@ def _part_fields(body):
             raise BadRequest("part 'removed' must be true or false")
         out["removed"] = body["removed"]
     # Unknown fields are stored and passed on (contract, Basics).
-    out.update((k, v) for k, v in body.items() if k not in PART_FIELDS and k not in PART_SET_BY_PLATFORM)
+    out.update((k, v) for k, v in body.items()
+               if k not in PART_FIELDS and k not in PART_SET_BY_PLATFORM and k not in PART_SET_WHEN_MADE)
     return out
+
+
+def _made_at(body, now):
+    """When a new part was made, and whether it is simulated (contract 8.5).
+
+    Only a simulated part may be dated in the past: the simulator's history is
+    older than the parts it makes at run time (9.6). Nothing makes a real part older."""
+    simulated = body.get("simulated", False)
+    if not isinstance(simulated, bool):
+        raise BadRequest("part 'simulated' must be true or false")
+    at = body.get("at")
+    if at is None:
+        return now, simulated
+    if not simulated:
+        raise BadRequest("part 'at' is only for a simulated part: a real part is made now")
+    when = parse_time(at)
+    if when is None:
+        raise BadRequest("part 'at' must be an ISO 8601 time")
+    if when > parse_time(now):
+        raise BadRequest("part 'at' must not be in the future")
+    return at, simulated
 
 
 def _entry_fields(body):
@@ -328,10 +351,13 @@ class LogStore:
         if body.get("fault_types") is None:  # left out: the kind's starting values, unverified
             body = dict(body, fault_types=part_kinds.fault_types_for(body["kind"]))
         fields = _part_fields(body)
+        at, simulated = _made_at(body, utc_now())
         with self.store.lock:
             part = {"part_id": f"part-{self.next_part:04d}", "machine_id": machine_id, "name": "", "kind": "",
-                    "fault_types": [], "position": None, "note": "", "created": {"at": utc_now(), "by": by},
+                    "fault_types": [], "position": None, "note": "", "created": {"at": at, "by": by},
                     "removed": False}
+            if simulated:
+                part["simulated"] = True
             part.update(fields)
             self.next_part += 1
             self.machine_parts.setdefault(machine_id, []).append(part["part_id"])
@@ -340,6 +366,9 @@ class LogStore:
     def update_part(self, part_id, body):
         body = _object(body, "part")
         by = _by(body, "part")
+        for name in PART_SET_WHEN_MADE:
+            if name in body:
+                raise BadRequest(f"part '{name}' is set when the part is made and cannot be changed")
         fields = _part_fields(body)
         if not fields:
             raise BadRequest(f"nothing to change: send any of {', '.join(PART_FIELDS)}")

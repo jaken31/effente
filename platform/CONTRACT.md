@@ -658,12 +658,16 @@ Stored under `platform/server/data/`, which is not committed: `scans.jsonl` (the
 | `position` | Where the pin is, or `null`. See Coordinates in 8.4. |
 | `removed` | `true` hides the part. Parts are never deleted, because entries point at them. |
 | `state` | Set by the platform. Never sent by a client. Rules in 8.7. |
+| `created` | Set by the platform: `at` is when the part was made, `by` who made it. A real part is always made now. |
+| `simulated` | Only on a part the simulator made (9.6): `true`. Set when the part is made and never changed. A real part has no `simulated`. |
 
 | Route | Body | Reply |
 |-------|------|-------|
-| `POST /api/machines/conveyor-07/parts` | `name`, `kind`, `by`, and optionally `position`, `fault_types`, `note` | `{"ok": true, "part": {...}}` |
-| `PUT /api/parts/part-0007` | `by`, and any of `name`, `kind`, `position`, `fault_types`, `note`, `removed` | `{"ok": true, "part": {...}}` |
+| `POST /api/machines/conveyor-07/parts` | `name`, `kind`, `by`, and optionally `position`, `fault_types`, `note`, `simulated`, and `at` | `{"ok": true, "part": {...}}` |
+| `PUT /api/parts/part-0007` | `by`, and any of `name`, `kind`, `position`, `fault_types`, `note`, `removed`. Never `at` or `simulated`: either is a 400. | `{"ok": true, "part": {...}}` |
 | `GET /api/machines/conveyor-07/parts` | | `{"ok": true, "parts": [...]}`, in the order they were made. Add `?removed=1` to include removed parts. |
+
+**A past `at`, only for a simulated part.** With `"simulated": true`, the body may carry `at`, a time not in the future, and it becomes `created.at`. Rule 8.7 then counts records newer than that time, so a part the simulator makes today can be `nothing_found` from its weeks of older records. Without `"simulated": true`, any `at` is a 400 and nothing is stored: nothing can make a real part older. A bad or future `at` is a 400 too.
 
 `GET /api/state` gains `"parts": {"conveyor-07": [...]}`, without removed parts. A machine with a part appears in `machines`.
 
@@ -1054,7 +1058,7 @@ The id `sample-machine` and the two refusals in the receiver were chosen when th
 
 | What it writes | Through | Marked |
 |----------------|---------|--------|
-| Parts, if the sample machine has none | `POST /api/machines/sample-machine/parts` (8.5), with `by` as `simulator` and `"simulated": true` | The part's `simulated`, stored and passed on |
+| Parts, if the sample machine has none | `POST /api/machines/sample-machine/parts` (8.5), with `by` as `simulator`, `"simulated": true`, and an `at` no later than its oldest record | The part's `simulated`, set when it is made and never changed |
 | Records, in visits | `POST /api/records` (message 2), each with `part_id`, a past `at`, `readings.vib_velocity_mm_s`, a `spectrum`, and `"simulated": true` | The record's `simulated` |
 | Past findings and repairs | `POST /api/machines/sample-machine/log` (8.6), with a past `at` and `"simulated": true` | The entry's `simulated` |
 

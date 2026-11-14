@@ -551,3 +551,54 @@ def test_a_refused_request_leaves_the_connection_usable(client):
         assert (second.status, json.loads(second.read())) == (200, {"ok": True, "parts": []})
     finally:
         conn.close()
+
+
+# ---- a simulated part may be dated in the past (sections 8.5 and 9.6) -----
+
+PAST = "2020-06-01T00:00:00Z"
+
+
+def test_a_simulated_part_takes_a_past_made_time(client):
+    part = new_part(client, at=PAST, simulated=True, by="simulator")
+    assert (part["created"], part["simulated"]) == ({"at": PAST, "by": "simulator"}, True)
+    assert "at" not in part  # kept as the made time, not as a field of its own
+    listed = ok(client, "GET", f"/api/machines/{M}/parts")["parts"][0]
+    assert listed["created"]["at"] == PAST and listed["simulated"] is True
+
+
+def test_rule_8_7_counts_records_newer_than_a_past_dated_simulated_part(client):
+    old_part = new_part(client, at=PAST, simulated=True, by="simulator")
+    now_part = new_part(client, name="Belt", kind="belt", simulated=True, by="simulator")
+    ok(client, "POST", "/api/records", make_record(at="2021-01-01T00:00:00Z", diagnosis="normal", abnormal_minutes=0))
+    # That record is newer than old_part and older than now_part.
+    assert state_of(client, old_part) == {"name": "nothing_found", "since": "2021-01-01T00:00:00Z",
+                                          "reason": NOTHING_FOUND_REASON, "alarm_id": None, "entry_id": None}
+    assert name_of(client, now_part) == "not_checked"
+
+
+@pytest.mark.parametrize("body,error", [
+    ({"at": PAST}, "part 'at' is only for a simulated part: a real part is made now"),
+    ({"at": PAST, "simulated": False}, "part 'at' is only for a simulated part: a real part is made now"),
+    ({"at": "last week", "simulated": True}, "part 'at' must be an ISO 8601 time"),
+    ({"at": "2099-01-01T00:00:00Z", "simulated": True}, "part 'at' must not be in the future"),
+    ({"simulated": "yes"}, "part 'simulated' must be true or false"),
+])
+def test_a_real_part_cannot_be_dated_and_a_bad_date_is_refused(client, body, error):
+    full = dict({"name": "Drive roller", "kind": "roller", "by": "Sam"}, **body)
+    assert client.json("POST", f"/api/machines/{M}/parts", full) == (400, {"ok": False, "error": error})
+    assert ok(client, "GET", f"/api/machines/{M}/parts")["parts"] == []
+
+
+def test_a_real_part_is_made_now_and_is_not_marked_simulated(client):
+    part = new_part(client)
+    assert "simulated" not in part and part["created"]["at"] > PAST
+
+
+@pytest.mark.parametrize("body", [{"at": PAST}, {"simulated": False}, {"simulated": True}])
+def test_no_change_can_redate_a_part_or_flip_simulated(client, body):
+    part = new_part(client, at=PAST, simulated=True, by="simulator")
+    name = next(iter(body))
+    assert client.json("PUT", f"/api/parts/{part['part_id']}", dict(body, by="Sam")) == (
+        400, {"ok": False, "error": f"part '{name}' is set when the part is made and cannot be changed"})
+    after = ok(client, "GET", f"/api/machines/{M}/parts")["parts"][0]
+    assert (after["created"]["at"], after["simulated"]) == (PAST, True)
