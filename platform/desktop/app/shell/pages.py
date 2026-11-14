@@ -1,4 +1,4 @@
-"""The page registry: the seven page keys in shortcut order, their packages, and a
+"""The page registry: the nine page keys in shortcut order, their packages, and a
 placeholder for any page not built yet."""
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from ..theme import tokens as t
 
 log = logging.getLogger("effente.desktop.shell")
 
-# key -> (package under app.pages, title, subtitle). Order is the shortcut order 1 to 7.
+# key -> (package under app.pages, title, subtitle). Order is the shortcut order 1 to 9.
 # Titles and subtitles here are only for placeholders; a real page brings its own.
 PAGES: dict[str, tuple[str, str, str]] = {
     "live": ("live", "Live", "current reading"),
@@ -25,6 +25,9 @@ PAGES: dict[str, tuple[str, str, str]] = {
     "evidence": ("evidence", "Evidence", "why the device thinks what it thinks"),
     "agent": ("agents", "Agents", "the agent fleet on this laptop"),
     "device": ("device", "Device & model", "mode, library model, calibration and events"),
+    # Added after the first seven, so shortcuts 1 to 7 stay as they were (docs/scan-and-log-plan.md).
+    "machine": ("machine", "Machine", "3D scan of the machine, with a pin on each part"),
+    "log": ("log", "Log", "every part's history, and what needs repair"),
 }
 KEYS = list(PAGES)
 CHILDREN = ("spectrum", "thermal")  # shown under Live, with a Live crumb

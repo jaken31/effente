@@ -20,6 +20,10 @@ watching, sensitivity 0.5 reported, none wanted.
 The clock is frozen one second after the newest record, so the device reads
 "live". Actions change only this object and emit the same signals as the real
 state. `push(name, data)` feeds a stream event, for tests of live updates.
+
+`state.scans` is a FakeScans (fake_scans.py) and `state.log` a FakeLog
+(fake_partlog.py): one scan, four parts, six entries and one part review on the
+same machine and alarms. That sample is written by hand, not by real code.
 """
 
 from __future__ import annotations
@@ -34,11 +38,14 @@ import urllib.request
 from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
-if str(DESKTOP) not in sys.path:
-    sys.path.insert(0, str(DESKTOP))
+for _path in (str(DESKTOP), str(Path(__file__).resolve().parent)):  # `app`, and the two fake files beside this one
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from app.data import logic, model_server, paths
 from app.data.state import StateReads
+from fake_partlog import FakeLog
+from fake_scans import FakeScans
 
 ANSWERED_ALARM = "alarm-5"
 OPEN_ALARM = "alarm-9"
@@ -151,6 +158,14 @@ class FakeState(StateReads):
         self.own_agent_alive = False  # set True to act as if this app's report run is going
         self.stopped_agents = 0  # how many times stop_agent was called
         self._note_alarms()  # the fixture's alarms were there at the first look
+        self.scans.fill()
+        self.log.fill()
+
+    def _make_scans(self) -> FakeScans:
+        return FakeScans(self)
+
+    def _make_log(self) -> FakeLog:
+        return FakeLog(self)
 
     def now_ms(self) -> float:
         return self._now
@@ -222,6 +237,7 @@ class FakeState(StateReads):
         data = copy.deepcopy(data)
         logic.apply_event(self._s, name, data, self._now, slim=False)
         logic.apply_laptop_event(self._s, name, data)
+        self._feed_event(name, data)
         if name == "record":
             self.record_added.emit(data)
             self.problems_changed.emit()

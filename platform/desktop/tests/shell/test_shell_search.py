@@ -24,7 +24,7 @@ def labels(search):
 
 def test_ctrl_k_lists_pages_other_machines_and_actions(window, qtbot):
     search = open_search(window, qtbot)
-    assert labels(search)[:7] == [window.pages[k].title for k in window.pages]
+    assert labels(search)[:9] == [window.pages[k].title for k in window.pages]
     assert "conveyor-08" in labels(search)
     assert "demo-fan-1" not in labels(search)  # the machine already shown
     assert "Run the report agent" in labels(search)

@@ -23,6 +23,8 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, S
 from . import logic, model_server, paths
 from .api import ApiClient, ApiError, StreamReader
 from .model_settings import ModelSettings
+from .partlog import PartLog
+from .scans import Scans
 
 READINGS_KEPT = 300  # readings kept per device for the Live page's sparklines: 5 minutes at one a second
 
@@ -95,6 +97,27 @@ class StateReads(QObject):
         self.model_settings = ModelSettings()  # remembers nothing unless given a store
         self._model_status = model_server.Status(model_server.STOPPED, "Not running.")
         self.alarms_changed.connect(self._note_alarms)  # first, so alarm_opened precedes page refreshes
+        # INTERFACES.md additions 18 and 19. Each gets every snapshot and stream event.
+        self.scans = self._make_scans()
+        self.log = self._make_log()
+
+    def _make_scans(self) -> Scans:
+        return Scans(self)
+
+    def _make_log(self) -> PartLog:
+        return PartLog(self)
+
+    def _feed_snapshot(self, snap) -> None:
+        """Pass GET /api/state on to state.scans and state.log."""
+        if isinstance(snap, dict):
+            self.scans.apply_snapshot(snap)
+            self.log.apply_snapshot(snap)
+
+    def _feed_event(self, name: str, data) -> None:
+        """Pass one stream event on to state.scans and state.log."""
+        if isinstance(data, dict):
+            self.scans.apply_event(name, data)
+            self.log.apply_event(name, data)
 
     def _note_alarms(self) -> None:
         """Emit alarm_opened for each open alarm not seen before. The first call only looks."""
@@ -443,6 +466,7 @@ class DashboardState(StateReads):
     def _on_snapshot(self, snap) -> None:
         logic.apply_snapshot(self._s, snap, self.now_ms())
         logic.apply_laptop_snapshot(self._s, snap)
+        self._feed_snapshot(snap)
         self._range = None  # records may have been stored while the stream was down: read it again
         self._load_machine(force=True)
         self.snapshot_changed.emit()
@@ -456,6 +480,7 @@ class DashboardState(StateReads):
         before = self._problem_key()
         logic.apply_event(self._s, name, data, self.now_ms(), slim=False)
         logic.apply_laptop_event(self._s, name, data)
+        self._feed_event(name, data)
         if self.current_machine() != self._loaded_machine:
             self._load_machine()
         if name == "record":
