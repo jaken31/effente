@@ -20,6 +20,9 @@ Item {
     property color labelColour: "#e8e8e8"
     property color labelBackground: "#c0101214"
     property real pinSize: 14
+    // How far the camera starts from the model, whose longest side is scaled to 100. At 175 the model
+    // fills about half of a wide view and still fits a view as narrow as it is tall.
+    readonly property real cameraDistance: 175
 
     // "empty" (no file asked for), "loading", "ready" or "error"
     readonly property string status: loader.status === RuntimeLoader.Success ? "ready"
@@ -65,7 +68,7 @@ Item {
 
     function resetCamera() {
         orbitOrigin.eulerRotation = Qt.vector3d(-22, 32, 0)
-        camera.position = Qt.vector3d(0, 0, 230)
+        camera.position = Qt.vector3d(0, 0, root.cameraDistance)
         camera.eulerRotation = Qt.vector3d(0, 0, 0)
     }
 
@@ -101,14 +104,21 @@ Item {
         }
     }
 
+    // The background is drawn here, not by the 3D scene: the scene's own clear colour goes through its
+    // tone mapping and came out darker than asked (#101010 for #141414, Qt 6.12, Linux, 14 Nov), so the
+    // view showed as a patch on its panel.
+    Rectangle {
+        anchors.fill: parent
+        color: root.background
+    }
+
     View3D {
         id: view
         anchors.fill: parent
         camera: camera
 
         environment: SceneEnvironment {
-            clearColor: root.background
-            backgroundMode: SceneEnvironment.Color
+            backgroundMode: SceneEnvironment.Transparent
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
         }
@@ -117,7 +127,7 @@ Item {
             id: orbitOrigin
             PerspectiveCamera {
                 id: camera
-                z: 230
+                z: root.cameraDistance
                 clipNear: 1
                 clipFar: 5000
             }

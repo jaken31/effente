@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>effente Machine page, one screen</title>
+<style>
+  :root {
+    --bg: #0a0a0b; --panel: #0e0e0f; --line: #1f1f22; --line2: #2b2b2f;
+    --text: #f3f3f3; --soft: #c9c9cc; --muted: #8b8b90; --dim: #5d5d62; --hover: #151517;
+    --nav-on: #19191c; --red: #ff4d2e; --row-on: #2a1410;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #050505; color: var(--text);
+    font: 13px/1.45 Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  .mockbar { display: flex; gap: 8px; align-items: center; padding: 0 16px; height: 46px; border-bottom: 1px dashed #333; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .mockbar b { color: var(--text); font-weight: 600; margin-right: 6px; }
+  .mockbar button { background: none; border: 1px solid #333; border-radius: 6px; padding: 4px 10px; color: var(--muted); }
+  .mockbar button.on { color: var(--text); border-color: var(--text); }
+  .mockbar .note { margin-left: auto; }
+
+  .app { display: grid; grid-template-columns: 232px 1fr; height: calc(100vh - 46px); min-height: 700px; min-width: 1280px;
+    background: radial-gradient(900px 300px at 55% 0, #1a0f0b 0, transparent 70%), var(--bg); }
+  .side { border-right: 1px solid var(--line); padding: 18px 12px 16px; }
+  .brand { padding: 0 8px 20px; } .brand b { font-size: 20px; letter-spacing: -.02em; } .brand span { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .cap { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; padding: 0 8px 8px; }
+  .select { border: 1px solid var(--line2); border-radius: 6px; padding: 6px 12px; margin: 0 4px 22px; display: flex; justify-content: space-between; }
+  .nav a { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; color: var(--soft); }
+  .nav a.sub { margin-left: 26px; padding: 5px 12px; border-left: 1px solid var(--line2); border-radius: 0; }
+  .nav a.on { background: var(--nav-on); color: var(--text); }
+  .nav i { width: 14px; height: 14px; border: 1.5px solid currentColor; border-radius: 3px; opacity: .7; }
+  .nav a.on i { border-color: var(--red); opacity: 1; }
+
+  .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .top { height: 56px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 24px; }
+  .top .m { color: var(--soft); font-size: 15px; } .top .s { color: var(--dim); font-size: 18px; }
+  .top h1 { font-size: 19px; margin: 0; letter-spacing: -.01em; } .top .sub { color: var(--muted); margin-left: 4px; }
+  .top .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .pill { border: 1px dashed var(--line2); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--soft); }
+  .btn { background: none; border: 1px solid var(--line2); border-radius: 999px; padding: 4px 12px; font-weight: 600; white-space: nowrap; }
+  .btn:hover { background: var(--hover); } .btn.plain { border-color: transparent; color: var(--soft); font-weight: 500; padding: 4px 8px; }
+
+  /* one screen: three columns that fill the height, nothing scrolls but the log list */
+  .page { flex: 1; min-height: 0; padding: 20px 24px; display: grid; gap: 16px;
+    grid-template-columns: minmax(360px, .85fr) minmax(460px, 1.2fr) 310px; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; flex: none; }
+  .grow { flex: 1; } .grow2 { flex: 1.35; }
+  .head { display: flex; align-items: center; gap: 10px; padding: 12px 16px 8px; flex: none; }
+  .head .n { color: var(--muted); } .head b { font-size: 14px; font-weight: 600; white-space: nowrap; } .head .meta { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head .r { margin-left: auto; display: flex; gap: 6px; align-items: center; flex: none; }
+
+  .view { position: relative; flex: 1; min-height: 0; margin: 0 16px 16px; border: 1px solid var(--line); border-radius: 8px;
+    background: radial-gradient(420px 260px at 50% 55%, #151516 0, #0b0b0c 75%); overflow: hidden; }
+  .view > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hint { position: absolute; left: 10px; bottom: 8px; color: var(--dim); font-size: 12px; }
+  .pin { cursor: pointer; } .pin .halo { fill: none; stroke: var(--text); stroke-width: 2; opacity: 0; } .pin.sel .halo { opacity: 1; }
+  .pin text { font-size: 22px; fill: var(--text); } .pin rect { fill: #0b0b0c; stroke: var(--line2); }
+  .pin .tag { display: none; } .pin.sel .tag, .pin:hover .tag { display: block; }
+  .pop { position: absolute; inset: 10px; background: #0b0b0c; border: 1px solid var(--line2); border-radius: 8px; padding: 14px; display: none; grid-template-columns: 132px minmax(0, 1fr); gap: 16px; align-content: start; }
+  .pop.open { display: grid; } .pop > div { min-width: 0; }
+  .qr { width: 132px; height: 132px; background: #fff; border-radius: 8px; padding: 9px; } .qr svg { display: block; width: 100%; height: 100%; }
+  .pop h3 { margin: 0 0 6px; font-size: 14px; } .pop ol { margin: 0; padding-left: 18px; color: var(--soft); }
+  .pop code { display: block; margin-top: 10px; border: 1px solid var(--line2); border-radius: 6px; padding: 5px 8px; color: var(--muted); font: 11px ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pop .foot { grid-column: span 2; display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
+
+  .row { display: grid; grid-template-columns: 22px 1fr auto; padding: 7px 16px; border-top: 1px solid var(--line); cursor: pointer; align-items: baseline; }
+  .row:hover { background: var(--hover); } .row.sel { background: var(--row-on); }
+  .row b { font-weight: 600; } .row small { color: var(--muted); font-size: 12px; grid-column: 2; } .row em { font-style: normal; color: var(--soft); grid-row: span 2; align-self: center; }
+  .mark { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+  .mark.needs_repair { background: var(--red); } .mark.possible { border: 2px solid var(--red); }
+  .mark.nothing_found { background: #d9d9dc; } .mark.not_checked { border: 2px solid var(--dim); }
+
+  .title { display: flex; gap: 10px; align-items: baseline; flex: none; height: 28px; white-space: nowrap; }
+  .title h2 { margin: 0; font-size: 19px; letter-spacing: -.01em; } .title .k { color: var(--muted); } .title .st { font-weight: 600; margin-left: 8px; overflow: hidden; text-overflow: ellipsis; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; flex: none; }
+  .tile { padding: 9px 14px; } .tile small { color: var(--muted); display: block; }
+  .tile b { font-size: 22px; font-weight: 600; letter-spacing: -.02em; display: block; line-height: 1.2; }
+  .tile em { font-style: normal; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .chart { flex: 1; min-height: 0; padding: 0 12px 6px; } .chart svg { display: block; width: 100%; height: 100%; }
+  svg text { fill: var(--muted); font-size: 11px; font-family: inherit; } svg text.hi { fill: var(--text); }
+  .seg { display: flex; border: 1px solid var(--line2); border-radius: 999px; padding: 2px; }
+  .seg span { padding: 1px 9px; border-radius: 999px; color: var(--muted); cursor: pointer; white-space: nowrap; } .seg span.on { border: 1px solid var(--red); color: var(--text); }
+  .proj { flex: none; margin: 0 16px 14px; border: 1px solid var(--line2); border-radius: 8px; padding: 8px 12px; }
+  .proj b { font-weight: 600; display: block; } .proj span { color: var(--muted); font-size: 12px; }
+
+  .fields { padding: 0 16px 10px; display: grid; gap: 8px; } .fields span { color: var(--muted); font-size: 12px; display: block; } .fields b { font-weight: 500; }
+  .advice { padding: 0 16px 8px; color: var(--muted); font-size: 12px; } .actions { padding: 0 16px 14px; }
+  .scroll { flex: 1; min-height: 0; overflow: auto; }
+  .entry { padding: 8px 16px; border-top: 1px solid var(--line); } .entry span { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+  .none { padding: 2px 16px 16px; color: var(--muted); }
+  .blank { flex: 1; align-items: center; justify-content: center; text-align: center; padding: 24px; } .blank h3 { margin: 0 0 6px; font-size: 16px; } .blank p { margin: 0; color: var(--muted); max-width: 360px; }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>Mockup state</b>
+  <button data-h="long" class="on">Weeks of history</button>
+  <button data-h="short">First day</button>
+  <span class="note">This bar is not part of the app. The model is a drawing and every number is sample data.</span>
+</div>
+
+<div class="app">
+  <aside class="side">
+    <div class="brand"><b>effente</b><span>console</span></div>
+    <div class="cap">MACHINE</div>
+    <div class="select"><span>conveyor-07</span><span>&#9662;</span></div>
+    <nav class="nav">
+      <a><i></i>Live</a><a class="sub">Spectrum</a><a class="sub">Thermal</a>
+      <a><i></i>History</a><a><i></i>Evidence</a><a><i></i>Agents</a><a><i></i>Device &amp; model</a>
+      <a class="on"><i></i>Machine</a><a><i></i>Log</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <span class="m">conveyor-07</span><span class="s">/</span><h1>Machine</h1>
+      <span class="sub">pick a part on the scan to see its readings and history</span>
+      <div class="right"><span class="pill">Sample data</span><span>&#9679; Updated 11:42:09</span></div>
+    </div>
+
+    <div class="page">
+      <div class="col">
+        <section class="panel grow">
+          <div class="head"><span class="n">01</span><b>Scan</b><span class="meta">14 Nov 11:42 &middot; 9.1 MB</span>
+            <div class="r"><button class="btn plain" id="newscan">New scan</button><button class="btn">Add part</button></div></div>
+          <div class="view">
+            <svg viewBox="130 20 620 440" preserveAspectRatio="xMidYMid meet" id="svg"></svg>
+            <div class="hint">Drag to turn &middot; scroll to zoom &middot; click a pin</div>
+            <div class="pop" id="pop">
+              <div class="qr"><svg viewBox="0 0 25 25" id="qr" shape-rendering="crispEdges"></svg></div>
+              <div><h3>New scan from the phone</h3>
+                <ol><li>Scan the machine in the phone app.</li><li>Press Pair and point the phone at this code.</li><li>Pick the scan and press Send.</li></ol>
+                <code>effente://scan?v=1&amp;base=http%3A%2F%2F192.168.43.10%3A8000&amp;machine=conveyor-07</code></div>
+              <div class="foot"><button class="btn">Copy line</button><button class="btn">Import file</button><button class="btn plain" id="closepop" style="margin-left:auto">Close</button></div>
+            </div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="head"><span class="n">02</span><b>Parts</b><span class="meta">now, in mm/s</span><div class="r"><button class="btn plain">Open log</button></div></div>
+          <div id="parts"></div>
+        </section>
+      </div>
+      <div class="col" id="mid"></div>
+      <div class="col" id="right"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const el = (name, attrs, parent, text) => { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; parent.appendChild(e); return e; };
+const C = { text: "#f3f3f3", muted: "#8b8b90", dim: "#5d5d62", grid: "#1f1f22", line2: "#2b2b2f", red: "#ff4d2e" };
+let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+const series = f => { const a = []; for (let d = 0; d <= 60; d++) { if (rnd() < .06 && d < 58) continue; a.push([d, +(f(d) + (rnd() - .5) * .2).toFixed(2)]); } return a; };
+const THRESHOLD = 4.5;
+
+const parts = [
+  { id: "drive", name: "Drive roller", kind: "roller", state: "needs_repair", line: "Needs repair since 14 Nov 11:05", at: [10, 1.5, 3.1],
+    long: series(d => d < 27 ? 1.9 + Math.max(0, d - 8) * .09 : d < 48 ? 1.85 : 1.85 + (d - 48) * .10), short: [[59.2, 2.9], [59.6, 3.0], [60, 3.1]], end: 3.1,
+    change: "+0.10", repairs: [27], fan: [.155, .10, .075],
+    proj: ["Reaches the alarm threshold in 9 to 19 days (23 Nov to 3 Dec)", "A straight line through the last 12 days, worked out by code. Not checked on real faults."],
+    moved: [["Level at running speed (1x)", 6.2], ["Velocity", 4.8], ["Band 20 to 30 Hz", 2.9], ["Level at 2x running speed", 1.1], ["Knockiness", .4]], peak: [3, 4.1],
+    review: [["Needs repair", "Yes (advice)"], ["What", "Possible unbalance, answered as a real problem by jake."], ["How it comes about", "Once-per-turn vibration grown: added or lost weight, a bent shaft, build-up on the roller."], ["Since", "14 Nov 11:05"], ["Trend", "Rising since 2 Nov, after a repair on 12 Oct brought it down."], ["Cited", "alarm-5, entry-000004, 12 readings"]],
+    log: [["14 Nov 11:06", "Review", "Possible unbalance on the drive roller.", "part agent"], ["14 Nov 11:05", "Finding", "Added weight found on the drive roller.", "jake"], ["12 Oct 15:20", "Repair", "Roller cleaned and rebalanced.", "cameron"], ["11 Oct 09:10", "Finding", "Build-up on the roller, running rough.", "cameron"]] },
+  { id: "mount", name: "Motor mount", kind: "mount", state: "possible", line: "Possible since 14 Nov 11:00", at: [8.9, 4.4, 1.3],
+    long: series(d => d < 52 ? 1.2 : 1.2 + (d - 52) * .04), short: [[60, 1.5]], end: 1.5, change: "+0.04", repairs: [],
+    proj: ["No clear rise yet: the change is inside the day-to-day spread", "A straight line through the last 12 days, worked out by code."],
+    moved: [["Band 80 to 120 Hz", 2.1], ["Velocity", 1.4], ["Knockiness", .9], ["Level at running speed (1x)", .6]], peak: [6, 1.4], review: null, log: [] },
+  { id: "belt", name: "Belt", kind: "belt", state: "nothing_found", line: "Nothing found since 14 Nov 11:00", at: [5, 1.5, 2.95],
+    long: series(() => .9), short: [[60, .9]], end: .9, change: "0.00", repairs: [],
+    proj: ["Level: no rise in the last 12 days", "A straight line through the last 12 days, worked out by code."],
+    moved: [["Velocity", .5], ["Band 5 to 20 Hz", .4], ["Knockiness", .2]], peak: null, review: null,
+    log: [["9 Nov 10:40", "Inspection", "Tracking looks fine.", "cameron"]] },
+  { id: "idle", name: "Idle roller", kind: "roller", state: "not_checked", line: "Not checked", at: [0, 1.5, 3.1],
+    long: [], short: [], repairs: [], moved: [], peak: null, review: null, log: [] },
+];
+parts.forEach(p => { if (p.long.length) p.long[p.long.length - 1][1] = p.end; });
+let selected = "drive", mode = "long", ev = "moved";
+
+// ---- the model: a drawing, in place of the phone's scan
+const svg = document.getElementById("svg");
+const P = (x, y, z) => [330 + (x - y) * 38.1, 170 + (x + y) * 22 - z * 44];
+function box(x, y, z, dx, dy, dz, top, right, left) {
+  const pts = a => a.map(p => P(...p).join(",")).join(" ");
+  el("polygon", { points: pts([[x+dx,y,z],[x+dx,y+dy,z],[x+dx,y+dy,z+dz],[x+dx,y,z+dz]]), fill: right }, svg);
+  el("polygon", { points: pts([[x,y+dy,z],[x+dx,y+dy,z],[x+dx,y+dy,z+dz],[x,y+dy,z+dz]]), fill: left }, svg);
+  el("polygon", { points: pts([[x,y,z+dz],[x+dx,y,z+dz],[x+dx,y+dy,z+dz],[x,y+dy,z+dz]]), fill: top }, svg);
+}
+el("ellipse", { cx: 440, cy: 385, rx: 300, ry: 62, fill: "#000", opacity: .35 }, svg);
+const metal = ["#4a4b50", "#303135", "#232427"], dark = ["#1b1b1d", "#131314", "#0f0f10"], light = ["#6a6b70", "#46474b", "#343538"];
+[[0.2,0.2],[9.5,0.2],[0.2,2.5],[9.5,2.5]].forEach(([x,y]) => box(x, y, 0, .3, .3, 2.2, ...metal));
+box(-0.3, -0.1, 2.3, .6, 3.2, .8, ...light); box(0, 0, 2.2, 10, 3, .6, ...metal); box(0.1, 0.25, 2.8, 9.8, 2.5, .15, ...dark);
+for (let i = 1; i < 10; i++) { const a = P(i, .25, 2.95), b = P(i, 2.75, 2.95); el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: "#242426" }, svg); }
+box(9.7, -0.1, 2.3, .6, 3.2, .8, ...light); box(8.0, 3.0, 1.2, 1.8, 1.4, .2, ...metal); box(8.2, 3.0, 1.4, 1.4, 1.2, 1.2, "#55565b", "#3a3b3f", "#2a2b2e");
+const pinLayer = el("g", {}, svg);
+const look = { needs_repair: [C.red, C.text], possible: ["#0a0a0b", C.red], nothing_found: ["#d9d9dc", "#0a0a0b"], not_checked: ["#0a0a0b", C.muted] };
+
+(function () { // a drawing of a QR code, not a real one
+  const q = document.getElementById("qr"); let s = 7; const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let y = 0; y < 25; y++) for (let x = 0; x < 25; x++) { const near = x < 8 && y < 8 || x > 16 && y < 8 || x < 8 && y > 16; if (!near && r() > .52) el("rect", { x, y, width: 1, height: 1, fill: "#000" }, q); }
+  [[0,0],[18,0],[0,18]].forEach(([x, y]) => { el("rect", { x, y, width: 7, height: 7, fill: "#000" }, q); el("rect", { x: x+1, y: y+1, width: 5, height: 5, fill: "#fff" }, q); el("rect", { x: x+2, y: y+2, width: 3, height: 3, fill: "#000" }, q); });
+})();
+
+const date = d => { const t = new Date(Date.UTC(2026, 8, 15 + Math.round(d))); return t.getUTCDate() + " " + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][t.getUTCMonth()]; };
+const data = p => mode === "long" ? p.long : p.short;
+const now = p => { const d = data(p); return d.length ? d[d.length - 1][1].toFixed(1) : "–"; };
+const size = s => { const b = s.getBoundingClientRect(), W = Math.max(200, Math.round(b.width)), H = Math.max(110, Math.round(b.height)); s.setAttribute("viewBox", `0 0 ${W} ${H}`); return [W, H]; };
+
+function trend(s, p) {
+  const [W, H] = size(s), pts = data(p), L = 30, R = W - 8, T = 12, B = H - 22, d1 = 82, y1 = 5.5;
+  const X = d => L + d / d1 * (R - L), Y = v => B - v / y1 * (B - T);
+  for (let v = 0; v <= 5; v++) { el("line", { x1: L, x2: R, y1: Y(v), y2: Y(v), stroke: C.grid }, s); el("text", { x: L - 8, y: Y(v) + 4, "text-anchor": "end" }, s, v); }
+  for (let d = 0; d <= 80; d += 20) el("text", { x: X(d), y: B + 16, "text-anchor": d ? "middle" : "start" }, s, date(d));
+  el("line", { x1: L, x2: R, y1: Y(THRESHOLD), y2: Y(THRESHOLD), stroke: C.red, "stroke-width": 1.5, "stroke-dasharray": "6 5" }, s);
+  el("text", { x: L + 6, y: Y(THRESHOLD) - 6 }, s, "alarm threshold 4.5 mm/s");
+  el("line", { x1: X(60), x2: X(60), y1: T, y2: B, stroke: C.line2 }, s); el("text", { x: X(60) + 5, y: B - 6, class: "hi" }, s, "now");
+  if (mode === "long") {
+    const avg = pts.reduce((a, q) => a + q[1], 0) / pts.length;
+    el("line", { x1: L, x2: X(60), y1: Y(avg), y2: Y(avg), stroke: C.muted, "stroke-dasharray": "3 4" }, s);
+    el("text", { x: L + 6, y: Y(avg) - 6 }, s, "average " + avg.toFixed(1));
+    p.repairs.forEach(d => { el("line", { x1: X(d), x2: X(d), y1: Y(THRESHOLD) + 6, y2: B, stroke: C.dim, "stroke-dasharray": "2 3" }, s); el("text", { x: X(d) + 5, y: B - 6 }, s, "repair, " + date(d)); });
+    if (p.fan) {
+      const end = k => [X(60 + (THRESHOLD - p.end) / k), Y(THRESHOLD)], [a, m, b] = p.fan.map(end);
+      el("polygon", { points: `${X(60)},${Y(p.end)} ${a} ${b}`, fill: "rgba(255,255,255,.10)" }, s);
+      el("line", { x1: X(60), y1: Y(p.end), x2: m[0], y2: m[1], stroke: C.text, "stroke-width": 1.5, "stroke-dasharray": "2 5" }, s);
+      el("line", { x1: a[0], x2: b[0], y1: a[1], y2: a[1], stroke: C.text, "stroke-width": 3 }, s);
+      el("text", { x: (a[0] + b[0]) / 2, y: a[1] - 8, "text-anchor": "middle", class: "hi" }, s, "9 to 19 days");
+    }
+  } else el("text", { x: X(28), y: Y(2.6), "text-anchor": "middle" }, s, "No readings of this part before today");
+  el("polyline", { points: pts.map(q => X(q[0]) + "," + Y(q[1])).join(" "), fill: "none", stroke: C.text, "stroke-width": 1.5, "stroke-linejoin": "round" }, s);
+  pts.forEach(q => el("circle", { cx: X(q[0]), cy: Y(q[1]), r: 1.8, fill: C.text }, s));
+  const last = pts[pts.length - 1], alarm = p.state === "needs_repair";
+  el("circle", { cx: X(last[0]), cy: Y(last[1]), r: 5, fill: alarm ? C.red : C.text, stroke: "#0e0e0f", "stroke-width": 2 }, s);
+  el("text", { x: X(last[0]) - 9, y: Y(last[1]) - 9, "text-anchor": "end", class: "hi" }, s, last[1].toFixed(1) + (alarm ? ", alarm 11:00" : ""));
+}
+function moved(s, p) {
+  const [W, H] = size(s), L = 176, R = W - 44, T = 18, B = H - 22, X = v => L + v / 7 * (R - L), step = Math.min(30, (B - T) / p.moved.length);
+  for (let v = 0; v <= 6; v += 2) { el("line", { x1: X(v), x2: X(v), y1: T, y2: B, stroke: C.grid }, s); el("text", { x: X(v), y: B + 15, "text-anchor": "middle" }, s, v); }
+  el("line", { x1: X(4), x2: X(4), y1: T - 6, y2: B, stroke: C.muted, "stroke-dasharray": "3 4" }, s);
+  el("text", { x: X(4) + 5, y: T - 4 }, s, "counts as evidence");
+  p.moved.forEach(([name, v], i) => { const y = T + 6 + i * step, hi = v >= 4, h = Math.min(14, step - 8);
+    el("text", { x: L - 8, y: y + h - 2, "text-anchor": "end", class: hi ? "hi" : "" }, s, name);
+    el("rect", { x: L, y, width: X(v) - L, height: h, rx: 2, fill: hi ? C.text : C.dim }, s);
+    el("text", { x: X(v) + 6, y: y + h - 2, class: hi ? "hi" : "" }, s, "+" + v.toFixed(1)); });
+  el("text", { x: 8, y: B + 15 }, s, "spreads from normal");
+}
+function spec(s, p) {
+  const [W, H] = size(s), L = 30, R = W - 8, T = 18, B = H - 24, n = 20, normal = [.5,.7,.9,1.6,1.0,.8,.7,.9,.6,.5,.5,.45,.4,.4,.35,.3,.3,.28,.25,.22];
+  let r = 5; const rr = () => (r = (r * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const k = .45 + .55 * p.end / 3.1, cur = normal.map((v, i) => p.peak && i === p.peak[0] ? p.peak[1] : v * k * (1 + (rr() - .5) * .12));
+  const Y = v => B - v / 4.5 * (B - T), w = (R - L) / n;
+  for (let v = 0; v <= 4; v += 2) { el("line", { x1: L, x2: R, y1: Y(v), y2: Y(v), stroke: C.grid }, s); el("text", { x: L - 8, y: Y(v) + 4, "text-anchor": "end" }, s, v); }
+  cur.forEach((v, i) => { const hi = p.peak && i === p.peak[0] && v > 2;
+    el("rect", { x: L + i * w + 2, y: Y(v), width: w - 4, height: B - Y(v), fill: hi ? C.text : C.dim }, s);
+    el("line", { x1: L + i * w + 1, x2: L + (i + 1) * w - 1, y1: Y(normal[i] * k), y2: Y(normal[i] * k), stroke: C.muted, "stroke-width": 1.5 }, s);
+    if (hi) el("text", { x: L + (i + .5) * w + w, y: Y(v) + 10, class: "hi" }, s, "running speed"); });
+  [["5", 0], ["100", 5], ["250", 11], ["500 Hz", 20]].forEach(([t, i]) => el("text", { x: L + i * w, y: B + 16, "text-anchor": i === 20 ? "end" : "start" }, s, t));
+  el("line", { x1: R - 150, x2: R - 134, y1: T - 6, y2: T - 6, stroke: C.muted, "stroke-width": 1.5 }, s); el("text", { x: R - 128, y: T - 2 }, s, "normal");
+  el("rect", { x: R - 70, y: T - 11, width: 11, height: 9, fill: C.dim }, s); el("text", { x: R - 54, y: T - 2 }, s, "now, mm/s");
+}
+
+function draw() {
+  pinLayer.innerHTML = "";
+  parts.forEach(p => {
+    const [x, y] = P(...p.at), g = el("g", { class: "pin" + (p.id === selected ? " sel" : "") }, pinLayer);
+    el("line", { x1: x, y1: y, x2: x, y2: y - 34, stroke: C.muted, "stroke-width": 1.5 }, g);
+    el("circle", { class: "halo", cx: x, cy: y - 34, r: 18 }, g);
+    el("circle", { cx: x, cy: y - 34, r: 11, fill: look[p.state][0], stroke: look[p.state][1], "stroke-width": 3 }, g);
+    const w = p.name.length * 12 + 22, left = x + 24 + w > 745, tx = left ? x - 24 - w : x + 24, tag = el("g", { class: "tag" }, g);
+    el("rect", { x: tx, y: y - 52, width: w, height: 36, rx: 7 }, tag); el("text", { x: tx + 11, y: y - 27 }, tag, p.name);
+    g.onclick = () => { selected = p.id; draw(); };
+  });
+  document.getElementById("parts").innerHTML = parts.map(p =>
+    `<div class="row${p.id === selected ? " sel" : ""}" data-id="${p.id}"><span class="mark ${p.state}"></span><b>${p.name}</b><em>${now(p)}</em><small>${p.line}</small></div>`).join("");
+  document.querySelectorAll(".row").forEach(r => r.onclick = () => { selected = r.dataset.id; draw(); });
+
+  const p = parts.find(q => q.id === selected), d = data(p), long = mode === "long";
+  let m = `<div class="title"><span class="mark ${p.state}"></span><h2>${p.name}</h2><span class="k">${p.kind}</span><span class="st">${p.line}</span></div>`;
+  if (!d.length) {
+    m += `<section class="panel grow blank"><h3>The probe has not been on this part</h3><p>Put the probe on it, pick this part, and its readings, average and trend appear here.</p></section>`;
+  } else {
+    const avg = (d.reduce((a, q) => a + q[1], 0) / d.length).toFixed(1), max = d.reduce((a, q) => q[1] > a[1] ? q : a), n = d.length + " reading" + (d.length > 1 ? "s" : "");
+    m += `<div class="tiles">
+        <section class="panel tile"><small>Now</small><b>${now(p)}</b><em>mm/s, 11:40</em></section>
+        <section class="panel tile"><small>Average</small><b>${avg}</b><em>${n}</em></section>
+        <section class="panel tile"><small>Highest</small><b>${max[1].toFixed(1)}</b><em>${date(max[0])}</em></section>
+        <section class="panel tile"><small>Change</small><b>${long ? p.change : "–"}</b><em>${long ? "mm/s a day" : "not enough history"}</em></section></div>
+      <section class="panel grow2"><div class="head"><span class="n">03</span><b>Vibration over time</b>
+          <div class="r"><div class="seg"><span>7 d</span><span>30 d</span><span class="on">60 d</span><span>All</span></div></div></div>
+        <div class="chart"><svg id="trend"></svg></div>
+        <div class="proj"><b>${long ? p.proj[0] : "Not enough history to say where this is heading"}</b>
+          <span>${long ? p.proj[1] : n + " today. A trend needs readings on at least 3 different days."}</span></div></section>
+      <section class="panel grow"><div class="head"><span class="n">04</span><b>Evidence</b><span class="meta">newest reading, against this machine's normal</span>
+          <div class="r"><div class="seg" id="evseg"><span data-e="moved" class="${ev === "moved" ? "on" : ""}">What moved</span><span data-e="spec" class="${ev === "spec" ? "on" : ""}">Spectrum</span></div></div></div>
+        <div class="chart"><svg id="ev"></svg></div></section>`;
+  }
+  document.getElementById("mid").innerHTML = m;
+
+  const log = long ? p.log : p.log.filter(r => r[0].startsWith("14 Nov"));
+  document.getElementById("right").innerHTML =
+    `<section class="panel"><div class="head"><span class="n">05</span><b>Part review</b><div class="r"><button class="btn">Run review</button></div></div>`
+    + (p.review ? `<div class="advice">Advice from this part's agent, not a decision.</div><div class="fields">${p.review.filter(r => long || r[0] !== "Trend").map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join("")}</div><div class="actions"><button class="btn">Agree: add a finding</button></div>`
+      : `<div class="none">No review of this part yet.</div>`) + `</section>
+     <section class="panel grow"><div class="head"><span class="n">06</span><b>Log</b><span class="meta">this part</span><div class="r"><button class="btn plain">Open</button><button class="btn">Add entry</button></div></div>`
+    + (log.length ? `<div class="scroll">${log.map(r => `<div class="entry"><span><i style="font-style:normal">${r[0]} &middot; ${r[1]}</i><i style="font-style:normal">${r[3]}</i></span>${r[2]}</div>`).join("")}</div>`
+      : `<div class="none">No entries for this part.</div>`) + `</section>`;
+
+  if (d.length) {
+    trend(document.getElementById("trend"), p);
+    (ev === "moved" ? moved : spec)(document.getElementById("ev"), p);
+    document.querySelectorAll("#evseg span").forEach(s => s.onclick = () => { ev = s.dataset.e; draw(); });
+  }
+}
+
+const q = new URLSearchParams(location.search);
+if (q.get("h") === "short") mode = "short"; if (q.get("p")) selected = q.get("p"); if (q.get("e")) ev = q.get("e"); if (q.get("qr")) document.getElementById("pop").classList.add("open");
+document.querySelectorAll(".mockbar button").forEach(b => { b.classList.toggle("on", b.dataset.h === mode); b.onclick = () => { mode = b.dataset.h; document.querySelectorAll(".mockbar button").forEach(c => c.classList.toggle("on", c === b)); draw(); }; });
+document.getElementById("newscan").onclick = () => document.getElementById("pop").classList.toggle("open");
+document.getElementById("closepop").onclick = () => document.getElementById("pop").classList.remove("open");
+window.addEventListener("resize", draw);
+draw();
+</script>
+</body>
+</html>

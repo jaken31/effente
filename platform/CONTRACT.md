@@ -1,8 +1,21 @@
 # Device and platform contract
 
-Version 3.4, pending the team's sign-off. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
+Version 3.5, pending the team's sign-off. Section 9 is a proposal: not yet agreed, and not built. Owner: track 5. This file is the whole interface between the handheld (or the simulated device), the laptop platform, the dashboard and the agent fleet. Build to it exactly. If it is wrong, tell track 5; do not work around it.
 
-It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds eight fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq`.
+It follows the log record in [docs/TRD.md](../docs/TRD.md) and adds nine fields to it: `model_version`, `reason`, `problems`, `wrong`, `sensitivity`, `alarm_line`, `simulated`, and (set by the platform) `seq` and `part_id`.
+
+## Changes from version 3.4
+
+Additions only. A version 3.4 device, dashboard or phone app keeps working. All of it is in section 9. It is a proposal, and none of it is built: see the note there.
+
+- A person says which part the probe is on, and the platform stamps that machine's records with the `part_id` (section 9.1). The handheld changes nothing for this.
+- Every record carries the vibration velocity in mm/s, in `readings.vib_velocity_mm_s` (section 9.2). This is the one change on the sending side.
+- Readings: the platform sums up each visit of the probe to a part, and a route returns one part's readings over time with their average, highest and count (section 9.3).
+- A normal spectrum, worked out by the platform from stored records judged normal (section 9.4).
+- A projection: a straight line through a part's recent readings and when it meets the 11 mm/s limit, as a range. Worked out by code (section 9.5).
+- Simulated history: the simulator writes weeks of readings through the same routes, and the `simulated` mark follows them into everything worked out from them (section 9.6).
+- A part review may carry `trend`, copied by code from the projection (section 9.7).
+- `GET /api/state` gains `probe`, and each part gains `reading`. The stream gains the events `probe` and `reading`.
 
 ## Changes from version 3.3
 
@@ -188,6 +201,8 @@ While watching, one record a second. The diagnosis changes once per summary peri
 | `wrong` | `true` if `diagnosis` is a fault type or `unrecognised_pattern`, or `problems` is not empty. Otherwise `false`. |
 | `spectrum` | 20 vibration band levels, log10, on the edges announced in message 1. (The example above is shortened.) |
 | `simulated` | `true` if the reading did not come from a real sensor. Missing means `false`. |
+| `readings` | Optional block, described under message 3. From version 3.5 every record carries `readings.vib_velocity_mm_s`, the vibration velocity in mm/s (section 9.2). |
+| `part_id` | Never sent by the handheld. The platform adds it when a person has said which part the probe is on (section 9.1). Missing means no part. |
 
 Reply:
 
@@ -767,7 +782,282 @@ When a review passes, the command also adds a `review` entry to the log, so the 
 
 The rule-based stand-in writes a review with no model, labelled as a stand-in and as simulated, exactly as the report agent's stand-in does. The local model is opt-in.
 
-## Not in version 3.4
+## 9. Part readings
+
+Added in version 3.5. **A proposal: not yet agreed by the team, and not built.** Device authors need 9.2 only. The work plan, and who builds which piece, is in section 15 of [docs/scan-and-log-plan.md](../docs/scan-and-log-plan.md).
+
+The page this section serves is drawn in [docs/design/machine-onepage.html](../docs/design/machine-onepage.html). The machine in that file is a drawing, not a scan, and every number in it is sample data, not a measurement. Its "alarm threshold 4.5 mm/s" is one of those: see 9.5 for the line that is really used. Where the drawing and this section differ, this section wins.
+
+Until a piece is built, its routes answer HTTP 400 with `{"ok": false, "error": "not built yet"}`, `GET /api/state` has no `probe`, parts have no `reading`, the stream sends neither new event, and `GET /api/hello` still says `"contract": "3.4"`.
+
+Every number called a starting value below was picked by reasoning, not checked on a real machine. All of them are unverified.
+
+| Word | Meaning |
+|------|---------|
+| Probe part | The part a person says the probe is on now. One per machine, or none. |
+| Visit | One stay of the probe on one part: that part's stamped records, with no gap longer than 10 minutes between them. |
+| Reading | What the platform works out from one visit: one velocity in mm/s, with when and how many records. One point on a part's chart. |
+| Normal spectrum | The usual level of each of the 20 vibration bands, worked out from stored records judged normal. |
+| Projection | A straight line through a part's recent readings, and when it would meet the limit line. |
+| Limit line | 11 mm/s, the `vibration_over_limit` limit in the problems table. |
+
+### 9.1 Which part the probe is on
+
+The handheld does not know which part it sits on, and it is not changed. A person picks the part in the desktop app, before or while the probe is on it, and the platform stamps the records.
+
+`PUT /api/machines/conveyor-07/probe`
+
+```json
+{"part_id": "part-0007", "by": "Sam"}
+```
+
+`{"part_id": null, "by": "Sam"}` clears it. Reply:
+
+```json
+{"ok": true, "probe": {"machine_id": "conveyor-07", "part_id": "part-0007", "since": "2026-11-14T16:01:30Z", "by": "Sam"}}
+```
+
+After clearing, `"probe": null`.
+
+| Rule | |
+|------|---|
+| One per machine | The selection belongs to the machine, not to a device. Picking another part replaces it. |
+| The part | Must be a part of this machine that is not removed. Anything else is a 400. |
+| Stamping | While a selection is set, the platform adds its `part_id` to each record of that machine before storing it. A stored record's `part_id` never changes afterwards. |
+| Catching up | A record whose `at` is more than 60 seconds before the selection's `since` is not stamped. It was measured before the person picked, and arrived late after a dropout. The 60 seconds allow for the device's clock and the laptop's differing (starting value). |
+| When it ends | When a person changes or clears it, or when the platform has stored no record from that machine for 5 minutes (starting value), counted from `since` if none came at all. The platform then clears it itself. This stops an old pick from stamping a later visit to another part. |
+| A restart | The selection is kept across a platform restart, and the 5 minute rule still applies. |
+| Already stamped | A record that arrives carrying `part_id` keeps it, if that part belongs to the record's machine. Otherwise the record is a 400. Only the simulator and imports do this (section 9.6). The handheld never sends it. |
+
+**Records with no part.** A record stored while no part is picked has no `part_id`. Nothing else about it changes: it is stored, shown in the machine's history, and counts for alarms (section 6) and for part state (section 8.7) exactly as in version 3.4. It belongs to no visit and no reading. The platform never gives it a part later, and never guesses one. The app says so while records arrive with no part picked.
+
+**What the stamp means.** It is where a person said the probe was. It is not proof, and it does not say the fault is in that part: the rule in 8.5 still holds, that a part is a suspect only because a person linked a fault type to it. If two devices report on one machine at once, both are stamped with the same part. That case is not handled in version 3.5.
+
+`GET /api/state` gains `"probe": {"conveyor-07": {"...": "the selection"}}`, holding only machines with a selection. The stream gains the event `probe`, with `{"machine_id": "conveyor-07", "probe": {"...": "the selection, or null"}, "reason": ""}` as data, sent when a selection is set, changed or cleared. `reason` is `no records for 5 minutes` when the platform cleared it, empty otherwise.
+
+### 9.2 Velocity on every record
+
+Today a stored record has no vibration velocity in mm/s. `features.vib_velocity_mm_s` is in spreads of normal, not mm/s, and is there only when that reading is among those that moved most. The mm/s value reaches the platform only as the `value` of a `vibration_over_limit` problem, and in the `readings` of a check-in.
+
+The change: every record sent while watching carries the feature row's own value, in mm/s, in the optional `readings` block that message 3 already describes.
+
+```json
+"readings": {"vib_velocity_mm_s": 3.1}
+```
+
+| Rule | |
+|------|---|
+| Value | `vib_velocity_mm_s` from the device's feature table: vibration velocity, 10 to 250 Hz rms. A partial band, so it is not an ISO 10816 number and must not be shown as one. `null` when the sensor gave none. |
+| When | Every record, whatever the diagnosis, including `normal`, `warming_up` and `stopped`. |
+| Other keys | `readings` may hold its other keys as before. Only this key is asked for. |
+| Who makes the change | The sender, because only it has the value. The platform stores it as it comes and works nothing out. |
+
+There are three senders, and each needs a few lines (read from the code on 14 Nov, not run):
+
+- `platform/link/device_link.py` (track 5) already puts this value into a check-in's `readings`. It does the same for a record.
+- `device/intake/uploader.py` (track 1) has the feature row in hand when it builds a record. It adds the block. This is the only change asked of track 1.
+- The simulator (`platform/sim/`) adds it to every record it makes.
+
+A record without the value is still stored. It counts toward no reading's velocity.
+
+Considered and not proposed: working the velocity out on the platform from the record's `spectrum`. It needs no sender change, but it would be an estimate from 20 wide bands shown beside the device's own number. Not tried.
+
+### 9.3 Readings, and one part's history
+
+The device sends one record a second. A part's chart needs one point per visit. The platform makes that point.
+
+- A part's stamped records are taken in order of `at`. A gap of more than 10 minutes between two neighbours starts a new visit (starting value).
+- Records with `diagnosis` `stopped`, or with no velocity, are left out: a machine that is not running would pull the number down.
+- A visit with at least 10 records left makes a reading (starting value). A shorter one makes none.
+- The reading's velocity is the median of those records' `readings.vib_velocity_mm_s`. A median, so a knock while the probe is being placed does not move it.
+- Readings are worked out, never stored, and worked out again from the stored records when the platform starts. This is how alarms already work.
+
+```json
+{
+  "part_id": "part-0007",
+  "machine_id": "conveyor-07",
+  "start": "2026-11-14T16:01:41Z",
+  "end": "2026-11-14T16:09:40Z",
+  "records": 466,
+  "velocity_mm_s": 3.1,
+  "abnormal": true,
+  "alarm_ids": ["alarm-1234"],
+  "open": false,
+  "simulated": false
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `start`, `end` | `at` of the visit's first and last record. A reading is named by its `part_id` and `start`; it has no id of its own. |
+| `records` | How many records the velocity was taken from. |
+| `velocity_mm_s` | The median, rounded to 2 places. |
+| `abnormal` | `true` if any record of the visit was abnormal, as section 6 defines it. |
+| `alarm_ids` | The alarms those abnormal records belong to. |
+| `open` | `true` while the visit's newest record is less than 10 minutes old, so the reading can still move. |
+| `simulated` | `true` if any record of the visit was simulated. |
+
+`GET /api/parts/part-0007/readings?since=2026-09-15T00:00:00Z&limit=300`
+
+```json
+{
+  "ok": true,
+  "part_id": "part-0007",
+  "machine_id": "conveyor-07",
+  "readings": [{"...": "readings, oldest first"}],
+  "summary": {
+    "count": 57,
+    "average_mm_s": 2.14,
+    "highest": {"velocity_mm_s": 3.1, "at": "2026-11-14T16:01:41Z"},
+    "newest": {"velocity_mm_s": 3.1, "at": "2026-11-14T16:01:41Z"},
+    "simulated": true
+  },
+  "projection": {"...": "as in 9.5"}
+}
+```
+
+| Thing | Rule |
+|-------|------|
+| `since` | Optional. Only readings whose `start` is at or after it. A bad one is a 400. |
+| `limit` | The newest `limit` readings, default 300, at most 2,000. |
+| `summary` | Over the readings returned, so it follows `since`. `average_mm_s` is the plain average of their velocities: each reading counts once, however long the visit. `highest` is the reading with the highest velocity and `newest` the last one, each with its `start` as `at`. With no readings, `count` is 0 and the other three are `null`. `simulated` is `true` if any reading returned is. |
+| `projection` | Always from its own window (9.5), whatever `since` says. |
+| A removed part | Still answers. An unknown `part_id` is a 400. |
+
+Each part (8.5) gains `reading`, set by the platform: its newest reading as `{"velocity_mm_s": 3.1, "at": "2026-11-14T16:01:41Z", "open": true, "simulated": false}`, or `null` if it has none. This is the number beside each part in the list.
+
+The stream gains the event `reading`, with `{"part_id": "part-0007", "machine_id": "conveyor-07", "reading": {"...": "the reading"}}` as data. It is sent when a reading is first made and when it closes, and at most once every 10 seconds while it grows. A record a second must not mean an event a second.
+
+### 9.4 The normal spectrum
+
+`GET /api/machines/conveyor-07/normal-spectrum?part=part-0007`
+
+```json
+{
+  "ok": true,
+  "machine_id": "conveyor-07",
+  "part_id": "part-0007",
+  "ready": true,
+  "records": 1840,
+  "needed": 300,
+  "model_version": "conveyor-07-20261114",
+  "spectrum": [-4.71, -4.60, -4.64],
+  "spectrum_edges_hz": [5.0, 6.3, 7.9],
+  "from": "2026-11-14T15:20:02Z",
+  "to": "2026-11-14T16:00:40Z",
+  "simulated": false
+}
+```
+
+(The two lists are shortened, as in messages 1 and 2.)
+
+A record is **judged normal** when its `diagnosis` is `normal`, its `wrong` is `false` (so no problem is on either), and it carries a `spectrum` of 20 numbers. The judging is the device's. The platform judges nothing itself.
+
+- Only records with the `model_version` of the machine's newest record are used. A recalibration or a retrained model starts the normal again, because what counts as normal changed.
+- The normal is the median of each band over the newest such records, at most 2,000 of them. Same unit as `spectrum` in message 2: log10 band levels. The drawing's mm/s spectrum axis is a drawing.
+- It needs 300 records judged normal: five minutes of normal running at one record a second. A starting value. Whether five minutes gives a steady median is not checked.
+- With `part`, only records stamped with that part are used, and `part_id` in the reply names it. Without it, every judged-normal record of the machine is used, wherever the probe was, and `part_id` is `null`.
+- Real and simulated records are never mixed. If the machine has any real record judged normal, only real ones are used. Otherwise simulated ones are, and `simulated` is `true`.
+
+**Before there are enough.** `ready` is `false`, `spectrum` is `null`, and `records` and `needed` say how far along it is. The app then draws the current bars alone, with no normal line, and the words "Normal not known yet: 120 of 300 normal records". It never draws a line it does not have.
+
+The app asks for the selected part's normal first. If that is not ready it may show the machine's, labelled "normal for the whole machine, not for this part".
+
+### 9.5 The projection
+
+Worked out by code, in the receiver, from readings alone. A language model never produces, rounds or rewords any number in it.
+
+```json
+{
+  "status": "rising",
+  "line": {"name": "vibration_over_limit", "velocity_mm_s": 11.0},
+  "window": {"from": "2026-11-02T09:10:00Z", "to": "2026-11-14T16:01:41Z", "readings": 12, "days": 12},
+  "now_mm_s": 3.06,
+  "slope_mm_s_per_day": 0.10,
+  "slope_range": [0.075, 0.155],
+  "reaches": {"days": [51, 106], "earliest": "2027-01-04", "latest": "2027-02-28"},
+  "simulated": true
+}
+```
+
+(The numbers show the shape. They are not from a machine.)
+
+The rule, in order:
+
+1. **Window.** The part's readings from the last 14 days, and none from before the part's newest `repair` entry: a repair starts the trend again. 14 days is a starting value. `window.days` is how many different days (UTC) have a reading.
+2. **Not enough history.** If the window holds readings on fewer than 3 different days, `status` is `not_enough_history` and every field after `window` except `simulated` is `null`. The app says "Not enough history to say where this is heading: a trend needs readings on at least 3 different days." 3 days is a starting value: it is the fewest points for which a range can be worked out at all, and the range it gives is very wide.
+3. **The line.** Least squares through the readings: time in days against `velocity_mm_s`. `slope_mm_s_per_day` is its slope and `now_mm_s` its value at the newest reading's time.
+4. **The range.** `slope_range` is the slope plus and minus its standard error times Student's t for an 80% range with n minus 2 degrees of freedom. 80% is a starting value.
+5. **The status.** First row that fits wins.
+
+| `status` | When | `reaches` | The app says |
+|----------|------|-----------|--------------|
+| `over_line` | The newest reading is at or above the line. | `null` | "At or above the limit now" |
+| `rising` | Both ends of `slope_range` are above 0. | From `now_mm_s` to the line, at the steepest and the gentlest slope. Whole days and dates (UTC). Past 365 days, that end is `null`. | "Reaches the 11 mm/s limit in 51 to 106 days (4 Jan to 28 Feb)", or "in more than a year" |
+| `no_clear_rise` | `slope_range` holds 0. | `null` | "No clear rise yet: the change is inside the day-to-day spread" |
+| `not_rising` | Both ends are at or below 0. | `null` | "Level or falling over the last 12 days" |
+
+`simulated` is `true` if any reading in the window is.
+
+**Which line, and why.** The projection is drawn against the limit line, 11 mm/s, the `vibration_over_limit` limit. Not against the alarm.
+
+- The alarm (section 6) opens on the model's `unknown_score` crossing `alarm_line`. That score has no unit, changes with every `model_version`, is `null` while stopped, and describes the whole machine as the model learned it at one probe position. A straight line through it per part would mean nothing a planner can check.
+- The chart is in mm/s, and 11 mm/s is the one velocity line that already exists: the device raises a problem at it, it never moves with sensitivity or with the model, and the platform knows it without any change on the device.
+- So the app must label the line "limit for any machine, 11 mm/s", never "alarm threshold", and must say next to the projection that the model may alarm sooner. The drawing's "alarm threshold 4.5 mm/s" is wrong on both counts and is not to be built.
+
+What this leaves open, all unverified:
+
+- 11 mm/s is itself a starting value (`effente/safety.py`), and the velocity is a partial band.
+- A machine that passed the limit while learning has that limit dropped on the device. The platform is not told, so it would still draw the line.
+- A straight line is the simplest honest model, not a model of how faults grow. It has not been checked against any real fault. The app must say "a straight line through the last N days, worked out by code, not checked on real faults" under every projection.
+- A closer, machine-specific line exists on the device: `vibration_above_normal`, at twice the highest velocity seen while learning (at the default sensitivity). The platform cannot draw it today, because that level is not in message 1, it moves with sensitivity, and it was learned at one probe position. See "Not in version 3.5".
+
+### 9.6 Simulated history
+
+For the hackathon the simulator writes weeks of per-part history, so the page has something to draw. It uses the routes above and nothing else: no file is written behind the receiver's back.
+
+| What it writes | Through | Marked |
+|----------------|---------|--------|
+| Parts, if the machine has none | `POST /api/machines/{id}/parts` (8.5), with `by` as `simulator` and `"simulated": true` | The part's `simulated`, stored and passed on |
+| Records, in visits | `POST /api/records` (message 2), each with `part_id`, a past `at`, `readings.vib_velocity_mm_s`, a `spectrum`, and `"simulated": true` | The record's `simulated` |
+| Past findings and repairs | `POST /api/machines/{id}/log` (8.6), with a past `at` and `"simulated": true` | The entry's `simulated` |
+
+Two small additions make this possible. A record may arrive already stamped (9.1). And the log route accepts `"simulated": true` in the body: the platform keeps a `true` it is given, and still sets `true` itself where 8.6 says so. Nothing can set it back to `false`.
+
+Rules for the simulator:
+
+- **Its own device.** History is sent as `device_id` `sim-history`, never as the live simulated device, so the live device's newest record in `/api/state` is not replaced by one from weeks ago. That device will show as connected for 5 seconds after the last batch. Not checked: how the Live page behaves meanwhile.
+- **Oldest first, and before going live.** Alarms are found in the order records are stored (section 6), so a normal record from the past, stored now, would close an alarm that is open now. The simulator reads `/api/state` first and refuses to write history for a machine that has an open alarm or a connected device.
+- **Short visits.** A visit is 30 records a second apart, not weeks of one record a second. One visit a part a day for 60 days is 1,800 records a part. Records go in arrays of at most 500.
+- **No undo.** There is no route that deletes records. Simulated history is removed by clearing the receiver's data folder. Do not write it on a laptop whose data matters.
+
+**The mark is in the data, and it travels.** A record's `simulated` makes its reading's `simulated`, which makes `simulated` in the part's `reading`, the `summary`, the `projection`, the normal spectrum and, as section 4 already says, the review. None of these can be `false` when something under it is `true`.
+
+**The app shows it wherever a reading is drawn.** These are requirements, not suggestions:
+
+- The top bar's "Simulated data" chip is on whenever anything on the page is simulated, as today.
+- Every panel that draws a simulated reading says "Simulated" in its header: the chart, the tiles, the spectrum and the review.
+- A simulated point on the chart is drawn hollow, a real one filled, so a chart with both can be read.
+- In the parts list, a number from a simulated reading has "simulated" after it.
+- A projection with `simulated: true` begins with the word "Simulated:".
+- An exported CSV keeps a `simulated` column.
+
+### 9.7 The part review and the projection
+
+The part review agent (8.8) gets the part's readings summary and its projection in the history it is given, beside the entries and alarms.
+
+A review may carry one more key:
+
+| Field | Rule |
+|-------|------|
+| `trend` | Not written by the model. The code builds it from the projection: the sentence in the table in 9.5 for its `status`, with "Simulated:" in front when the projection is simulated. Empty when the part has no readings. |
+
+The checks in 8.8 hold, with `trend` allowed in the shape. Two of them now reach further:
+
+- Every number in `what` and `why` appears in the history supplied. The readings summary and the projection are part of that history, so the model may quote them and nothing else.
+- With no alarm and no entry that says `needs_repair: true`, `needs_repair` must not be `yes`. A rising projection does not change this. A trend alone is never a reason to repair.
+
+## Not in version 3.5
 
 - No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The model runs on the laptop or elsewhere on the site, so there is no key, and nothing is sent off the site.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
@@ -775,3 +1065,10 @@ The rule-based stand-in writes a review with no model, labelled as a stand-in an
 - More than one platform, or any security.
 - Whether the agent may cite problems in its report, as it cites readings in `cited_features`. Open for track 5.
 - Whether a problem should open an alarm, and be answerable like one. Open for track 5.
+- Giving a part to records after they are stored, or correcting a wrong pick. A wrong pick stays in that part's history.
+- The device knowing its part, or clearing the pick when it feels itself moved (its `device_moved` fault type). Open for tracks 1 and 5.
+- A projection against the device's own `vibration_above_normal` line. It needs the learned levels in message 1, which is a device change. Open for all five.
+- A projection of anything but velocity: temperature, sound, the model's score.
+- A normal spectrum in mm/s, and any use of records from alarms answered as false alarms to widen the normal.
+- Part state (8.7) using a part's own readings. `nothing_found` still means the probe was on the machine, not on the part. Open for track 5.
+- Deleting records, simulated or real.
