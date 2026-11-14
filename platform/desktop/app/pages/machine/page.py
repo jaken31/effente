@@ -68,6 +68,7 @@ class MachinePage(QWidget):
     title = "Machine"
     subtitle = "pick a part to see how it is running, how it has run, and where it is heading"
     navigate = Signal(str)
+    simulated_changed = Signal()  # the shell's Simulated data chip asks shows_simulated() again
 
     def __init__(self, parent=None, *, make_view=None, can_draw=None):
         """`make_view` builds the 3D view (view3d.ModelView's interface) and `can_draw` says whether
@@ -78,6 +79,7 @@ class MachinePage(QWidget):
         self._can_draw = can_draw or _can_draw
         self.view = None  # the 3D view, once a model had to be shown
         self._start_problem = ""  # the view could not start: holds for good
+        self._simulated = False  # anything drawn is simulated (contract 9.6)
         self._load_problem = ""  # this scan's file could not be shown
         self._loaded = None  # (scan_id, path) the view was last given
         self._pins = None  # the pins the view was last given
@@ -205,6 +207,11 @@ class MachinePage(QWidget):
             return None
         part_id = self.state.log.selected_part()
         return next((p for p in self.state.log.parts() if p["part_id"] == part_id), None)
+
+    def shows_simulated(self) -> bool:
+        """Whether anything the page draws is simulated: a number in the parts list, the part's
+        readings, its evidence, its review or a log entry. The shell's chip follows it."""
+        return self._simulated
 
     def model_shown(self) -> bool:
         return self.view_state["show_model"]
@@ -528,11 +535,11 @@ class MachinePage(QWidget):
 
         entries = log.entries(selected) if selected else []
         self.detail = logic.detail(part, entries, scan, shown, self._now())
-        self._draw_part(part, parts, probe)
-        self.review_panel.show_review(
-            rd.review(part, log.review(selected), log.review_running(selected)) if part else None,
-            bool(part) and log.review_running(selected))
-        self.log_panel.set_entries(rd.entries(entries))
+        part_simulated = self._draw_part(part, parts, probe)
+        review = rd.review(part, log.review(selected), log.review_running(selected)) if part else None
+        self.review_panel.show_review(review, bool(part) and log.review_running(selected))
+        shown_entries = rd.entries(entries)
+        self.log_panel.set_entries(shown_entries)
         self.log_panel.add_button.setEnabled(part is not None)
         self.log_panel.log_button.setEnabled(part is not None)
         self.log_panel.empty.setText(rd.NO_ENTRIES_FOR if part else rd.NO_PART_LOG)
@@ -541,24 +548,31 @@ class MachinePage(QWidget):
         self.stage.show_overlay(self.scan_panel_open())
         self._draw_scan_panel()
 
-    def _draw_part(self, part, parts: list, probe) -> None:
-        """The middle column: the part's head, tiles, chart with its sentence, and evidence."""
+        simulated = (part_simulated or bool(review and review.simulated) or any(e.simulated for e in shown_entries)
+                     or any(r["number"].endswith(rd.SIMULATED) for r in rows))
+        if simulated != self._simulated:
+            self._simulated = simulated
+            self.simulated_changed.emit()
+
+    def _draw_part(self, part, parts: list, probe) -> bool:
+        """The middle column: the part's head, tiles, chart with its sentence, and evidence. Returns
+        whether anything it drew is simulated."""
         col = self.part_column
         if part is None:
             col.show_blank(pv.PICK_TITLE, pv.PICK_TEXT if parts else pv.NO_PARTS_TEXT, head=False)
-            return
+            return False
         part_id = part["part_id"]
         col.head.set_detail(self.detail, probe == part_id)
         col.head.sim_chip.setVisible(False)
         if rd.never_read(part):
             col.show_blank(pv.NEVER_TITLE, pv.NEVER_TEXT, "" if probe == part_id else rd.PROBE_HERE, head=True)
-            return
+            return False
         now = self._now()
         since = rd.since(self.range, now)
         reply = self.state.log.readings(part_id, since)  # asking starts the fetch
         if reply is None:
             col.show_blank(pv.FETCH_TITLE, pv.FETCH_TEXT, head=True)
-            return
+            return False
         col.show_readings()
         col.tiles.set_tiles(rd.tiles(reply, part))
         col.head.sim_chip.setVisible(col.tiles.simulated())
@@ -586,6 +600,7 @@ class MachinePage(QWidget):
         ev.spectrum.set_view(spectrum, "" if spectrum else NO_EVIDENCE if record is None
                              else "This record has no spectrum.")
         ev.sim_chip.setVisible(bool(record and record.get("simulated") is True) or bool(spectrum and spectrum.simulated))
+        return any(not chip.isHidden() for chip in (col.head.sim_chip, panel.sim_chip, ev.sim_chip))
 
     def _draw_scan_panel(self, *_args) -> None:
         if self.state is None:

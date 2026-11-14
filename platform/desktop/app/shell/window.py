@@ -162,6 +162,8 @@ class MainWindow(QMainWindow):
             self.pages[key] = page
             self.stack.addWidget(self._wrap(page))
             page.navigate.connect(self.navigate)
+            if hasattr(page, "simulated_changed"):
+                page.simulated_changed.connect(self.refresh_sim_chip)
 
         self.sidebar.navigate.connect(self.navigate)
         self.topbar.navigate.connect(self.navigate)
@@ -266,6 +268,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(KEYS.index(key))
         self.sidebar.set_active(key)
         self.topbar.set_page(getattr(page, "title", key), getattr(page, "subtitle", ""), child=key in CHILDREN)
+        self.refresh_sim_chip()
 
     def current_page(self) -> QWidget:
         return self.pages[self.current]
@@ -424,8 +427,19 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{machine} \u00b7 effente" if machine else "effente")
         live = self.refresh_freshness() == fmt.LIVE
         latest = s.latest()
-        self.topbar.set_simulated(bool(latest and latest.get("simulated")))
+        self.refresh_sim_chip()
         self._refresh_device_card(latest, live)
+
+    def refresh_sim_chip(self) -> None:
+        """The Simulated data chip is on when anything on the screen is simulated (contract 9.6): the
+        latest record, or anything the current page draws. A page says so with an optional
+        `shows_simulated()` and `simulated_changed` signal; a page without them goes by the record."""
+        s = self.state
+        if s is None:
+            return
+        latest = s.latest()
+        shows = getattr(self.pages.get(self.current), "shows_simulated", None)
+        self.topbar.set_simulated(bool(latest and latest.get("simulated")) or bool(callable(shows) and shows()))
 
     def _refresh_device_card(self, latest: dict | None, live: bool) -> None:
         s = self.state

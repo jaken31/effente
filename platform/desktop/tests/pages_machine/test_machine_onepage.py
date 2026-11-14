@@ -216,6 +216,30 @@ def test_real_readings_carry_no_mark(page, state):
     assert next(r for r in page.parts_panel.rows if r.row["part_id"] == BELT).number.text() == "1.21"
 
 
+def test_the_page_tells_the_shell_when_anything_it_draws_is_simulated(qtbot, page, state):
+    """The top bar's Simulated data chip follows shows_simulated() (contract 9.6)."""
+    log = state.log
+    log.select_part(DRIVE_ROLLER)
+    assert page.shows_simulated()  # the fake's readings are simulated
+    for part_id, readings in log._readings.items():
+        for r in readings:
+            r["simulated"] = False
+        if part_id in log._projections:
+            log._projections[part_id]["simulated"] = False
+    for part in log._parts:
+        if part.get("reading"):
+            part["reading"]["simulated"] = False
+    for entry in log._entries:
+        entry["simulated"] = False
+    log._reviews = []
+    with qtbot.waitSignal(page.simulated_changed):
+        log.select_part(BELT)
+    assert not page.shows_simulated()
+    with qtbot.waitSignal(page.simulated_changed):
+        stamp_visit(state, BELT)  # one simulated visit: the list, the tiles and the chart say so again
+    assert page.shows_simulated()
+
+
 def test_simulated_points_are_hollow_and_real_ones_filled_on_one_chart(qtbot):
     chart = VelocityChart()
     qtbot.addWidget(chart)
