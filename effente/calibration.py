@@ -24,9 +24,11 @@ The alarm threshold is this machine's own:
 The held-out scores are the last 15 % of the running rows, scored with the calibrated model
 and smoothed as the runtime smooths before it compares with the threshold (the median of the last
 smooth_minutes scores). There is no gamma fit and no floor or ceiling from the entry: the entry's
-own threshold plays no part. The multiple (THRESHOLD_MEDIAN_MULTIPLE = 5.0) is PROVISIONAL and
-simulated only; the measurements behind it are in training/calibration/README.md. Unlike the
-trainer's rule, the threshold can be below the highest held-out score; the report says when.
+own threshold plays no part. The multiple (THRESHOLD_MEDIAN_MULTIPLE = 5.0) is a starting value,
+simulated only: it was picked from a sweep of 2 to 10 on the simulators, and no value in that sweep
+both kept a day free of false alarms and caught most simulated faults (training/calibration/README.md,
+"Choosing the multiple"). Unlike the trainer's rule, the threshold can be below the highest
+held-out score; the report says when.
 
 Only the model file is read, never the manifest. The library's entries (training/library) keep
 their calibration.widen factors and calibration.hold list in manifest.json, so neither is applied
@@ -51,7 +53,8 @@ report (with "calibrated": true and the entry's own report under "entry_training
 other key the entry carries is kept ("source", if the entry has it, becomes "calibrated").
 
 Starting values throughout. Nothing here has been checked on a real machine (unverified): the
-numbers behind FIT_MAX_RATIO come from the simulators only (training/calibration/README.md).
+numbers behind THRESHOLD_MEDIAN_MULTIPLE and FIT_MAX_RATIO come from the simulators only
+(training/calibration/README.md).
 """
 
 from __future__ import annotations
@@ -78,7 +81,10 @@ MIN_ROWS = 60  # below this there are too few held-out rows to set a threshold a
 # means anything; how many readings an entry needs to be useful is not known (unverified).
 MIN_READINGS = 1
 # The alarm threshold is this many times the median of this machine's own held-out smoothed scores.
-# PROVISIONAL, simulated only: 5.0 is a placeholder until it is set from measurements.
+# STARTING VALUE, SIMULATED ONLY, unverified. From a sweep of 2, 3, 4, 5, 7 and 10 on the simulators
+# (training/calibration/README.md, "Choosing the multiple"): below 5 the false alarms over a day
+# multiply, above 5 the generic_rotating entry starts to miss faults it catches at 5. No value did
+# both well: at 5 fewer than half of the simulated sudden faults alarm.
 THRESHOLD_MEDIAN_MULTIPLE = 5.0
 CALIB_SHARE = 0.15  # the last part of the calibration, held out for the threshold (as the trainer)
 
@@ -196,7 +202,7 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     set from the held-out rows (fewer of them than the entry's smoothing window, or a median score
     that is zero or not a number).
     threshold_median_multiple: the alarm threshold is this many times the median of the held-out
-    smoothed scores (THRESHOLD_MEDIAN_MULTIPLE, provisional)."""
+    smoothed scores (THRESHOLD_MEDIAN_MULTIPLE, a starting value, simulated only)."""
     if not (_number(threshold_median_multiple) and math.isfinite(threshold_median_multiple)
             and threshold_median_multiple > 0):
         raise ValueError("threshold_median_multiple must be a number above 0")

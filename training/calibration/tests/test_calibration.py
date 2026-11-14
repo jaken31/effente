@@ -325,7 +325,7 @@ def test_the_threshold_is_a_multiple_of_this_machines_held_out_median():
         assert math.isclose(out[m][0]["threshold"], m * out[1.0][0]["threshold"], rel_tol=1e-9)
         assert math.isclose(out[m][0]["threshold"], m * median, rel_tol=1e-5)
         assert out[m][1]["threshold_median_multiple"] == m and out[m][1]["threshold"] == round(out[m][0]["threshold"], 4)
-    default = C.calibrate(d, t, X, NAMES)  # the agreed signature, and the provisional default
+    default = C.calibrate(d, t, X, NAMES)  # the agreed signature, and the default (a starting value, simulated only)
     assert C.THRESHOLD_MEDIAN_MULTIPLE == 5.0 and default[0]["threshold"] == out[5.0][0]["threshold"]
     assert default[1]["threshold_median_multiple"] == 5.0
     for entry_threshold in (1e-3, 1e3):  # the entry's own threshold plays no part: no floor, no ceiling
