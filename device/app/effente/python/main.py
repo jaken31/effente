@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(HERE, "lib"))  # device/ and effente/, copied he
 
 from arduino.app_utils import App, Bridge  # noqa: E402
 
+from effente import history as _history  # noqa: E402
 from device.intake.device_app import DeviceApp  # noqa: E402
 from device.intake.source import UnoQSource  # noqa: E402
 from device.intake.stream import Stream  # noqa: E402
@@ -35,6 +36,7 @@ DEVICE = "effente-01"
 # EFFENTE_MIC=1 for raw audio over the Bridge, EFFENTE_THERMAL=1 for a thermal camera on the microcontroller.
 # The microphone and camera as fitted need neither: see "snd" below and ThermalLink.
 MIC = os.environ.get("EFFENTE_MIC") == "1"
+_history.DECIDE_STOPPED = False  # the device never decides that the machine is stopped: it judges and learns always
 THERMAL = os.environ.get("EFFENTE_THERMAL") == "1"
 
 source = UnoQSource(audio=MIC, thermal=THERMAL)

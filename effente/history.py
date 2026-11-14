@@ -56,6 +56,11 @@ KNOCK_SPAN_S = 300
 KNOCK_LAGS_S = (5, 120)
 START_JUMP = 0.3  # log10 vibration: a x2 jump within a minute counts as a start (a drop as a stop)
 RUNNING_MARGIN = 0.3  # running = within x2 of the usual running level
+# False: never decide that the machine is stopped; every minute counts as running, so everything is judged and
+# everything is learned from. The device sets this (device/app/effente/python/main.py; the user, 14 Nov: "the
+# device shouldn't decide if a machine is stopped or not". On the bench it had called a still device "stopped"
+# against its own handling and then judged nothing, until its history was cleared).
+DECIDE_STOPPED = True
 SHOCK_RATIO_LOG = math.log10(4.0)  # a jolt: peak 4x the 10-minute median ...
 SHOCK_MIN_LOG = math.log10(0.05)  # ... and at least 0.05 g
 SHOCK_OVER_THIRD_LOG = math.log10(2.0)  # ... and 2x the 3rd biggest of the last 10 minutes
@@ -163,7 +168,7 @@ def running_mask(vib: np.ndarray) -> np.ndarray:
 
 def both_states_seen(vib: np.ndarray) -> bool:
     ok = ~np.isnan(vib)
-    if ok.sum() < 10:
+    if not DECIDE_STOPPED or ok.sum() < 10:
         return False
     p10, p90 = np.percentile(vib[ok], [10, 90])
     return bool(p90 - p10 >= RUNNING_MARGIN)
@@ -327,7 +332,7 @@ class History:
         if recent - before > START_JUMP and (self.last_start is None or s - self.last_start > 120):
             self.last_start = s - 10
             self.stopped = False
-        elif before - recent > START_JUMP:
+        elif DECIDE_STOPPED and before - recent > START_JUMP:
             self.last_start = None
             self.stopped = True
 
@@ -538,7 +543,7 @@ class History:
         h.shocks.extend(int(v) for v in s["shocks"])
         h.bangs.extend(int(v) for v in s["bangs"])
         h.run_peaks.extend(float(v) for v in s["run_peaks"])
-        h.stopped = bool(s["stopped"])
+        h.stopped = bool(s["stopped"]) and DECIDE_STOPPED
         h.min_t = s["min_t"].astype(float)
         h.min_v = s["min_v"].astype(np.float32)
         h.min_i = int(s["min_i"])
