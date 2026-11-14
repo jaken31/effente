@@ -76,7 +76,7 @@ def test_a_how_the_code_did_not_copy_is_rejected(confirmed):
 
 
 def test_a_how_with_no_fault_type_must_be_empty():
-    from conftest import history_of
+    from part_review_cases import history_of
 
     repaired = history_of("repaired")
     review = {"what": "Drive roller was repaired.", "why": "A repair entry is the newest.", "needs_repair": "no",
@@ -112,7 +112,7 @@ def test_the_schema_given_to_a_model_has_no_how_and_no_since(confirmed):
 
 
 def test_the_schema_allows_no_citation_when_the_history_has_nothing_to_cite():
-    from conftest import history_of
+    from part_review_cases import history_of
 
     schema = build_review_schema(fact_sheet(history_of("never_checked")))
 
@@ -220,7 +220,7 @@ def test_a_part_whose_name_is_inside_this_parts_name_is_not_found_there(confirme
 # ---- with no alarm and no entry that says needs_repair: true, needs_repair must not be yes
 
 def test_yes_with_no_alarm_and_no_entry_that_says_so_is_rejected():
-    from conftest import history_of
+    from part_review_cases import history_of
 
     never = history_of("never_checked")
     review = {"what": "Idle roller needs repair.", "why": "It looks worn.", "needs_repair": "yes",
@@ -232,7 +232,7 @@ def test_yes_with_no_alarm_and_no_entry_that_says_so_is_rejected():
 
 
 def test_yes_is_allowed_with_an_entry_that_says_so_and_no_alarm():
-    from conftest import history_of
+    from part_review_cases import history_of
 
     never = history_of("never_checked")
     never["entries"].append({"entry_id": "entry-000300", "part_id": "part-0004", "at": "2026-11-14T20:30:00Z",
