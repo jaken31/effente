@@ -274,8 +274,13 @@ float micDb = NAN, micToneHz = NAN;
 // The tone as the screen shows it: smoothed, 0.6 of what it showed and 0.4 of each new reading (the user,
 // 14 Nov), so the number doesn't jump about. Only the screen: the readings sent on are untouched.
 const float TONE_KEEP = 0.6f;
-const uint32_t TILE_EVERY_MS = 100;  // how often the six tiles' numbers are replaced, all at once: with every
-                                     // frame the screen draws (10 a second; faster, the user, 14 Nov)
+// The six tiles' numbers are replaced all at once, at the moment a layout arrives from the Linux side (4 a
+// second: it sends one with every row it works out). Two of the six, the velocity and the speed, come in that
+// layout, so only then can all six be new at the same instant (the user, 14 Nov: every tile at exactly the same
+// time; on a beat of their own the other four ran ahead of those two). If no layout comes for TILE_WAIT_MS
+// (the Linux side busy or not up yet) they are replaced anyway, so the screen never stands still.
+const uint32_t TILE_WAIT_MS = 400;
+bool layoutNew = false;
 float micToneShown = NAN;
 uint32_t micLines = 0, micAt = 0;
 char espIp[20] = "";
@@ -568,16 +573,14 @@ void composeTiles() {
     else fnum(val[5], tone, 0);
   }
   static const char *labels[6] = {"VIB", "MM/S", "TEMP", "HZ", "SND", "TONE"};
-  // All six numbers change together, TILE_EVERY_MS apart (the user, 14 Nov: they changed at different speeds:
-  // vibration and temperature with every frame, sound 11 times a second, the tone 4 times, the speed once).
-  // Each is still worked out as before; this only chooses when what is shown is replaced. The speed and the
-  // velocity come from the Linux side, which works them out 4 times a second, and the tone from the ESP32
-  // about 4 times a second, so those three can change on some beats only.
+  // All six numbers change together (see TILE_WAIT_MS). Each is still worked out as before; this only chooses
+  // when what is shown is replaced.
   static char shownVal[6][12];
   static const char *shownUnit[6] = {"", "", "", "", "", ""};
   static uint32_t tilesAt = 0;
-  if (!tilesAt || millis() - tilesAt >= TILE_EVERY_MS) {
+  if (!tilesAt || layoutNew || millis() - tilesAt >= TILE_WAIT_MS) {
     tilesAt = millis() | 1;
+    layoutNew = false;
     for (uint8_t i = 0; i < 6; i++) {
       strncpy(shownVal[i], val[i], 11);
       shownVal[i][11] = 0;
@@ -665,6 +668,7 @@ bool screen(MsgPack::str_t text) {
   }
   while (line < 8) tmpl[line++][0] = 0;
   screenUpdates++;
+  layoutNew = true;  // the beat the tiles change on
   return true;
 }
 

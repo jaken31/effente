@@ -49,7 +49,8 @@ from device.intake.recorder import Recorder
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
                 "watching": "DETECTING"}  # what the screen calls each mode, and status's "state"
-SCREEN_EVERY_S = 0.5  # how often the layout is checked for changes
+SCREEN_EVERY_S = 0.2  # the layout goes to the screen with every row (4 a second): its arrival is the beat on which
+#                       all six tiles change (it was once a second, and the velocity and speed lagged the rest)
 HISTORY_SAVE_EVERY_S = 300.0
 # A press sooner than this after learning started doesn't stop it (2 minutes: a bounce or a second thought, and
 # enough rows for effente.trainer's MIN_ROWS_SHORT). The screen never says so: it keeps showing RECORDING, and
@@ -456,9 +457,9 @@ class DeviceApp:
                                         or t0 - self._screen_t >= SCREEN_EVERY_S):
             self._screen_t = t0
             text = "\n".join(self.screen_lines())
-            # Only a changed layout crosses the Bridge (and once in a while, in case the sketch restarted);
-            # the live numbers are drawn by the microcontroller.
-            if text != self._screen_text or t0 - getattr(self, "_screen_sent", -1e9) >= 5.0:
+            # With every row (4 a second), changed or not: the layout's arrival is the beat on which the
+            # microcontroller replaces all six tiles' numbers, so that they change at the same instant.
+            if text != self._screen_text or t0 - getattr(self, "_screen_sent", -1e9) >= 0.2:
                 self._screen_text, self._screen_sent = text, t0
                 self._screen_event.set()
 
