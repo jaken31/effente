@@ -197,6 +197,21 @@ classifier). `results\timing2.json`.
 - The new model alarms more on load changes (6 % vs 1 % of clips) and still alarms in the first minutes after a start
   (24 % of clips when learned late and judged early).
 
+### Re-run (round 2)
+
+```bash
+export PYTHONPATH=C:/Users/finnf/effente-sscc-work; PY=C:/Users/finnf/effente-sscc/venv/Scripts/python
+$PY -m training.record.sscc_eval.make_features2 --workers 14            # features2/, then --set3, --set4
+$PY -m training.record.sscc_eval.explore --set select --configs "v1+alin|fuse=mean,snr=6,q=0.995;v1+a64|norm=halves,judge=full"
+$PY -m training.record.sscc_eval.explore --part shift --configs "v1+alin|fuse=mean,snr=6,q=0.995"
+$PY -m training.record.sscc_eval.multispeed2 --set select --configs "v1+alin|fuse=mean,snr=6,q=0.995,modes=1"
+$PY -m training.record.sscc_eval.final_tables --set select --final "v1+alin|fuse=mean,snr=6,q=0.995"
+$PY -m training.record.sscc_eval.check_band_model                       # shipped code = what was measured
+```
+Exploration logs: `C:\Users\finnf\effente-sscc\explore_b*.log`, `shift_b*.log`, `multispeed2_select.log`.
+Config names: `<features>|key=value,...`; features `v1` (MPU-style vibration), `a64`/`a128` (log sound bands),
+`alin` (linear 50 Hz), `@group` puts a part in its own group; keys in `explore.cfg_parse`.
+
 ## Round 2 (14 Nov, morning): final choice frozen BEFORE its confirmation run
 
 Written at 03:58 (machine clock) and committed before any round-2 model was run on the confirmation set (med loads).
