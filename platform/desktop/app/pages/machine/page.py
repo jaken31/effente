@@ -71,6 +71,7 @@ class MachinePage(QWidget):
         self._awaiting = None  # the part ids before create_part, until the new part shows
         self._scan_id = None
         self._machine = None
+        self._qr_checked = ("", "")  # the pairing line last checked, and why it cannot be drawn
         self._scan_wanted = None  # the New scan panel: True or False once the person chose, else by itself
         self.view_state = logic.view_state(None, False)
 
@@ -404,8 +405,11 @@ class MachinePage(QWidget):
         note = logic.machine_id_problem(machine_id)
         text = "" if note else self.state.scans.qr_text(machine_id, self.scan_panel.machine_name())
         if not note:
+            if text != self._qr_checked[0]:  # worked out once for each line, not on every redraw
+                self._qr_checked = (text, qr.problem(text))
             note = (logic.NO_QR_TEXT if not text else
-                    qr.problem(text) or logic.other_machine_note(machine_id, self.state.current_machine()) or SCAN_HOW)
+                    self._qr_checked[1] or logic.other_machine_note(machine_id, self.state.current_machine())
+                    or SCAN_HOW)
         self.scan_panel.show_code(text, note, can_close=self.scan() is not None or self.part() is not None)
 
     # ---- keys -------------------------------------------------------------
