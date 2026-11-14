@@ -709,3 +709,138 @@ What not to say on stage:
 - That the review is the agent's decision. It is advice a person accepts or not.
 - Any size or measurement taken from the scan.
 - That the fault type to part table is validated. It is a starting value.
+
+## 15. Per-part readings (proposal for contract 3.5)
+
+Status: proposal, written Sat 14 Nov 2026. Not agreed by the team, and nothing in it is built. It is stretch work on top of sections 1 to 14 and follows every rule in section 3. The interface is section 9 of [platform/CONTRACT.md](../platform/CONTRACT.md). This section says who builds what.
+
+### 15.1 What it adds
+
+The Machine page today shows where the parts are. The design in [design/machine-onepage.html](design/machine-onepage.html) makes it one screen that also answers: how is this part running, how has it run, and where is it heading. Open the file in a browser. The bar at its top switches between weeks of history and a first day.
+
+**The machine in that file is a drawing, not a scan, and every number in it is sample data, not a measurement.** So are its QR code, its dates and its review text. Do not quote any of it.
+
+What each piece of the page needs, and where it comes from:
+
+| On the page | Comes from | New in 3.5 |
+|-------------|------------|------------|
+| Scan, pins, parts list, state of each part | Contract 8.4, 8.5, 8.7 | No |
+| The number beside each part, and the "Now" tile | The part's `reading` (9.3) | Yes |
+| "Average", "Highest" and the count | `summary` in the part's readings route (9.3) | Yes |
+| The chart, and its 7 d, 30 d, 60 d, All buttons | `readings` in the same route, with `since` (9.3) | Yes |
+| "Change", the dotted line and the fan, the sentence under the chart | `projection` (9.5) | Yes |
+| Repair marks on the chart | Log entries of kind `repair` (8.6) | No |
+| "What moved" | `features` of the visit's newest record (message 2) | No |
+| Spectrum bars and the "normal" line | The record's `spectrum`, and the normal spectrum (9.4) | The line is |
+| Part review, with its "Trend" line | 8.8, and `trend` (9.7) | `trend` is |
+| Log | 8.6 | No |
+
+Four things in the drawing are not to be built as drawn:
+
+- **"Alarm threshold 4.5 mm/s".** The alarm is on the model's score, not on velocity. The line is the 11 mm/s limit, labelled "limit for any machine" (contract 9.5).
+- **No way to say where the probe is.** The drawing has none, and the page needs one. Selecting a part to look at it must not move the probe: a person browsing would stamp records with the wrong part. Add a "Probe is here" button on the selected part, and show "Probe on: Drive roller, since 16:01" with a clear button in the top bar while a pick is set.
+- **"Counts as evidence" at 4 spreads**, and the "running speed" label on a spectrum bar. No such threshold or label was found in the contract. Leave both out unless their source is found. Unverified.
+- **The spectrum in mm/s.** The record's spectrum is log10 band levels. Draw it in that unit.
+
+### 15.2 Who builds what
+
+Owners follow the folders in section 2. The simulator and the device link have no owner in this plan, so those two rows are proposals for the team to settle.
+
+| Piece | What | Files | Who |
+|-------|------|-------|-----|
+| R0. Wiring | The new routes in the route table, one call that lets the log store stamp a record before it is stored, `probe` in the state reply, stubs that answer "not built yet". Merged first, as step 0 was. | `platform/server/receiver_server.py`, `receiver_store.py` | Jake |
+| R1. Receiver: the probe's part | Contract 9.1: the route, the stamp, the 60 second and 5 minute rules, the file that keeps the pick across a restart, the `probe` event. | `platform/server/log_store.py`, `log_api.py` | Jake |
+| R2. Receiver: readings | Contract 9.3: visits and readings as plain functions, the route, the part's `reading`, the `reading` event at most every 10 seconds. | `platform/partlog/readings.py` (new), `log_store.py`, `log_api.py` | Jake |
+| R3. Receiver: normal spectrum | Contract 9.4. | `platform/partlog/normal_spectrum.py` (new), `log_api.py` | Jake |
+| V1. Velocity, device link | Contract 9.2 for the link. | `platform/link/device_link.py` | Track 5, person to be agreed |
+| V2. Velocity, device | Contract 9.2 for the uploader. The one change asked of track 1. | `device/intake/uploader.py` | Track 1 |
+| S1. Simulator: velocity | Every simulated record carries `readings.vib_velocity_mm_s`, in step with its case. | `platform/sim/` | To be agreed (proposed: Jake) |
+| S2. Simulator: history | Contract 9.6: a command that writes weeks of visits, past findings and a repair, through the routes, and refuses on a live machine. | `platform/sim/` | To be agreed (proposed: Jake) |
+| M1. The Machine page | The one-screen layout of the drawing, on top of the page in PR #63: the probe control, tiles, chart, evidence panel, the review and log columns, and every "simulated" mark in contract 9.6. | `platform/desktop/app/pages/machine/` | Cameron |
+| M2. `state.log` additions | 15.3, and the fakes. | `platform/desktop/app/data/partlog.py`, `tests/fake_partlog.py` | Jake |
+| P1. The projection | Contract 9.5 as one plain function: readings and the newest repair in, the projection out. No model call anywhere near it. | `platform/partlog/projection.py` (new) | Jake |
+| P2. The part review agent | Contract 9.7: the summary and the projection in the fact sheet, `trend` copied by code, the two checks. The stand-in first. | `platform/partlog/review/`, `platform/part_review.py` | Jake |
+
+That is a lot on Jake. If the team wants it faster, S1 and S2 are the cleanest pieces to hand to someone else: they touch only `platform/sim/` and need only the contract.
+
+Order:
+
+```
+ R0 wiring --+-- R1 probe --- R2 readings --+-- P1 projection --- P2 review
+             |                              +-- R3 normal spectrum
+             +-- M2 state and fakes ----------- M1 Machine page (against the fakes first)
+ V1, V2, S1 can start at once: they need only contract 9.2.
+ S2 needs R1 and R2, so its history can be seen.
+```
+
+No times are set here. The team sets them when it agrees the proposal. Proposed: none of this starts before gate 2 of section 11 has passed, because the working demo and the Machine page of PR #63 come first.
+
+If it is not working, cut in this order, and the page falls back to what PR #63 builds:
+
+| If this is not working | Then |
+|------------------------|------|
+| The part review's `trend` | The review as in 8.8 |
+| The normal spectrum | The bars alone, with "normal not known yet" |
+| The projection | The chart with no line and no sentence |
+| Velocity from the real device (V1, V2) | Readings from the simulator only, every one marked simulated |
+| Readings at all | The Machine page of section 9, C5 |
+
+### 15.3 Inside the desktop app
+
+Additions to `state.log`, to be copied into [platform/desktop/INTERFACES.md](../platform/desktop/INTERFACES.md) as its next numbered addition once agreed. That file is not changed by this proposal.
+
+| Kind | Name | Meaning |
+|------|------|---------|
+| signal | `probe_changed()` | The probe's part was set, changed or cleared, by a person or by the platform |
+| signal | `readings_changed(str)` | This part's readings, summary or projection moved |
+| read | `probe_part()` | The `part_id` the probe is on for the current machine, or `None` |
+| read | `readings(part_id, since=None)` | The reply of the part's readings route (contract 9.3), or `None` while it is being fetched. Asking starts the fetch. |
+| read | `normal_spectrum(part_id=None)` | The reply of contract 9.4, or `None` while it is being fetched |
+| action | `set_probe_part(part_id)` | Say the probe is on this part. `None` clears it. |
+
+Sample data in the fakes, so the page can be built before the receiver works: the four parts of section 7.3, with readings on 20 days for "Drive roller" (`rising`), on 20 days for "Belt" (`no_clear_rise`), on one day for "Motor mount" (`not_enough_history`), and none for "Idle roller". Every one `simulated: true`, so the marks get built and tested from the first hour. One normal spectrum that is ready and one that is not.
+
+### 15.4 Tests
+
+- **R1.** A record stored with a pick is stamped, and one stored without is not. A late record from before the pick is not stamped. The pick clears itself after 5 minutes with no records, and survives a restart inside them. A part from another machine, a removed part and an unknown part are each a 400. An already stamped record keeps its part.
+- **R2.** One visit, two visits split by a gap, a visit too short to count, `stopped` records left out, a record with no velocity left out, the median, `open` turning `false`, a restart giving the same readings, and the `summary` following `since`. Fewer `reading` events than records.
+- **R3.** 299 records is not ready and 300 is. A new `model_version` starts again. A record with a problem on is left out. Real records push simulated ones out.
+- **P1.** Fixed readings with known answers for all five statuses. A repair inside the window cuts it. Two days is not enough and three is. The range from a hand-worked example. The same input always gives the same output.
+- **P2.** `trend` equals the projection's sentence, word for word. A review that changes a number from the history is rejected. A rising projection with no alarm and no entry never gives `needs_repair: yes`.
+- **S2.** After a run, every record, reading, summary, projection and entry it made says `simulated: true`. It refuses on a machine with an open alarm or a connected device. A second run does not double the history.
+- **M1.** Each state of the drawing: weeks of history, a first day, a part the probe has never been on. Every "simulated" mark in contract 9.6, with simulated and real readings on one chart. No normal line while the normal is not ready.
+
+### 15.5 Checked, and not checked
+
+Read from the code on `master` (c346ba9) on 14 Nov. Nothing below was run.
+
+- A record's `features` holds spreads, not mm/s, and only the readings that moved most (`effente/model_runtime.py`).
+- `platform/link/device_link.py` already puts `vib_velocity_mm_s` into a check-in's `readings`, and `device/intake/uploader.py` has the feature row when it builds a record.
+- The receiver stores unknown fields, takes an array of records, accepts a body up to 32 MB, and finds alarms in the order records are stored (`platform/server/receiver_store.py`).
+- The simulator can already make records with a chosen `at` (`platform/sim/sim_model.py`).
+- The 11 mm/s limit, and "twice the highest while learning" for `vibration_above_normal`, are in `effente/safety.py`, both marked there as starting values.
+
+Not checked:
+
+| Open question | Who | Why it matters |
+|---------------|-----|----------------|
+| Is the 11 mm/s limit the right line to project to, or should the device send its learned levels so the "above normal" line can be drawn? | All five | It decides what the projection says, and whether track 1 has a second change |
+| Do readings taken at different spots on one machine differ enough to be worth telling apart? | Whoever has the probe and the conveyor | The whole idea rests on it |
+| Is the median of a short visit steady from one visit to the next on a machine that has not changed? | Same | If not, every projection is noise |
+| Is five minutes of normal records enough for a steady normal spectrum? | Jake | The 300 in contract 9.4 |
+| Are the device's clock and the laptop's within 60 seconds? | Track 1 and Jake | Otherwise the first records after a pick are not stamped |
+| Is 5 minutes the right time for a pick to clear itself? | Whoever demos it | Too short and it clears mid-visit, too long and it stamps the next part |
+| Which sender does the real device use at the demo, the link or the uploader? | Track 1 and Jake | Which of V1 and V2 is needed first |
+| How does the Live page behave while `sim-history` shows as a connected device? | Cameron or Jake | Whether history can be written with the app open |
+| Does a local model keep its numbers to the ones in the history, now that there are more of them? | Jake | Otherwise the stand-in is shown |
+
+### 15.6 What not to say on stage
+
+On top of the list in section 14:
+
+- That the history is real. It is written by the simulator, and the screen says so.
+- That the projection is a prediction of failure, or a remaining life. It is a straight line through past readings and the date it would cross a fixed limit.
+- That 11 mm/s is the alarm. The alarm is the model's, and it may come sooner.
+- That the velocity is an ISO 10816 value. It covers part of that band.
+- That a reading on a part shows the fault is in that part. It shows what the probe measured where a person said it was.
+- That the agent worked out the trend. Code did, and the agent may only repeat it.
