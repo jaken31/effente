@@ -109,6 +109,34 @@ def test_the_platforms_replies_can_carry_settings_and_commands():
             stream.stop()
 
 
+def test_the_json_says_what_value_each_check_fires_at():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        app, src, stream, _ = app_and_stream(d)
+        try:
+            f = get(stream.port, "/latest")["fires_at"]
+            assert f == {k: v for k, v in get(stream.port, "/fires_at").items() if k != "ok"}
+            assert f["always"]["vibration_over_limit"]["fires_at"] == 11.0 and f["always"]["too_hot"]["fires_at"] == 100.0
+            assert f["judging_now"] is False and f["model"] == "none"
+            assert f["lasting"]["louder_than_normal"]["fires_at"] is None  # nothing learned yet
+            assert f["one_moment"]["sudden_impact"]["default"] == "2x the highest" and f["one_moment"]["sudden_impact"]["fires_at"] is None
+            # with something learned, and the dials moved, the numbers follow
+            app.safety.set_baseline({"levels": {"vib_velocity_mm_s": 1.0, "vib_total_g": 0.02, "imu_temp_c": 30.0, "snd_level_db": 90.0},
+                                     "spikes": {"features": {}, "peak_max": -1.0, "sound_max": 95.0,
+                                                "moment_max": {"imu_temp_c": 31.0, "gyr_peak": 1.0}}, "period_s": 1})
+            f = get(stream.port, "/fires_at")
+            assert f["lasting"]["vibration_above_normal"]["fires_at"] == 2.0 and f["lasting"]["louder_than_normal"]["fires_at"] == 96.0
+            assert f["lasting"]["hotter_than_normal"]["fires_at"] == 45.0
+            assert f["one_moment"]["sudden_impact"]["fires_at"] == 0.2 and f["one_moment"]["sudden_sound"]["fires_at"] == 101.0
+            assert f["one_moment"]["sudden_heat"]["fires_at"] == 36.0 and f["one_moment"]["sudden_twist"]["fires_at"] == 20.0
+            post(stream.port, "/settings", {"sensitivity": 0.75, "spike_sensitivity": 0.25})
+            f = get(stream.port, "/fires_at")
+            assert f["lasting"]["louder_than_normal"]["fires_at"] == 93.0 and f["lasting"]["louder_than_normal"]["default"] == "+6 dB"
+            assert f["one_moment"]["sudden_sound"]["fires_at"] == 107.0 and f["one_moment"]["sudden_impact"]["fires_at"] == 0.3
+            assert f["always"]["vibration_over_limit"]["fires_at"] == 11.0  # no dial moves the fixed limits
+        finally:
+            stream.stop()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

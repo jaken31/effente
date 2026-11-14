@@ -39,6 +39,7 @@ from effente import safety as SF
 from effente.history import History
 from effente.model_input import load_columns, load_recording
 from effente.model_runtime import Model, Watcher
+from effente.trainer import SPIKE_LINE_TIMES as TR_SPIKE_TIMES
 from effente.trainer import choose_period, load_for_training, train_model
 from device.intake import contract as C
 from device.intake.extract import feature_stream
@@ -197,6 +198,7 @@ class DeviceApp:
             self.stream.settings_handler = self.settings
             self.stream.command_handler = self.command
             self.stream.controls = self.controls
+            self.stream.fires_at = self.fires_at
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -606,6 +608,100 @@ class DeviceApp:
         self.mode = "watching"
         self._event("mode", {"mode": "watching", "by": "command"})
         return None
+
+    def fires_at(self) -> dict:
+        """For whoever reads the JSON: the value each check fires at, in the reading's own unit, with the
+        sensitivities as they are now and what this machine's model learned. Three kinds:
+          always      fixed limits: any machine, no recording needed, no dial moves them
+          lasting     against this machine's normal (needs a model); must hold about 10 s (or the model's 3 of 5)
+          one_moment  one second well beyond anything while learning (needs a model); shows at once, stays 30 s
+        Each entry has the rule in words, "default" (the rule's number at sensitivity 0.5), "margin_now" (the same
+        at the present sensitivity) and "fires_at" (the reading's value; null until a model has learned it)."""
+        m, m0 = self._margins(), SF.margins(SF.DEFAULT_SENSITIVITY)
+        sp = SF.margins(self.spike_sensitivity)
+        lv, spikes = dict(self.safety.levels), dict(self.safety.spikes or {})
+        tops = spikes.get("moment_max") or {}
+        watching = self.watcher is not None and self.mode == "watching"
+        model = self.watcher.m if self.watcher is not None else None
+
+        def r(v, n=3):
+            return None if v is None else round(float(v), n)
+
+        def lasting(name, unit, reading, level, default, now, value, floor=None):
+            e = {"reading": reading, "unit": unit, "learned_normal": r(level), "default": default, "margin_now": now,
+                 "fires_at": r(value)}
+            if floor is not None:
+                e["never_below"] = floor
+            return name, e
+
+        vel, tot = lv.get("vib_velocity_mm_s"), lv.get("vib_total_g")
+        out_lasting = dict([
+            lasting("vibration_above_normal", "mm/s", "vib_velocity_mm_s", vel, f"{m0['vibration']:g}x normal",
+                    f"{m['vibration']:g}x normal", None if not vel else max(m["vibration"] * vel, SF.VIB_FLOOR["vib_velocity_mm_s"]),
+                    SF.VIB_FLOOR["vib_velocity_mm_s"]),
+            lasting("vibration_above_normal (total)", "g rms", "vib_total_g", tot, f"{m0['vibration']:g}x normal",
+                    f"{m['vibration']:g}x normal", None if not tot else max(m["vibration"] * tot, SF.VIB_FLOOR["vib_total_g"]),
+                    SF.VIB_FLOOR["vib_total_g"]),
+            lasting("hotter_than_normal", "degC", "imu_temp_c", lv.get("imu_temp_c"), f"+{m0['temperature']:g} degC",
+                    f"+{m['temperature']:g} degC", None if "imu_temp_c" not in lv else lv["imu_temp_c"] + m["temperature"]),
+            lasting("louder_than_normal", "dB", "snd_level_db", lv.get("snd_level_db"), f"+{m0['sound']:g} dB",
+                    f"+{m['sound']:g} dB", None if "snd_level_db" not in lv else lv["snd_level_db"] + m["sound"]),
+        ])
+        if "th_max_c" in lv:
+            out_lasting["hotter_than_normal (camera)"] = lasting(
+                "", "degC", "th_max_c", lv["th_max_c"], f"+{m0['temperature']:g} degC", f"+{m['temperature']:g} degC",
+                lv["th_max_c"] + m["temperature"])[1]
+        out_lasting["model"] = {
+            "reading": "unknown_score in each result: the model's score over its line (1.0 is the line as trained)",
+            "default": "1.0", "margin_now": f"{m['model']:g}", "fires_at": r(m["model"]),
+            "holds": "the middle of the last few scores must be over it (3 of 5 seconds after a short recording)",
+            "line_in_model_units": r(model.threshold if model is not None else None)}
+
+        def moment(unit, reading, top, default, now, value, extra=None):
+            return {"reading": reading, "unit": unit, "highest_while_learning": r(top), "default": default,
+                    "margin_now": now, "fires_at": r(value), **(extra or {})}
+
+        peak = None if spikes.get("peak_max") is None else 10 ** float(spikes["peak_max"])
+        gyr = None if "gyr_peak" not in tops else 10 ** float(tops["gyr_peak"])
+        heat = lambda k: None if k not in tops else tops[k] + sp["temperature"] / 3.0  # noqa: E731
+        one = {
+            "sudden_impact": moment("g", "vib_peak_g (the second's biggest peak)", peak, f"{m0['vibration']:g}x the highest",
+                                    f"{sp['vibration']:g}x the highest",
+                                    None if peak is None else max(sp["vibration"] * peak, SF.IMPACT_MIN_G),
+                                    {"never_below": SF.IMPACT_MIN_G}),
+            "sudden_sound": moment("dB", "snd_level_db (the second's level)", spikes.get("sound_max"),
+                                   f"+{m0['sound']:g} dB over the loudest", f"+{sp['sound']:g} dB over the loudest",
+                                   None if spikes.get("sound_max") is None else spikes["sound_max"] + sp["sound"]),
+            "sudden_twist": moment("deg/s", "gyr_peak (the second's biggest turn)", gyr, f"{m0['vibration']:g}x the highest",
+                                   f"{sp['vibration']:g}x the highest", None if gyr is None else sp["vibration"] * gyr),
+            "sudden_heat": moment("degC", "imu_temp_c", tops.get("imu_temp_c"), f"+{m0['temperature'] / 3:g} degC over the hottest",
+                                  f"+{sp['temperature'] / 3:g} degC over the hottest", heat("imu_temp_c")),
+            "sudden_heat (camera, hottest point)": moment("degC", "th_max_c", tops.get("th_max_c"),
+                                                          f"+{m0['temperature'] / 3:g} degC over the hottest",
+                                                          f"+{sp['temperature'] / 3:g} degC over the hottest", heat("th_max_c")),
+            "model_spike": {"reading": "spike_score in each result: one second's score over the spike line",
+                            "default": f"{TR_SPIKE_TIMES:g}x the model's line", "margin_now": f"{sp['model']:g}x the spike line",
+                            "fires_at": r(sp["model"]),
+                            "spike_line_in_model_units": r(model.spike_line if model is not None else None),
+                            "note": "only after a recording short enough for periods under a minute"},
+        }
+        return {
+            "note": "the value each check fires at now. \"always\" needs no recording and no dial moves it; the "
+                    "others compare with what this machine's model learned, so they are null until there is a model, "
+                    "and \"default\" is the rule at sensitivity 0.5 on any machine (the numbers under fires_at are "
+                    "this machine's). Checks against the model are judged only in DETECTING and while the machine "
+                    "counts as running",
+            "judging_now": watching,
+            "sensitivity": self.sensitivity, "spike_sensitivity": self.spike_sensitivity, "model": self.model_version,
+            "always": {
+                "vibration_over_limit": {"reading": "vib_velocity_mm_s", "unit": "mm/s", "fires_at": SF.VELOCITY_MM_S, "holds_s": SF.HOLD_S},
+                "knocking": {"reading": "impulsive vibration (kurtosis over 8) with peaks", "unit": "g", "fires_at": SF.KNOCK_PEAK_G,
+                             "holds_s": SF.HOLD_S},
+                "too_hot": {"reading": "imu_temp_c or the camera's hottest point", "unit": "degC", "fires_at": SF.HOT_C, "holds_s": SF.HOLD_S},
+                "heating_fast": {"reading": "temperature rise", "unit": "degC a minute", "fires_at": SF.HEATING_C_PER_MIN, "holds_s": SF.HOLD_S},
+                "repeated_jolts": {"reading": "sudden jolts in 10 minutes", "unit": "count", "fires_at": SF.JOLTS_10M}},
+            "lasting": out_lasting,
+            "one_moment": {"stays_s": SF.IMPACT_HOLD_S, **one}}
 
     def controls(self) -> dict:
         """Everything a connected program (a dashboard, say) can tell the device: for GET /controls and GET /."""
