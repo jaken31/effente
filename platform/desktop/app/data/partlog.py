@@ -16,6 +16,10 @@ never worked out here.
 A part review is `python3 platform/part_review.py`, run as a local process, as
 the report agent is: never over HTTP (contract section 8.8). Its runs come back
 on the stream and are read from the runs the state holds.
+
+The part readings of contract section 9 (INTERFACES.md addition 22) are stubs:
+`probe_changed`, `readings_changed`, `probe_part()`, `readings()`,
+`normal_spectrum()` and `set_probe_part()`. Nothing behind them is built yet.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ REVIEW_AGENT = "part_review"  # `agent` of a part review run (contract section 8
 REVIEW_SCRIPT = paths.PLATFORM / "part_review.py"
 REVIEW_MODES = ("standin", "local")
 EVERY_PART = ""  # what `_reviewing` holds while one process reviews every part
+READINGS_NOT_BUILT = "Part readings are not built yet."
 
 
 def _when(entry) -> float:
@@ -45,6 +50,8 @@ class PartLog(QObject):
     entries_changed = Signal()  # an entry was added
     selection_changed = Signal()  # another part was selected
     reviews_changed = Signal()  # a part review run started, moved or ended
+    probe_changed = Signal()  # the probe's part was set, changed or cleared, by a person or by the platform
+    readings_changed = Signal(str)  # this part's readings, summary or projection moved
 
     def __init__(self, state):
         super().__init__(state)
@@ -166,6 +173,20 @@ class PartLog(QObject):
         newest = self.review(part_id)
         return bool(newest) and newest.get("status") == "running"
 
+    def probe_part(self):
+        """The `part_id` the probe is on for the current machine, or None. A stub: always None."""
+        return
+
+    def readings(self, part_id, since=None):
+        """The reply of the part's readings route (contract 9.3), or None while it
+        is being fetched. Asking starts the fetch. A stub: always None."""
+        return
+
+    def normal_spectrum(self, part_id=None):
+        """The reply of contract 9.4 for this part, or for the whole machine when
+        None. None while it is being fetched. A stub: always None."""
+        return
+
     def _review_alive(self) -> bool:
         return self._review_process is not None and self._review_process.state() != QProcess.NotRunning
 
@@ -187,6 +208,10 @@ class PartLog(QObject):
         if part_id != self._selected:
             self._selected = part_id
             self.selection_changed.emit()
+
+    def set_probe_part(self, part_id) -> None:
+        """Say the probe is on this part. None clears it. A stub: reports "not built yet"."""
+        self.state.action_failed.emit(READINGS_NOT_BUILT)
 
     def create_part(self, name, kind, position=None) -> None:
         """Make a part on the current machine."""
