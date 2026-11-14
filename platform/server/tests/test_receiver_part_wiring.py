@@ -18,13 +18,7 @@ ROUTES = [
     ("GET", "/api/scans/scan-1"),
     ("GET", "/api/scans/scan-1/model.glb"),
     ("GET", "/api/scans/scan-1/file"),
-    ("POST", "/api/machines/conveyor-07/parts"),
-    ("GET", "/api/machines/conveyor-07/parts"),
-    ("PUT", "/api/parts/part-0007"),
-    ("POST", "/api/machines/conveyor-07/log"),
-    ("GET", "/api/machines/conveyor-07/log"),
-    ("GET", "/api/machines/conveyor-07/log.csv"),
-]
+]  # the part and log routes are built: test_receiver_partlog.py
 
 
 @pytest.mark.parametrize("method,path", ROUTES)
@@ -37,7 +31,7 @@ def test_a_stubbed_route_leaves_the_connection_usable(client):
     """The stub drops the body it did not read, so the next request on the same connection is read whole."""
     conn = http.client.HTTPConnection("127.0.0.1", client.port, timeout=10)
     try:
-        conn.request("POST", "/api/machines/conveyor-07/parts", body=json.dumps({"name": "Belt", "kind": "belt"}))
+        conn.request("POST", "/api/machines/conveyor-07/scans?client_id=test-0001", body=json.dumps({"name": "scan.usdz"}))
         first = conn.getresponse()
         assert (first.status, json.loads(first.read())["error"]) == (400, "not built yet")
         conn.request("GET", "/api/state")
@@ -49,7 +43,7 @@ def test_a_stubbed_route_leaves_the_connection_usable(client):
 
 def test_state_is_unchanged_while_the_stores_are_stubs(client):
     _, state = client.json("GET", "/api/state")
-    assert set(state) == {"ok", "now", "devices", "models", "machines", "alarms"}
+    assert set(state) == {"ok", "now", "devices", "models", "machines", "alarms", "parts"}  # `parts` is built, `scans` not yet
 
 
 def test_state_takes_each_stores_part_and_its_machines(make_receiver):
