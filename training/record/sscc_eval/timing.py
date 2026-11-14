@@ -73,6 +73,23 @@ def main():
     m2, _ = BM.learn(G, gg)
     out["groupgauss_learn_1800_rows_generic_features_s"] = time.perf_counter() - t0
     out["groupgauss_generic_judge_one_row_ms"] = 1000 * best_of(lambda: m2.score(G[:1]), 50)
+    from training.record.sscc_eval import methods as M
+
+    def learn_fused_pca(A, grp):
+        b = np.arange(len(A)) * 5 // len(A)
+        cal = [BM.median3(M.Fused(lambda: M.PCA(0.95, 40, True), grp, "max").fit(A[b != k]).score(A[b == k]))
+               for k in range(5)]
+        return M.Fused(lambda: M.PCA(0.95, 40, True), grp, "max").fit(A), float(np.quantile(np.concatenate(cal), 0.99))
+
+    t0 = time.perf_counter()
+    fp, _ = learn_fused_pca(G, gg)
+    out["FINAL_group_pca_learn_1800_rows_136_inputs_s"] = time.perf_counter() - t0
+    out["FINAL_group_pca_judge_one_row_ms"] = 1000 * best_of(lambda: fp.score(G[:1]), 50)
+    out["FINAL_group_pca_memory_bytes"] = int(sum(m.V.nbytes + m.mu.nbytes + m.hs.nbytes for m in fp.models))
+    X3 = np.vstack([G] * 2)
+    t0 = time.perf_counter()
+    learn_fused_pca(X3, gg)
+    out["FINAL_group_pca_learn_3600_rows_s"] = time.perf_counter() - t0
     out["model_memory_bytes_device_features"] = int(sum(mm.P.nbytes + mm.mu.nbytes for mm in m.models))
     out["model_memory_bytes_generic_features"] = int(sum(mm.P.nbytes + mm.mu.nbytes for mm in m2.models))
     r_train = 25.0 / out["device_train_model_1800_rows_s"]

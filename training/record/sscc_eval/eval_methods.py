@@ -59,16 +59,27 @@ def raw_rows(fs: str, ids: np.ndarray) -> np.ndarray:
             parts.append(D["gen_v1c"][ids].reshape(len(ids), 5, -1))
         elif p == "ga":
             parts.append(D["gen_a"][ids].reshape(len(ids), 5, -1))
+        elif p in ("ga32", "ga32b"):  # the same sound with the device's 32 bands (pairs of the 64 summed)
+            a = D["gen_a"][ids].astype(float)
+            b32 = np.log10(10 ** a[..., 0:64:2] + 10 ** a[..., 1:64:2])
+            parts.append(b32 if p == "ga32b" else np.concatenate([b32, a[..., 64:]], -1))
+        elif p == "gab":  # 64 bands only, without log rms, kurtosis and crest
+            parts.append(D["gen_a"][ids][..., :64].astype(float))
+        elif p == "g1tot":  # the device's vibration bands: power summed over the 3 axes, plus each axis' log rms
+            v = D["gen_v1"][ids].astype(float)
+            tot = np.log10((10 ** v[..., :20]).sum(2))
+            parts.append(np.concatenate([tot, v[..., :, 20]], -1))
         else:
             raise ValueError(p)
     return np.concatenate(parts, 2).astype(float)
 
 
 def group_of_generic(fs: str) -> list[str]:
-    sizes = {"g16": 105, "g16m": 35, "g16all": 140, "g1": 69, "g1c": 69, "ga": 67}
+    sizes = {"g16": 105, "g16m": 35, "g16all": 140, "g1": 69, "g1c": 69, "ga": 67, "ga32": 35, "ga32b": 32, "gab": 64,
+             "g1tot": 23}
     out = []
     for p in fs.split("+"):
-        out += ["snd" if p == "ga" else "vib"] * sizes[p]
+        out += ["snd" if p.startswith("ga") else "vib"] * sizes[p]
     return out
 
 
