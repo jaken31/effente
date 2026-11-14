@@ -166,7 +166,7 @@ def test_latest_features_health_and_replay_on_connect():
 
         code, headers, latest = get(stream, "/latest")
         assert code == 200 and headers["Access-Control-Allow-Origin"] == "*"
-        assert set(latest) == {"results", "features", "events", "status"}
+        assert set(latest) == {"results", "features", "events", "status", "you_can_read"}
         assert latest["events"]["event"] == "recording_stopped"
         assert latest["status"]["windows"]["scored"] == stats.scored and latest["status"]["running"] is False
         assert abs(latest["results"]["t"] - latest["status"]["t"]) < 1e-6

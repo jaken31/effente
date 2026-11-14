@@ -12,7 +12,7 @@ under its line for hours while it grows. This watches the same model's output wi
              periods, a minute for a short demo model with 1-second ones); stopped periods are skipped
   against    each series' block values while learning (calibrate(): median and robust spread), so
              a block value becomes "spreads above normal"
-  detector   one of METHODS (the default "cusum": a one-sided CUSUM per series). Sensitivity
+  detector   one of METHODS (the default "line": the score's block median over a lower line). Sensitivity
              (effente.safety's 0 to 1, 0.5 the default) scales the decision limit: 1 halves it and
              0 doubles it (scale())
   wording    "<SYMPTOM> CREEPING UP" when the block values are still rising (Mann-Kendall test with
@@ -24,11 +24,13 @@ when the change goes away; a new model (relearning) starts a new EarlyWarning. N
 coarse speed ("rising over hours" or "over days"), never a predicted failure time.
 
 The methods, compared in training/record/conveyor_eval/early_warning_eval.py (EARLY_WARNING.md):
-  cusum        CUSUM per group, and on the score (the default)
+  cusum        CUSUM per group, and on the score (the default until 14 Nov)
   ewma         an exponentially weighted mean per group, against a limit
   trend        a significant rising trend (Mann-Kendall) over the last TREND_N blocks, per group
   cusum_score  CUSUM on the model's score only
-  line         the model's score over a lower line (LINE_FRAC of it) for LINE_HOLD blocks
+  line         the model's score over a lower line (LINE_FRAC of it) for LINE_HOLD blocks of LINE_BLOCK
+               periods (the default since 14 Nov: system C of training/record/conveyor_eval/SYSTEM_SEARCH.md,
+               30-minute blocks over 0.3x the crossfit line, held 6 blocks = 3 hours)
   sensitivity  the model's own alarm at a higher sensitivity (no blocks: "just turn it up")
 Starting values, tuned on normal training weeks only (unverified on real machines). NumPy only.
 """
@@ -55,12 +57,17 @@ CUSUM_K, CUSUM_H = 0.5, 5.0  # allowance and decision limit, in spreads (per blo
 CUSUM_CAP, CUSUM_OFF = 1.5, 0.5  # the sum stops at 1.5 h (so it can clear); off below 0.5 h
 EWMA_LAMBDA, EWMA_L = 0.2, 3.0  # on above L asymptotic sigmas of the mean; off below half of that
 TREND_N, TREND_Z, TREND_RISE = 8, 2.0, 1.5  # blocks; Mann-Kendall z; and total rise, in spreads
-LINE_FRAC, LINE_HOLD = 0.6, 3  # of the model's line; blocks in a row
+# The "line" method, system C (simulated conveyor only, unverified on a real machine): 30-period blocks, held 6 in a
+# row, over 0.3x the crossfit line. A model trained with the crossfit line stores line x effente.trainer.THRESHOLD_FACTOR
+# (4 ** -0.3) as its threshold, and the score here is over that threshold, so the fraction of it is 0.3 / 4 ** -0.3.
+# Sensitivity scales the fraction as the other limits (scale(): 2x at 0, 1x at 0.5, 0.5x at 1). Was 0.6 and 3.
+LINE_BLOCK = 30
+LINE_FRAC, LINE_HOLD = 0.3 / 4.0 ** -0.3, 6  # of the model's stored threshold; blocks in a row
 SENSITIVITY_FOR_ALARM = 1.0  # the "sensitivity" method: the alarm's own test at this sensitivity
 
 RISING_N, RISING_Z = 12, 1.64  # the wording's slope test: last blocks, one-sided 5 %
 METHODS = ("cusum", "ewma", "trend", "cusum_score", "line", "sensitivity")
-DEFAULT_METHOD = "cusum"
+DEFAULT_METHOD = "line"  # was "cusum": with an in-sample calibration it sat about +4 spreads up on any new week
 
 GROUP_NAMES = tuple(g[0] for g in FT.GROUPS)
 SERIES = GROUP_NAMES + ("score",)
@@ -317,7 +324,7 @@ class EarlyWarning:
         self.m, self.method = model, method
         self.series = Series(model)
         self.ready = bool(calib) and list(calib.get("series", [])) == list(SERIES)
-        self.block = int(block or (calib or {}).get("block", BLOCK))
+        self.block = int(block or (LINE_BLOCK if method == "line" else (calib or {}).get("block", BLOCK)))
         c = calib if self.ready else {"centre": [None] * len(SERIES), "spread": [None] * len(SERIES)}
         self.centre = np.array([np.nan if v is None else v for v in c["centre"]], float)
         self.spread = np.array([np.nan if v is None else v for v in c["spread"]], float)

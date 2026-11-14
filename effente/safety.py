@@ -28,6 +28,16 @@ what kind of machine it is:
 
   vibration_above_normal, hotter_than_normal, louder_than_normal
 
+Like is compared with like. Training learns the normal from the medians of its summary period (a
+minute for a long recording), so each reading is judged on its median over the same period (the
+baseline's "period_s"), the last period up to now. A forklift's reversing beeper, 83-94 dB for
+9-18 s, passes the one-a-second level but not a minute's median (judged per second, the simulated
+conveyor's held-out week gave 21 false LOUDER THAN NORMAL, every one a forklift; judged this way, none). A lasting change still shows: once it has
+filled half the period and held (about 40 s for a minute). Nothing is judged until the period is
+half covered. Baselines without "period_s" (models older than this, and recordings short enough to
+learn from one-a-second rows) are judged a row at a time. The universal limits stay per row:
+sudden trouble (knocking, jolts, over the limit) is theirs.
+
 How far outside counts as wrong is OUTSIDE_NORMAL, in one place. These are starting values; how far
 outside should count hasn't been decided. The learned model's line is there too ("model").
 Sensitivity scales all of them at once and can be changed while the device runs (margins()). It
@@ -35,6 +45,22 @@ goes from 0 (least sensitive) to 1 (most), with 0.5 the default: the values belo
 halves or doubles how far outside normal counts as wrong, so 1 flags a departure a quarter as big
 and 0 needs one four times as big. It changes only the outside-normal checks and the model, never
 the universal limits.
+
+More impacts than normal (more_impacts, an addition of 14 Nov, system C of the conveyor search): the seconds in
+the last SPIKE_WINDOW_S with an impulsiveness reading (SPIKE_FEATURES: 2-7 kHz sound, vibration kurtosis) over its
+99.9th percentile while learning, against SPIKE_FACTOR x the most any such window had while learning. It catches
+repeating knocks too short or too sparse for the minute model (on the simulated conveyor: splice damage, looseness).
+Its levels are learned from the recording's one-a-second rows (learn_spike_levels) and kept in the baseline
+("spikes"); a baseline without them has no such check. Sensitivity doesn't change it. Only whole-second rows are
+counted, as the levels were learned, so one knock is one second however many overlapping rows a second arrive.
+A recording under an hour gets a simpler form (SPIKE_SHORT_*): seconds over a level above anything seen while
+learning, more than 2 of them in the last minute. Being a count over a window, it shows as soon as the count is
+over (no 10 s hold) and clears like the others.
+
+One sudden impact (sudden_impact, with the same baseline "spikes"): a single whole second whose peak is over the
+vibration margin (2x at the default; 1.5x at 0.75, 3x at 0.25) times the highest peak while learning, and at least
+0.05 g. It shows at once as KNOCKING OR JOLTS and stays IMPACT_HOLD_S (30 s). Its own dial sizes it, the spike
+sensitivity (set_spike_sensitivity, the device's "spike_sensitivity" setting); the main sensitivity doesn't.
 
 A check counts once it has held for most of HOLD_S (80 % of the rows) and clears once it has mostly
 stopped (20 %), so a bump, a door slam or one odd reading never shows.
@@ -94,16 +120,83 @@ def margins(sensitivity: float = DEFAULT_SENSITIVITY) -> dict[str, float]:
 
 # Vibration below these never counts as outside normal: the accelerometer's own noise is 4-9 mg.
 VIB_FLOOR = {"vib_velocity_mm_s": 0.3, "vib_total_g": 0.015}
+# The readings with a learned normal (baseline "levels"), judged on their median over the baseline's period.
+LEVELS = ("vib_velocity_mm_s", "vib_total_g", "imu_temp_c", "th_max_c", "snd_level_db")
+COVER_SHARE = 0.5  # judged once the values in the window span this share of the period
+
+# More impacts than normal: seconds over the learned 99.9th percentile in the last 30 minutes, against 2x the most
+# while learning (system C, simulated conveyor only: unverified on a real machine).
+SPIKE_FEATURES = ("snd_kurt_hf", "vib_kurtosis")
+SPIKE_Q, SPIKE_WINDOW_S, SPIKE_FACTOR = 99.9, 1800.0, 2.0
+# A short recording (under an hour of running seconds, at least SPIKE_SHORT_MIN_S): too little to say what is rare, so
+# a knock-second is one over a level set above anything seen while learning: the highest, plus as much again as the
+# highest stood over the median (SPIKE_SHORT_HEADROOM), and at least SPIKE_SHORT_FLOOR. More than SPIKE_SHORT_FACTOR
+# of them in the last SPIKE_SHORT_WINDOW_S counts (the 3rd knock within a minute; one bump is one or two seconds).
+# The peak is watched too. Simulated and test data only: unverified on a real machine.
+SPIKE_FEATURES_SHORT = SPIKE_FEATURES + ("vib_peak_g",)
+SPIKE_SHORT_MIN_S, SPIKE_SHORT_WINDOW_S, SPIKE_SHORT_FACTOR, SPIKE_SHORT_HEADROOM = 100, 60.0, 2.0, 1.0
+SPIKE_SHORT_FLOOR = {"snd_kurt_hf": 1.0, "vib_kurtosis": 1.0, "vib_peak_g": 0.15}  # the peak is log10 g: x1.4
+# One sudden impact (something falls off, a hard knock): a single whole second whose peak is over the vibration
+# margin (2x at the default sensitivity, margins()["vibration"]) times the highest peak seen while learning, and at
+# least IMPACT_MIN_G (the same least size as a jolt in effente.history, so a quiet machine isn't set off by a
+# footstep). It shows at once and stays for IMPACT_HOLD_S, so it can be seen. The peak, not the kurtosis: "times
+# the highest" means something for a size in g, and the kurtosis says how spiky a second is, not how big.
+# After a long recording the level is still the maximum: the check then only shows impacts bigger than the
+# biggest knock the device took while learning, and the spike sensitivity moves the multiple. On the simulated
+# conveyor (rot_heldout) lower levels (p99.99, p99.999, the max without its top seconds) gave 0.6-4.5 false
+# alerts a week from 2x down, from people knocking the device; the maximum gave none from 1.25x to 5x.
+# Simulated and test data only: unverified on a real machine.
+IMPACT_FEATURE, IMPACT_MIN_G, IMPACT_HOLD_S = "vib_peak_g", 0.05, 30.0
+# One sudden loud sound (a shout, a bang, something dropped out of the accelerometer's reach): the same for
+# sound. A single whole second whose sound level is over the highest of any second while learning by more than
+# the sound margin (6 dB at the default spike sensitivity, margins()["sound"]). It shows at once as LOUDER THAN
+# NORMAL and stays IMPACT_HOLD_S. Added 14 Nov after a yell into the microphone (26 dB over the room, 118 dB
+# on the mic's scale) left the model at 0.73 of its line and its spike rule at 0.23: the model has 45 sound
+# readings among about 100 and judges them all together, and louder_than_normal needs 10 s. The level of the
+# whole second, not its loudest instant: a click is not a loud second. Bench only: unverified on a machine,
+# where a passing forklift's beeper or a dropped spanner would show too.
+SOUND_FEATURE = "snd_level_db"
+# The same for the other sensors (the user, 14 Nov: spikes across the sensors). Each is one whole second with a
+# reading over the highest of any second while learning by more than its margin at the spike sensitivity; it
+# shows at once and stays IMPACT_HOLD_S. (problem, reading, how it is compared, the margin from margins()):
+#   "ratio": the reading is a log10; over means more than margin times the highest
+#   "over":  the reading is in its own unit; over means more than margin above the highest
+# For heat, a moment is a RISE, never a level: the temperature's rise per minute, and the camera's fastest change
+# of any pixel within the second, each over the fastest seen while learning by a third of the lasting check's
+# margin (5 degC, or 5 degC a minute, at the default). The first version compared the temperature itself with
+# the hottest second of the recording: a device recorded cold and used warm alarmed for good with no sudden
+# change at all (the review of 14 Nov, confirmed with a probe). A level that stays up is hotter_than_normal's to
+# say. A reading the device doesn't have (no thermal camera) is simply not learned and not checked.
+# TWIST_MIN_DPS: a twist under this never counts, however still the device lay while learning (as IMPACT_MIN_G
+# for impacts): on a bench the highest learned was 10 deg/s, and a touch to the table doubled it.
+# All unverified on a machine: only sudden_impact, sudden_sound and sudden_twist have been set off, on a bench.
+TWIST_MIN_DPS = 30.0
+MORE_MOMENTS = (
+    ("sudden_twist", "gyr_peak", "ratio", lambda m: m["vibration"]),                        # a jolt that turns the device
+    ("sudden_heat", "trend_heat_rise_per_min", "over", lambda m: m["temperature"] / 3.0),   # degC a minute
+    ("sudden_heat", "th_change_c", "over", lambda m: m["temperature"] / 3.0),               # any pixel, within the second
+)
+MOMENT_COLUMNS = (SOUND_FEATURE,) + tuple(f for _, f, _, _ in MORE_MOMENTS)  # for learn_spike_levels, besides the spikes'
 
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
-CHECKS = SENSOR + UNIVERSAL + RELATIVE
+# The device is not where it was while learning: gravity's direction more than MOVED_DEG from the direction learned
+# (the baseline's "gravity"), held like the other lasting checks. Its own plain message, DEVICE MOVED. Before
+# this (14 Nov, on the bench) a device turned on its side gave a constant VIBRATION TOO HIGH from the model. A
+# fixed angle, no dial: 10 degrees is well over what the sensor's noise or a vibrating mount gives, and under
+# a head put back visibly askew. Sensors that don't measure gravity (piezo) have no "gravity" learned: no check.
+MOVED_DEG = 10.0
+POSITION = ("device_moved",)
+RATES = ("more_impacts",)
+MOMENTS = ("sudden_impact", "sudden_sound", "sudden_twist", "sudden_heat")  # on with the moment itself, off when its own hold ends
+CHECKS = SENSOR + UNIVERSAL + RELATIVE + POSITION + RATES + MOMENTS
 # Old names of checks, as older saved models still list them in their baseline's "dropped".
 # "vibration_too_high" is now only a model fault type (effente.fault_types).
 RENAMED = {"vibration_too_high": "vibration_over_limit"}
 # Judged from the accelerometer, so set aside while the sensor's readings make no sense.
-FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal")
+FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal", "sudden_impact",
+                  "device_moved")
 
 WHAT = {  # what each problem is, for people: (sentence, the screen's short form after "! ", with its value)
     "sensor_problem": ("the sensor's readings make no sense: check its wires and that it is fixed down; "
@@ -116,6 +209,12 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "vibration_above_normal": ("vibrating well beyond its normal", "VIB OVER NORMAL", "VIB {v:.1f}x NORMAL"),
     "hotter_than_normal": ("hotter than its normal", "HOTTER THAN NORMAL", "{v:+.0f} C OVER NORMAL"),
     "louder_than_normal": ("louder than its normal", "LOUDER THAN NORMAL", "{v:+.0f} dB OVER NORMAL"),
+    "more_impacts": ("more knocks or clicks than its normal", "MORE IMPACTS", None),
+    "device_moved": ("the device is not where it was while learning (its tilt changed)", "DEVICE MOVED", "MOVED {v:.0f} DEG"),
+    "sudden_impact": ("a sudden impact, well beyond any while learning", "SUDDEN IMPACT", "IMPACT {v:.1f}x NORMAL"),
+    "sudden_sound": ("a sudden loud sound, well beyond any while learning", "SUDDEN LOUD SOUND", "{v:+.0f} dB OVER LOUDEST"),
+    "sudden_twist": ("a sudden twist or jolt, well beyond any while learning", "SUDDEN TWIST", "TWIST {v:.1f}x NORMAL"),
+    "sudden_heat": ("heating faster than at any time while learning", "SUDDEN HEAT", "{v:+.1f} C FASTER"),
 }
 
 # What each check means for people, in the same words as the model's fault types (effente.fault_types
@@ -123,7 +222,10 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
 SYMPTOM = {"sensor_problem": "sensor_problem", "vibration_over_limit": "vibration_too_high",
            "knocking": "knocking_or_jolts", "too_hot": "too_hot", "heating_fast": "heating_fast",
            "repeated_jolts": "knocking_or_jolts", "vibration_above_normal": "vibration_too_high",
-           "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal"}
+           "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal",
+           "more_impacts": "knocking_or_jolts", "sudden_impact": "knocking_or_jolts",
+           "sudden_sound": "louder_than_normal", "sudden_twist": "knocking_or_jolts", "sudden_heat": "too_hot",
+           "device_moved": "device_moved"}
 
 _NAN = float("nan")
 
@@ -209,25 +311,154 @@ class Safety:
     update(t0, x) for each feature row (any rate); problems() is what is wrong now."""
 
     def __init__(self, baseline: dict | None = None, hold_s: float = HOLD_S,
-                 sensitivity: float = DEFAULT_SENSITIVITY, gravity_check: bool = True):
+                 sensitivity: float = DEFAULT_SENSITIVITY, gravity_check: bool = True,
+                 spike_sensitivity: float = DEFAULT_SENSITIVITY):
         self.hold_s = hold_s
         self.gravity_check = gravity_check  # False for accelerometers that don't measure gravity (piezo)
-        self.sensitivity, self.margins = sensitivity, margins(sensitivity)
+        self.group_sensitivity: dict[str, float | None] = {}  # per group, a sensitivity of its own (None: follow)
+        self.set_sensitivity(sensitivity)
+        self.set_spike_sensitivity(spike_sensitivity)
         self.hist: dict[str, deque] = {n: deque() for n in CHECKS}  # (t, over) for the last hold_s
         self.active: dict[str, dict] = {}
         self.temps: deque = deque()  # (t, IMU temperature), for the rise per minute
         self.set_baseline(baseline)
 
     def set_sensitivity(self, sensitivity: float) -> None:
-        self.sensitivity, self.margins = sensitivity, margins(sensitivity)
+        self.sensitivity = sensitivity
+        self._resolve()
+
+    def set_group_sensitivity(self, groups: dict[str, float | None]) -> None:
+        """Optional dials of their own for the outside-normal checks, per margins() group ("vibration",
+        "temperature", "sound"): a group given a number takes its margin from that sensitivity instead of the
+        main one; None follows the main one. Nothing given: exactly as before."""
+        self.group_sensitivity = {g: v for g, v in groups.items() if v is not None}
+        self._resolve()
+
+    def _resolve(self) -> None:
+        m = margins(self.sensitivity)
+        for group, v in self.group_sensitivity.items():
+            m[group] = margins(v)[group]
+        self.margins = m
+
+    def set_spike_sensitivity(self, spike_sensitivity: float) -> None:
+        """The second dial: how big one sudden impact must be (sudden_impact only; the main sensitivity doesn't
+        move it, and it moves nothing else). The same scale: margins(spike_sensitivity)["vibration"] x the highest."""
+        self.spike_sensitivity = spike_sensitivity
+        self.spike_margin = margins(spike_sensitivity)["vibration"]
+        self.spike_sound_db = margins(spike_sensitivity)["sound"]  # sudden_sound: dB over the loudest while learning
+        self.spike_margins = margins(spike_sensitivity)  # for MORE_MOMENTS
 
     def set_baseline(self, baseline: dict | None) -> None:
-        """This machine's normal, from training (None while nothing has been learned)."""
+        """This machine's normal, from training (None while nothing has been learned). Pass a model's
+        baseline through baseline_of(), so older models get their period."""
         self.levels = dict((baseline or {}).get("levels", {}))
         self.dropped = {RENAMED.get(n, n) for n in (baseline or {}).get("dropped", [])}
-        for n in RELATIVE + tuple(self.dropped):
+        p = (baseline or {}).get("period_s")
+        self.period_s = float(p) if p and float(p) > 1.0 else None  # None: judged a row at a time
+        self.recent: dict[str, deque] = {n: deque() for n in LEVELS}  # (t, value) over the last period
+        self.spikes = (baseline or {}).get("spikes") or None
+        g = (baseline or {}).get("gravity")
+        self.gravity0 = [float(v) for v in g] if g and len(g) == 3 else None  # the direction learned (a unit vector)
+        self.hist["device_moved"].clear()
+        self.spike_secs: dict[str, deque] = {n: deque() for n in SPIKE_FEATURES}  # whole seconds over the level
+        self.impact_until, self.impact = -math.inf, (_NAN, _NAN)  # the hold's end; the biggest (ratio, peak in g) in it
+        self.loud_until, self.loud = -math.inf, _NAN  # sudden_sound: the hold's end; the most dB over in it
+        self.more = {name: [-math.inf, _NAN] for name, _, _, _ in MORE_MOMENTS}  # each: the hold's end, the most over
+        for n in RELATIVE + RATES + MOMENTS + tuple(self.dropped):
             self.hist[n].clear()
             self.active.pop(n, None)
+
+    def _medians(self, t0: float, r: dict) -> dict:
+        """r with each learned reading replaced by its median over the last period, (t0 - period, t0]
+        (NaN until the values there span COVER_SHARE of it). Missing values are left out."""
+        if self.period_s is None:
+            return r
+        out = dict(r)
+        for name in LEVELS:
+            if name not in self.levels:
+                continue
+            d, v = self.recent[name], r[name]
+            if math.isfinite(v):
+                d.append((t0, v))
+            while d and t0 - d[0][0] >= self.period_s:
+                d.popleft()
+            if d and t0 - d[0][0] >= COVER_SHARE * self.period_s:
+                s = sorted(x for _, x in d)
+                n = len(s)
+                out[name] = s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
+            else:
+                out[name] = _NAN
+        return out
+
+    def _impacts(self, t0: float, x) -> tuple[bool, float]:
+        """(more impacts than normal, the highest count over its limit). Whole-second rows only, as the levels were
+        learned (a knock is in one such row, but in the overlapping rows of two seconds), so the row rate doesn't
+        matter; running rows only (trend_running NaN counts as running)."""
+        sec, over, ratio = math.floor(t0 + 1e-6), False, 0.0
+        running = not (x[F.INDEX["trend_running"]] < 0.5) and abs(t0 - round(t0)) < 1e-6
+        window = float(self.spikes.get("window_s", SPIKE_WINDOW_S))
+        factor = float(self.spikes.get("factor", SPIKE_FACTOR))
+        for name, lv in self.spikes.get("features", {}).items():
+            d, v = self.spike_secs.setdefault(name, deque()), _f(x, name)
+            if running and math.isfinite(v) and v > lv["level"] and (not d or d[-1] != sec):
+                d.append(sec)
+            while d and d[0] <= t0 - window:
+                d.popleft()
+            limit = factor * max(float(lv["count"]), 1.0)
+            over |= len(d) > limit
+            ratio = max(ratio, len(d) / limit)
+        return over, ratio
+
+    def _sudden_impact(self, t0: float, x) -> tuple[bool, float]:
+        """(a sudden impact within the last IMPACT_HOLD_S, its peak as times the highest while learning). Whole-second
+        running rows only, like the count."""
+        top = self.spikes.get("peak_max")
+        if top is not None and abs(t0 - round(t0)) < 1e-6 and not (x[F.INDEX["trend_running"]] < 0.5):
+            v = _f(x, IMPACT_FEATURE)
+            if math.isfinite(v):
+                ratio, peak = 10 ** (v - float(top)), 10 ** v
+                if ratio > self.spike_margin and peak >= IMPACT_MIN_G:
+                    if t0 >= self.impact_until or not ratio <= self.impact[0]:
+                        self.impact = (ratio, peak)  # the biggest of this hold
+                    self.impact_until = t0 + IMPACT_HOLD_S
+        return t0 < self.impact_until, self.impact[0]
+
+    def _more_moments(self, t0: float, x) -> dict[str, tuple[bool, float]]:
+        """MORE_MOMENTS, for the readings whose highest while learning is known: {problem: (within its hold,
+        the most over in it)}. Whole-second running rows only, like the impact."""
+        tops = self.spikes.get("moment_max") or {}
+        judge = abs(t0 - round(t0)) < 1e-6 and not (x[F.INDEX["trend_running"]] < 0.5)
+        out = {}
+        for name, feature, how, margin in MORE_MOMENTS:
+            if feature not in tops:
+                continue
+            hold = self.more[name]
+            v = _f(x, feature) if judge else _NAN
+            if math.isfinite(v):
+                m = margin(self.spike_margins)
+                over = 10 ** (v - float(tops[feature])) if how == "ratio" else v - float(tops[feature])
+                if over > m and not (feature == "gyr_peak" and 10 ** v < TWIST_MIN_DPS):
+                    if t0 >= hold[0] or not over <= hold[1]:
+                        hold[1] = over
+                    hold[0] = t0 + IMPACT_HOLD_S
+            on = t0 < hold[0]
+            if name not in out or on:
+                out[name] = (on, hold[1])
+        return out
+
+    def _sudden_sound(self, t0: float, x) -> tuple[bool, float]:
+        """(a sudden loud sound within the last IMPACT_HOLD_S, how many dB over the loudest second while learning).
+        Whole-second running rows only, like the impact."""
+        top = self.spikes.get("sound_max")
+        if top is not None and abs(t0 - round(t0)) < 1e-6 and not (x[F.INDEX["trend_running"]] < 0.5):
+            v = _f(x, SOUND_FEATURE)
+            if math.isfinite(v):
+                over = v - float(top)
+                if over > self.spike_sound_db:
+                    if t0 >= self.loud_until or not over <= self.loud:
+                        self.loud = over  # the loudest of this hold
+                    self.loud_until = t0 + IMPACT_HOLD_S
+        return t0 < self.loud_until, self.loud
 
     def _imu_rise(self, t0: float, temp: float) -> float:
         """IMU temperature rise over the last minute, in degC a minute (NaN for the first minute)."""
@@ -245,7 +476,20 @@ class Safety:
         m = {"sensor_problem": _sensor(r, self.gravity_check)}
         m.update({k: v for k, v in _universal(r, self._imu_rise(t0, r["imu_temp_c"])).items() if k not in self.dropped})
         if self.levels:
-            m.update(_relative(r, self.levels, self.margins))
+            m.update(_relative(self._medians(t0, r), self.levels, self.margins))
+        if self.gravity0 is not None:
+            g = [_f(x, f"vib_gravity_{a}") for a in "xyz"]
+            size = math.sqrt(sum(v * v for v in g)) if all(math.isfinite(v) for v in g) else 0.0
+            if size > 0.5:  # an accelerometer that shows gravity
+                cos = sum(a * b for a, b in zip(g, self.gravity0)) / size
+                angle = math.degrees(math.acos(max(-1.0, min(1.0, cos))))
+                m["device_moved"] = (angle > MOVED_DEG, angle)
+        if self.spikes:
+            m["more_impacts"] = self._impacts(t0, x)
+            m["sudden_impact"] = self._sudden_impact(t0, x)
+            if "sound_max" in self.spikes:
+                m["sudden_sound"] = self._sudden_sound(t0, x)
+            m.update(self._more_moments(t0, x))
         return m
 
     def update(self, t0: float, x) -> tuple[list[dict], list[str]]:
@@ -257,6 +501,18 @@ class Safety:
         for name, (over, value) in m.items():  # sensor_problem first, so it can set the others aside
             if name in FROM_VIBRATION and "sensor_problem" in self.active:
                 over = False  # nothing judged from bad data: counts as clear until the sensor is fine
+            if name in MOMENTS:  # no share of rows to wait for: on with the moment, off when its hold ends
+                peak = {"peak_g": _round(self.impact[1])} if name == "sudden_impact" else {}  # the impact's own, only
+                if over and name not in self.active:
+                    self.active[name] = {"name": name, "symptom": SYMPTOM[name], "what": WHAT[name][0],
+                                         "value": _round(value), **peak, "since": t0}
+                    started.append(self.active[name])
+                elif over:
+                    self.active[name].update(value=_round(value), **peak)
+                elif name in self.active:
+                    del self.active[name]
+                    cleared.append(name)
+                continue
             h = self.hist[name]
             h.append((t0, bool(over)))
             while h and t0 - h[0][0] > self.hold_s:
@@ -264,12 +520,12 @@ class Safety:
             share = sum(o for _, o in h) / len(h)
             covered = t0 - h[0][0] >= 0.9 * self.hold_s
             if name in self.active:
-                if share <= OFF_SHARE:
+                if share <= OFF_SHARE and not (name in RATES and over):  # a count still over stays on
                     del self.active[name]
                     cleared.append(name)
                 elif math.isfinite(value):
                     self.active[name]["value"] = _round(value)
-            elif covered and share >= ON_SHARE:
+            elif (covered and share >= ON_SHARE) or (name in RATES and over):  # a count over a window: no hold
                 self.active[name] = {"name": name, "symptom": SYMPTOM[name], "what": WHAT[name][0],
                                      "value": _round(value), "since": t0}
                 started.append(self.active[name])
@@ -296,18 +552,20 @@ def screen_text(problem: dict) -> str:
 
 # ----------------------------------------------------------------- the baseline, when a model is trained
 
-def learn_baseline(X, names, running=None) -> dict:
+def learn_baseline(X, names, running=None, period_s=None) -> dict:
     """This machine's normal from its training rows, and what was odd about the learning.
 
     X: the rows the model learns from, in time order (running rows, current feature list).
     running: optional, for every recorded row whether the machine ran (to say how much it stood).
-    Returns {"levels", "dropped", "warnings", "warnings_screen"}: levels are the highest (99th percentile) of each
-    reading; dropped are universal limits the machine already went past while learning."""
+    period_s: the period X's rows summarise (their medians), so Safety judges each reading on its
+    median over the same period; None or 1 for one-a-second rows.
+    Returns {"levels", "dropped", "warnings", "warnings_screen", "period_s"}: levels are the highest (99th
+    percentile) of each reading; dropped are universal limits the machine already went past while learning."""
     X = np.asarray(X, float)
     R = [readings(x) for x in X]
     col = lambda k: np.array([r[k] for r in R], float)
     levels, warnings, dropped, short = {}, [], [], []
-    for k in ("vib_velocity_mm_s", "vib_total_g", "imu_temp_c", "th_max_c", "snd_level_db"):
+    for k in LEVELS:
         v = col(k)
         v = v[np.isfinite(v)]
         if len(v) >= max(10, len(X) // 2):  # the sensor was there for most of the learning
@@ -349,9 +607,93 @@ def learn_baseline(X, names, running=None) -> dict:
             if not 1 / 1.3 <= ratio <= 1.3:
                 warnings.append(f"vibration still changing at the end ({ratio:.2f}x): learning longer gives a better normal")
                 short.append("VIB STILL CHANGING")
-    return {"levels": levels, "dropped": dropped, "warnings": warnings, "warnings_screen": short,
-            "note": "levels are the 99th percentile while learning; how far outside counts as wrong is "
+    grav = np.array([[_f(x, f"vib_gravity_{a}") for a in "xyz"] for x in X], float)
+    grav = grav[np.isfinite(grav).all(1)]
+    gravity = {}
+    if len(grav) >= max(10, len(X) // 2) and measures_gravity:
+        mean = grav.mean(0)
+        if np.linalg.norm(mean) > 0.5:
+            gravity = {"gravity": [round(float(v), 5) for v in mean / np.linalg.norm(mean)]}  # for device_moved
+    return {"levels": levels, "dropped": dropped, "warnings": warnings, "warnings_screen": short, **gravity,
+            "period_s": int(period_s) if period_s else 1,
+            "note": "levels are the 99th percentile while learning, of medians over period_s; readings are "
+                    "judged on their median over the same period; how far outside counts as wrong is "
                     "effente.safety.OUTSIDE_NORMAL (starting values)"}
+
+
+def learn_spike_levels(t, values: dict, running) -> dict | None:
+    """The more_impacts check's levels from one-a-second rows (t in seconds, values {feature: array}, running per
+    row): per SPIKE_FEATURES reading its SPIKE_Q percentile while running, and the most seconds over it in any
+    SPIKE_WINDOW_S. With under an hour of running seconds (too few to say what is rare) the short form instead
+    (SPIKE_SHORT_*): a level above anything seen, counted over the last minute. None under SPIKE_SHORT_MIN_S."""
+    t = np.asarray(t, float)
+    run = np.asarray(running, bool)
+    order = np.argsort(t, kind="stable")
+    t, run = t[order], run[order]
+    feats = {}
+    for name in SPIKE_FEATURES_SHORT:  # the short form, where a reading has too few seconds for the long one
+        if name not in values:
+            continue
+        v = np.asarray(values[name], float)[order]
+        ok = run & np.isfinite(v)
+        if SPIKE_SHORT_MIN_S <= ok.sum() < 3600:
+            top, mid = float(v[ok].max()), float(np.median(v[ok]))
+            level = top + max(SPIKE_SHORT_HEADROOM * (top - mid), SPIKE_SHORT_FLOOR[name])
+            feats[name] = {"level": round(level, 4), "count": 0}
+    peak_max = {}
+    if IMPACT_FEATURE in values:  # for the single sudden impact: the highest peak of any running second (log10 g)
+        v = np.asarray(values[IMPACT_FEATURE], float)[order]
+        ok = run & np.isfinite(v)
+        if ok.sum() >= SPIKE_SHORT_MIN_S:
+            peak_max = {"peak_max": round(float(v[ok].max()), 4)}
+    if SOUND_FEATURE in values:  # for the single sudden loud sound: the loudest of any running second (dB)
+        v = np.asarray(values[SOUND_FEATURE], float)[order]
+        ok = run & np.isfinite(v)
+        if ok.sum() >= SPIKE_SHORT_MIN_S:
+            peak_max["sound_max"] = round(float(v[ok].max()), 2)
+    tops = {}  # MORE_MOMENTS: the highest of any running second, for each reading the device has
+    for _, feature, _, _ in MORE_MOMENTS:
+        if feature in values:
+            v = np.asarray(values[feature], float)[order]
+            ok = run & np.isfinite(v)
+            if ok.sum() >= SPIKE_SHORT_MIN_S:
+                tops[feature] = round(float(v[ok].max()), 4)
+    if tops:
+        peak_max["moment_max"] = tops
+    if feats:
+        return {"features": feats, "window_s": SPIKE_SHORT_WINDOW_S, "factor": SPIKE_SHORT_FACTOR, "short": True,
+                **peak_max,
+                "note": f"short recording: seconds over a level above anything seen while learning, in the last "
+                        f"{SPIKE_SHORT_WINDOW_S:.0f} s; alert above {SPIKE_SHORT_FACTOR:g} of them"}
+    for name in SPIKE_FEATURES:
+        if name not in values:
+            continue
+        v = np.asarray(values[name], float)[order]
+        ok = run & np.isfinite(v)
+        if ok.sum() < 3600:
+            continue
+        level = float(np.percentile(v[ok], SPIKE_Q))
+        e = ok & (v > level)
+        cs = np.r_[0, np.cumsum(e)]
+        count = int((cs[1:] - cs[np.searchsorted(t, t - SPIKE_WINDOW_S, "right")]).max())
+        feats[name] = {"level": round(level, 4), "count": count}
+    if not feats:
+        return None
+    return {"features": feats, "window_s": SPIKE_WINDOW_S, "factor": SPIKE_FACTOR, **peak_max,
+            "note": f"seconds over the learned p{SPIKE_Q} in the last {SPIKE_WINDOW_S / 60:.0f} min, alert above "
+                    f"{SPIKE_FACTOR:g}x the most while learning"}
+
+
+def baseline_of(model: dict | None) -> dict | None:
+    """A model file's baseline, for Safety.set_baseline. Models saved before the baseline kept its
+    period get the model's own summary period ("period_s"), which their levels were learned over."""
+    base = (model or {}).get("baseline")
+    if not base:
+        return None
+    base = dict(base)
+    if "period_s" not in base and (model or {}).get("period_s"):
+        base["period_s"] = int(model["period_s"])
+    return base
 
 
 def verdict(model_state: dict | None, problems: list[dict]) -> dict:
@@ -374,6 +716,8 @@ def verdict(model_state: dict | None, problems: list[dict]) -> dict:
             what.append(sym)
     covered = {c for s in what for c in FT.COVERS.get(s, ())}
     what = [s for s in what if s not in covered]
+    if any(p["name"] == "device_moved" for p in problems):  # said first: the rest may only be what moving it did
+        what = ["device_moved"] + [s for s in what if s != "device_moved"]
     if "sensor_problem" in what:
         what = ["sensor_problem"] + [s for s in what if s != "sensor_problem"]
     return {"wrong": bool(what), "what": what, "details": details}

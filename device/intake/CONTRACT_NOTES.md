@@ -41,3 +41,14 @@ The model's full result is still in `result`. Extra fields stay: `t`, `status`, 
 11. **What the dashboard says against the screen.** Since 12 Nov the device's screen says what is going on in plain words, such as UNUSUAL VIBRATION or KNOCKING OR JOLTS (`what` in results and status, `effente.fault_types.SYMPTOM_TEXT`). It no longer names a cause like `misalignment_like`: on 20 real bearings the cause was right only once in 35, while the plain descriptions were accurate for all 35 (`training/record/datasets/OTTAWA_RESULTS.md`). The uploader (`device/intake/uploader.py`) still sends the fault type as `diagnosis`, and each problem's own sentence. So the dashboard and the screen can describe the same fault differently. *Proposal:* the contract carries the device's `what` (symptom ids) next to `diagnosis`, and the dashboard shows those words.
 
 Not part of the contract, for reference: the device's own stream has topics `results`, `features`, `events` and `status`. SSE ids are `<boot>-<n>`, not the platform's `seq`. `device_id` is `effente-01`, and `machine_id` comes from `EFFENTE_MACHINE` (default `machine-1`). See [README.md](README.md), section "Live stream".
+
+## Commands and more settings from the dashboard (13 Nov, for track 5)
+
+The device now takes more than a sensitivity. `GET http://<device>:8765/controls` lists everything, with what each does, what it takes and what it is now. Two ways in:
+
+- **Straight to the device:** `POST /settings` with any of the settings, and `POST /command` with `{"command": "press"}` (the button) or `{"command": "clear_history"}` (forget which level counts as the machine running, and the trends; for after the device was carried about). Any origin is allowed, so a browser page can send these.
+- **Through the platform's replies** (not in CONTRACT.md yet; the device side is ready):
+  - `"settings"` in a reply may carry any of the device's settings, not only `sensitivity`. Each that differs from the device's own is applied and saved.
+  - `"commands": [{"id": "<any string>", "command": "clear_history"}]` in a reply. The device does each `id` once, however often it is repeated, and says so in a `command` event on its stream. The platform should keep sending a command until the device has had a reply after it.
+
+Nothing checks who is asking: anyone on the network can send these.

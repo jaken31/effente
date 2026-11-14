@@ -18,14 +18,23 @@
 
 #include <Arduino_RouterBridge.h>
 #include <Wire.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/i2c.h>  // for the thermal camera read (see mlxRead)
 
 TwoWire &BUS = Wire2;
 const uint8_t MPU_ADDR = 0x68, OLED_ADDR = 0x3C;  // not "MPU": that name is the chip's memory protection unit
+const bool OLED_FLIP = true;   // the picture turned 180 degrees: the screen sits upside down in the case (the user, 14 Nov)
 const uint8_t OLED_COL_OFFSET = 0;                 // 2 for an SH1106 controller
 const int BUTTON_PIN = 9;  // D9 to GND (the board as wired, 13 Nov)
 const uint8_t GYRO_EVERY = 10;     // 1 kHz / 10 = 100 gyro samples a second
 const uint16_t MAX_BATCH = 30;     // samples per notification: 180 + 18 bytes, inside the 256-byte RPC buffer
 const uint32_t READ_EVERY_US = 25000;
+// The Bridge line's speed. The default is 115200, which the sensor's batches fill to 65 %, so anything more
+// costs accelerometer samples. A faster line needs the board's router started at the same speed: a drop-in
+// for arduino-router.service with --serial-baudrate (device/app/README.md, "A faster Bridge line"). The two
+// must match, or nothing arrives. Set to 115200 for a board whose router was not changed.
+const unsigned long BRIDGE_BAUD = 460800;
 
 // ------------------------------------------------------------------ MPU6050
 bool mpuWrite(uint8_t reg, uint8_t val) {
@@ -166,12 +175,36 @@ void oledCmds(const uint8_t *c, uint8_t n) {  // several commands in one transmi
   BUS.endTransmission();
 }
 
+// The screen's settings: its size (64 rows), where the picture starts, which way it is drawn, no scrolling,
+// no zoom, and on. Sent at the start and again with every full redraw (every 2 s): the picture's bytes are
+// sent again and again, but these were sent once, so a write garbled on the bus that the screen took as a
+// setting stayed for good. On 14 Nov, after a burst of bus errors (2,280 failed writes), the picture stayed
+// the wrong size until the app was started again. Whether a garbled setting was the cause is not proven
+// (unverified); sending them again costs about 2 ms every 2 s and nothing flickers (no display-off here).
+void oledSettings() {
+  const uint8_t set[] = {0xD5, 0xF0,   // clock: fastest internal refresh
+                         0xA8, 0x3F,   // 64 rows
+                         0xD3, 0x00,   // no vertical shift
+                         0x40,         // the picture starts at row 0
+                         0x8D, 0x14,   // charge pump on
+                         0x20, 0x02,   // page addressing, as oledPage writes
+                         // which way up: 0xA1 0xC8 is the module's own way up; 0xA0 0xC0 is turned 180 degrees
+                         (uint8_t)(OLED_FLIP ? 0xA0 : 0xA1), (uint8_t)(OLED_FLIP ? 0xC0 : 0xC8),
+                         0xDA, 0x12,   // row wiring of a 128 x 64 panel (0x02 here draws every row twice)
+                         0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40,  // contrast, pre-charge, VCOMH
+                         0x2E,         // no scrolling
+                         0xD6, 0x00,   // no zoom (SSD1306; taken as "column 0" by a controller without it)
+                         0xA4, 0xA6,   // show the picture, not inverted
+                         0xAF};        // on
+  for (uint8_t c : set) oledCmds(&c, 1);
+}
+
 bool oledBegin() {
   BUS.beginTransmission(OLED_ADDR);
   if (BUS.endTransmission() != 0) return false;
-  const uint8_t init[] = {0xAE, 0xD5, 0xF0, 0xA8, 0x3F, 0xD3, 0x00, 0x40, 0x8D, 0x14, 0xA1, 0xC8,
-                          0xDA, 0x12, 0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6, 0xAF};
-  for (uint8_t c : init) oledCmds(&c, 1);  // 0xD5 0xF0: fastest internal refresh
+  const uint8_t off = 0xAE;
+  oledCmds(&off, 1);
+  oledSettings();
   return true;
 }
 
@@ -266,7 +299,23 @@ char micLine[64];
 uint8_t micLen = 0;
 bool micOk = false;
 float micDb = NAN, micToneHz = NAN;
+// The tone as the screen shows it: smoothed, TONE_KEEP of what it showed and the rest from each new reading (the user,
+// 14 Nov), so the number doesn't jump about. Only the screen: the readings sent on are untouched.
+const float TONE_KEEP = 0.8f;  // it was 0.6; smoother still (the user, 14 Nov)
+// The six tiles' numbers are replaced all at once, at the moment a layout arrives from the Linux side (10 a
+// second: it works the velocity and the speed out that often from the newest second of vibration, and sends a
+// layout each time). Those two come in the layout, so only then can all six be new at the same instant (the
+// user, 14 Nov: every tile at exactly the same time, and quicker). If no layout comes for TILE_WAIT_MS (the
+// Linux side busy or not up yet) they are replaced anyway, so the screen never stands still.
+const uint32_t TILE_WAIT_MS = 300;
+bool layoutNew = false;
+float micToneShown = NAN;
 uint32_t micLines = 0, micAt = 0;
+char espIp[20] = "";
+bool espTell = false;
+uint32_t espSaidMs = 0;
+uint32_t micFastAt = 0;  // when the last LVL line came: the ESP32's quick level, about 11 a second (its full
+                         // firmware only), so the SND tile moves as fast as the IMU's tiles do
 
 float parseNum(const char *&p) {  // a number, then past the comma after it (by hand: no strtod on this core)
   bool neg = *p == '-';
@@ -281,9 +330,90 @@ float parseNum(const char *&p) {  // a number, then past the comma after it (by 
   return neg ? -v : v;
 }
 
+// The ESP32's full firmware also sends the sound readings the model uses, as a binary frame before each text
+// line: 0xEF 0x53 | sequence (u16) | age in ms (u16) | count (u8) = 45 | 45 float32 | CRC-16/CCITT-FALSE of
+// everything after the two start bytes (u16), little-endian, 189 bytes, sent 8 bytes every 4 ms so the serial
+// buffer never has to hold much. A whole frame with a good CRC goes to the Linux side as a notification
+// "snd" (see sndSend): (micros() when its last byte came, age, sequence, the 180 bytes of readings);
+// device/intake/source.py on_sound takes it from there. 0xEF never occurs in a text line, so the two share the wire. With the test
+// firmware (text lines only) nothing here ever fires. Added 13 Nov; not yet run with the full firmware.
+const uint8_t SND_COUNT = 45;
+const uint16_t SND_PAYLOAD = 4 * SND_COUNT, SND_FRAME = 7 + SND_PAYLOAD + 2;
+uint8_t sndBuf[SND_FRAME], sndOut[SND_PAYLOAD];
+uint16_t sndLen = 0, sndSeq = 0, sndAge = 0;  // sndLen 0: not inside a frame
+uint32_t sndAtUs = 0, sndStartMs = 0, sndFrames = 0, sndBad = 0;
+bool sndReady = false;
+
+uint16_t sndCrc(const uint8_t *p, uint16_t n) {
+  uint16_t crc = 0xFFFF;
+  while (n--) {
+    crc ^= (uint16_t)(*p++) << 8;
+    for (uint8_t b = 0; b < 8; b++) crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+  }
+  return crc;
+}
+
+bool sndByte(uint8_t b) {  // true: the byte belonged to a binary frame
+  if (sndLen && millis() - sndStartMs > 500) sndLen = 0;  // a frame that stopped half way: back to text
+  if (!sndLen) {
+    if (b != 0xEF) return false;
+    sndBuf[0] = b;
+    sndLen = 1;
+    sndStartMs = millis();
+    return true;
+  }
+  sndBuf[sndLen++] = b;
+  if ((sndLen == 2 && b != 0x53) || (sndLen == 7 && b != SND_COUNT)) {  // not a frame after all
+    sndLen = 0;
+    sndBad++;
+    return true;
+  }
+  if (sndLen < SND_FRAME) return true;
+  sndLen = 0;
+  uint16_t crc = (uint16_t)sndBuf[SND_FRAME - 2] | ((uint16_t)sndBuf[SND_FRAME - 1] << 8);
+  if (sndCrc(sndBuf + 2, 5 + SND_PAYLOAD) != crc) {
+    sndBad++;
+    return true;
+  }
+  sndAtUs = micros();
+  sndSeq = (uint16_t)sndBuf[2] | ((uint16_t)sndBuf[3] << 8);
+  sndAge = (uint16_t)sndBuf[4] | ((uint16_t)sndBuf[5] << 8);
+  memcpy(sndOut, sndBuf + 7, SND_PAYLOAD);
+  sndReady = true;  // a newer frame replaces one not sent on yet
+  sndFrames++;
+  return true;
+}
+
+// Every set goes on to the Linux side as it is (180 bytes, about 4 a second: under 1 kB/s). That needs the
+// Bridge line at 460800 baud (BRIDGE_BAUD): at the default 115200 the sensor's batches fill the line to 65 %,
+// and these sets on top cost about 9 % of the accelerometer's samples (measured on the board, 13 Nov). For a
+// board left at 115200, set SND_EVERY_MS to 1000 (one set a second) and FRAME_EVERY to 4 in the ESP32's firmware.
+const uint32_t SND_EVERY_MS = 0;
+uint32_t sndSentMs = 0;
+
+void sndSend() {  // called after a read of the sensor's FIFO, when there is the most time before it fills
+  if (espTell) {  // rare and small (about 25 bytes)
+    espTell = false;
+    espSaidMs = millis();
+    Bridge.notify("esp", MsgPack::str_t(espIp));
+    return;
+  }
+  if (!sndReady || (SND_EVERY_MS && millis() - sndSentMs < SND_EVERY_MS)) return;
+  sndSentMs = millis();
+  sndReady = false;
+  MsgPack::bin_t<uint8_t> v;
+  v.reserve(SND_PAYLOAD);
+  for (uint16_t i = 0; i < SND_PAYLOAD; i++) v.push_back(sndOut[i]);
+  Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);  // 180 + about 25 bytes: inside the RPC buffer
+}
+
 void micPoll() {
   while (Serial1.available()) {
     char c = Serial1.read();
+    if (sndByte((uint8_t)c)) {
+      micLen = 0;
+      continue;
+    }
     if (c == '\n') {
       micLine[micLen] = 0;
       micLen = 0;
@@ -291,11 +421,28 @@ void micPoll() {
         const char *p = micLine + 4;
         parseNum(p);                 // the line's number
         micOk = parseNum(p) > 0.5f;  // the ESP32 saw a real microphone
-        micDb = parseNum(p);
+        float db = parseNum(p);      // over the last second; the LVL lines' level is fresher when they come
+        if (!micFastAt || millis() - micFastAt > 500) micDb = db;
         parseNum(p);                 // peak
         micToneHz = parseNum(p);
+        micToneShown = (micToneShown == micToneShown && millis() - micAt < 2000)
+                           ? TONE_KEEP * micToneShown + (1.0f - TONE_KEEP) * micToneHz : micToneHz;
         micLines++;
         micAt = millis();
+      } else if (!strncmp(micLine, "IP,", 3)) {
+        // The ESP32's WiFi address (every 5 s, once it has the thermal camera's WiFi up): the Linux side
+        // fetches the camera's frames from it. Passed on when it changes, and every 30 s besides.
+        if (strlen(micLine + 3) < sizeof espIp && (strcmp(espIp, micLine + 3) || millis() - espSaidMs > 30000)) {
+          strcpy(espIp, micLine + 3);
+          espTell = true;
+        }
+      } else if (!strncmp(micLine, "LVL,", 4)) {
+        const char *p = micLine + 4;
+        float db = parseNum(p);
+        // a quarter of the new reading, three quarters of the old (it was half and half; the user, 14 Nov: the
+        // decibels a little smoother). Only the screen: the sound readings sent on are untouched.
+        micDb = (micFastAt && millis() - micFastAt < 500 && micDb == micDb) ? 0.75f * micDb + 0.25f * db : db;
+        micFastAt = millis();
       }
     } else if (c != '\r') {
       if (micLen < 63) micLine[micLen++] = c;
@@ -419,18 +566,22 @@ void composeTiles() {
   // the microphone's about the same size). Top row: vibration, peak, temperature. Bottom row: running
   // speed, sound level, strongest tone. A tile's number is at most 3 characters at double size, so big
   // values change unit: 1000 mg and over is shown in g, 1000 Hz and over in kHz ("k").
-  const char *units[6] = {"mg", "mg", "F", "", "dB", "Hz"};
-  float mg = 1000 * sqrtf(shownRms2), pk = 1000 * shownPeak;
+  const char *units[6] = {"mg", "", "F", "", "dB", "Hz"};
+  float mg = 1000 * sqrtf(shownRms2);
   if (mpuOk) {
     if (mg >= 999.5f) { fnum(val[0], mg / 1000, mg < 9950 ? 1 : 0); units[0] = "g"; }
     else fnum(val[0], mg, 0);
-    if (pk >= 999.5f) { fnum(val[1], pk / 1000, pk < 9950 ? 1 : 0); units[1] = "g"; }
-    else fnum(val[1], pk, 0);
     fnum(val[2], imuTempC * 9.0f / 5.0f + 32.0f, 0);  // the screen shows Fahrenheit (the user); the data stays in C
   } else {
-    strcpy(val[0], "--"); strcpy(val[1], "--"); strcpy(val[2], "--");
+    strcpy(val[0], "--"); strcpy(val[2], "--");
   }
-  strncpy(val[3], tmpl[3][0] ? tmpl[3] : "--", 11);  // the running speed, as the Linux side wrote it
+  // The second tile was the peak, which jumped about too much to read (the user, 14 Nov). It is the vibration
+  // velocity in mm/s now, the usual measure of how hard a machine shakes (the fixed limit is 11 mm/s). The
+  // Linux side writes it (line 5 of the layout), with one decimal under 10; its unit is the tile's label.
+  strncpy(val[1], tmpl[4][0] ? tmpl[4] : "0", 11);
+  val[1][11] = 0;
+  if (strlen(val[1]) > 3) val[1][3] = 0;
+  strncpy(val[3], tmpl[3][0] ? tmpl[3] : "0", 11);  // the running speed, as the Linux side wrote it; 0 when none
   val[3][11] = 0;
   if (strlen(val[3]) > 3) {  // too wide for a tile: drop the decimals ("29.8" -> "29")
     char *dot = strchr(val[3], '.');
@@ -446,10 +597,29 @@ void composeTiles() {
   } else {
     float db = micDb + 120.0f;
     fnum(val[4], db < 0 ? 0 : db, 0);
-    if (micToneHz >= 999.5f) { fnum(val[5], micToneHz / 1000, micToneHz < 9950 ? 1 : 0); units[5] = "k"; }
-    else fnum(val[5], micToneHz, 0);
+    float tone = micToneShown == micToneShown ? micToneShown : micToneHz;
+    if (tone >= 999.5f) { fnum(val[5], tone / 1000, tone < 9950 ? 1 : 0); units[5] = "k"; }
+    else fnum(val[5], tone, 0);
   }
-  static const char *labels[6] = {"VIB", "PEAK", "TEMP", "HZ", "SND", "TONE"};
+  static const char *labels[6] = {"VIB", "MM/S", "TEMP", "HZ", "SND", "TONE"};
+  // All six numbers change together (see TILE_WAIT_MS). Each is still worked out as before; this only chooses
+  // when what is shown is replaced.
+  static char shownVal[6][12];
+  static const char *shownUnit[6] = {"", "", "", "", "", ""};
+  static uint32_t tilesAt = 0;
+  if (!tilesAt || layoutNew || millis() - tilesAt >= TILE_WAIT_MS) {
+    tilesAt = millis() | 1;
+    layoutNew = false;
+    for (uint8_t i = 0; i < 6; i++) {
+      strncpy(shownVal[i], val[i], 11);
+      shownVal[i][11] = 0;
+      shownUnit[i] = units[i];
+    }
+  }
+  for (uint8_t i = 0; i < 6; i++) {
+    strcpy(val[i], shownVal[i]);
+    units[i] = shownUnit[i];
+  }
   for (uint8_t i = 0; i < 6; i++) {
     int bx = (i % 3) * 43, by = 8 + (i / 3) * 28;  // 42 wide, 28 high: y 8..35 and 36..63
     outline(bx, by, 42, 28);
@@ -461,7 +631,208 @@ void composeTiles() {
 
 // A line starting with '^' is drawn inverted (the header bar); with '#', double size over this line and
 // the next (the Linux side leaves the next line empty). A first line starting with '@': design B's tiles.
+// ---- thermal camera: an MLX90640 (24 x 32 pixels) on this bus at 0x33 (the user, 14 Nov). Screen only.
+// The picture is RELATIVE: lighter means warmer within the picture, and no temperature is worked out here.
+// Each pixel's reading has its own fixed offset taken off (from the camera's own memory); the rest of the
+// maker's calibration (sensitivity, the chip's own temperature, supply voltage) is left out, so a number in
+// degrees would be wrong and none is shown. The real calibration is to be done on the computer from the
+// raw readings (not built yet: nothing of the camera goes to the Linux side so far). Unverified against a
+// thermometer or the maker's code.
+// Read in small pieces, one per pass of loop() (at most 32 words, about 2 ms at 400 kHz), so the IMU's
+// FIFO is still read in between: a whole frame in one go would hold the bus for about 40 ms.
+const uint8_t MLX_ADDR = 0x33;
+bool showThermal = false;               // which screen: the readings, or the heat picture. The button swaps them
+                                        // (the user, 14 Nov; before that they swapped by themselves every 10 s)
+const bool MLX_MIRROR = false;          // true if the picture comes out left-right swapped in the case
+bool mlxOk = false, mlxHave = false;
+uint8_t mlxState = 0;                   // 0 not found yet, 1 reading its memory, 2 waiting for a frame, 3 reading one
+uint16_t mlxWord = 0, mlxChunk = 32;    // words done of the part being read; words per read (halved if refused)
+uint8_t mlxFailRun = 0;
+uint16_t mlxWord0 = 0;        // the first word of the frame as the camera gave it
+uint32_t mlxFrames = 0, mlxErrors = 0, mlxPollAt = 0, mlxTryAt = 0;
+uint16_t mlxEe[16];                     // the camera's memory, words 0x10 to 0x1F: the offsets' scales and parts
+int16_t mlxOffset[768], mlxRaw[768], mlxShown[768];
+
+// The camera must be asked and answered in ONE transfer (the register's address, then a repeated start, then
+// the read). This core's Wire always ends the write with a stop (its endTransmission ignores the argument),
+// which the IMU puts up with but the camera does not: it then answered with words that never changed, and the
+// picture was nonsense (14 Nov, on the board). So this read goes to Zephyr's own I2C call, on Wire2's device.
+static const struct device *const mlxBus = DEVICE_DT_GET(DT_PHANDLE_BY_IDX(DT_PATH(zephyr_user), i2cs, 2));
+
+bool mlxRead(uint16_t reg, uint16_t n, uint16_t *out) {
+  uint8_t ask[2] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF)};
+  uint8_t got[64];
+  if (n > 32) return false;
+  if (i2c_write_read(mlxBus, MLX_ADDR, ask, 2, got, n * 2) != 0) return false;
+  for (uint16_t i = 0; i < n; i++) out[i] = ((uint16_t)got[2 * i] << 8) | got[2 * i + 1];
+  return true;
+}
+
+bool mlxWrite(uint16_t reg, uint16_t v) {
+  BUS.beginTransmission(MLX_ADDR);
+  BUS.write((uint8_t)(reg >> 8));
+  BUS.write((uint8_t)(reg & 0xFF));
+  BUS.write((uint8_t)(v >> 8));
+  BUS.write((uint8_t)(v & 0xFF));
+  return BUS.endTransmission() == 0;
+}
+
+void mlxFail() {
+  mlxErrors++;
+  if (mlxChunk > 8) mlxChunk /= 2;  // the bus refused a long read
+  if (++mlxFailRun >= 5) {          // gone: look for it again every 2 s, and show the readings meanwhile
+    mlxFailRun = 0;
+    mlxState = 0;
+    mlxOk = false;
+    mlxHave = false;
+  }
+}
+
+int mlxNibble(uint16_t w, uint8_t k) {  // a signed 4-bit part of a word
+  int v = (w >> (4 * k)) & 0xF;
+  return v > 7 ? v - 16 : v;
+}
+
+void mlxTake();
+
+void mlxPoll() {
+  uint32_t now = millis();
+  uint16_t buf[32];
+  if (mlxState == 0) {
+    if (now - mlxTryAt < 2000) return;
+    mlxTryAt = now;
+    uint16_t ctrl;
+    if (!mlxRead(0x800D, 1, &ctrl)) return;       // not there
+    mlxWrite(0x800D, (ctrl & ~(7u << 7)) | (3u << 7));  // 4 half-frames a second
+    if (!mlxRead(0x2410, 16, mlxEe)) { mlxErrors++; return; }
+    mlxWord = 0;
+    mlxState = 1;
+    return;
+  }
+  uint16_t k = 768 - mlxWord < mlxChunk ? 768 - mlxWord : mlxChunk;
+  if (mlxState == 1) {  // each pixel's fixed offset, from the camera's memory (the datasheet's offset formula)
+    if (!mlxRead(0x2440 + mlxWord, k, buf)) { mlxFail(); return; }
+    int remScale = mlxEe[0] & 0xF, colScale = (mlxEe[0] >> 4) & 0xF, rowScale = (mlxEe[0] >> 8) & 0xF;
+    int ref = (int16_t)mlxEe[1];
+    for (uint16_t i = 0; i < k; i++) {
+      uint16_t p = mlxWord + i;
+      int row = p / 32, col = p % 32;
+      int rem = buf[i] >> 10;
+      if (rem > 31) rem -= 64;
+      mlxOffset[p] = (int16_t)(ref + mlxNibble(mlxEe[2 + row / 4], row % 4) * (1 << rowScale)
+                               + mlxNibble(mlxEe[8 + col / 4], col % 4) * (1 << colScale) + rem * (1 << remScale));
+    }
+    mlxFailRun = 0;
+    mlxWord += k;
+    if (mlxWord >= 768) { mlxState = 2; mlxOk = true; }
+    return;
+  }
+  if (mlxState == 2) {  // a new half-frame ready?
+    if (now - mlxPollAt < 20) return;
+    mlxPollAt = now;
+    uint16_t status;
+    if (!mlxRead(0x8000, 1, &status)) { mlxFail(); return; }
+    mlxFailRun = 0;
+    if (status & 0x0008) {
+      mlxWrite(0x8000, 0x0030);  // taken: the camera may measure the next one
+      mlxWord = 0;
+      mlxState = 3;
+    }
+    return;
+  }
+  if (!mlxRead(0x0400 + mlxWord, k, buf)) { mlxFail(); return; }
+  if (mlxWord == 0) mlxWord0 = buf[0];
+  for (uint16_t i = 0; i < k; i++) mlxRaw[mlxWord + i] = (int16_t)((int16_t)buf[i] - mlxOffset[mlxWord + i]);
+  mlxFailRun = 0;
+  mlxWord += k;
+  if (mlxWord >= 768) {
+    mlxTake();
+    mlxState = 2;
+  }
+}
+
+// A frame has been read whole. Two things before it is shown (14 Nov: the first version's picture
+// "didn't really seem to work"):
+//  - The camera measures its pixels in two halves, like the two colours of a chessboard, and the halves sit
+//    at slightly different levels, which draws a chessboard over everything. The halves are brought to the
+//    same average.
+//  - Each frame is averaged with the one shown before it, which halves the flicker of the noise.
+int mlxLo2 = 0, mlxHi2 = 0;   // the picture's coolest and warmest readings (the heartbeat, for checking)
+int mlxRange = 0;  // warmest minus coolest of the picture shown, in raw counts (the heartbeat)
+
+void mlxTake() {
+  long sum[2] = {0, 0};
+  for (int p = 0; p < 768; p++) sum[((p / 32) + (p % 32)) & 1] += mlxRaw[p];
+  int shift = (int)((sum[0] - sum[1]) / 384);
+  for (int p = 0; p < 768; p++) {
+    int v = mlxRaw[p] + ((((p / 32) + (p % 32)) & 1) ? shift : 0);
+    mlxShown[p] = mlxHave ? (int16_t)((mlxShown[p] + v) / 2) : (int16_t)v;
+  }
+  mlxHave = true;
+  mlxFrames++;
+}
+
+// The heat picture, over the WHOLE screen (the user, 14 Nov): no header and no words. The camera's 32 x 24
+// pixels are stretched to 128 x 64 and smoothed, and drawn in dots: the more dots, the warmer. The stretch
+// is 4 times across and 2.67 times down, so things look about 1.5 times wider than they are; every pixel of
+// the camera is on the screen. The scale runs from the coolest to the warmest reading in view (leaving out
+// the single most extreme of each), so the picture is relative: it says where it is warmer, not how warm.
+uint8_t mlxFb[8][128];
+uint32_t mlxDrawn = 0;  // the frame number mlxFb was drawn from
+
+void composeThermal() {
+  if (!mlxHave) {
+    memset(fb, 0, sizeof fb);
+    drawText(22, 20, "HEAT CAMERA", 1, true);
+    drawText(43, 34, "WAITING", 1, true);
+    return;
+  }
+  if (mlxDrawn != mlxFrames) {  // worked out once per camera frame, not once per screen frame
+    mlxDrawn = mlxFrames;
+    int lo = 32767, lo2 = 32767, hi = -32768, hi2 = -32768;
+    for (int i = 0; i < 768; i++) {
+      int v = mlxShown[i];
+      if (v < lo) { lo2 = lo; lo = v; } else if (v < lo2) lo2 = v;
+      if (v > hi) { hi2 = hi; hi = v; } else if (v > hi2) hi2 = v;
+    }
+    mlxRange = hi2 - lo2;
+    mlxLo2 = lo2;
+    mlxHi2 = hi2;
+    int span = mlxRange < 16 ? 16 : mlxRange;  // a view all at one temperature: not noise blown up to full scale
+    static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    uint32_t perCount = ((uint32_t)17 << 16) / (16u * (uint32_t)span);
+    memset(mlxFb, 0, sizeof mlxFb);
+    for (int oy = 0; oy < 64; oy++) {
+      int syf = (2 * oy + 1) * 48 - 128;  // the camera row this screen row falls on, in 256ths
+      if (syf < 0) syf = 0;
+      int r0 = syf >> 8, fy = syf & 255, r1 = r0 + 1;
+      if (r1 > 23) r1 = 23;
+      for (int ox = 0; ox < 128; ox++) {
+        int sxf = (2 * ox + 1) * 32 - 128;
+        if (sxf < 0) sxf = 0;
+        int c0 = sxf >> 8, fx = sxf & 255, c1 = c0 + 1;
+        if (c1 > 31) c1 = 31;
+        int a0 = MLX_MIRROR ? 31 - c0 : c0, a1 = MLX_MIRROR ? 31 - c1 : c1;
+        // 32-bit sums only, and a multiply where a divide was: with 64-bit divides the whole picture took
+        // long enough that the IMU lost samples while this screen was up (14 Nov: 900 a second, overflows).
+        int32_t top = ((int32_t)mlxShown[r0 * 32 + a0] * (256 - fx) + (int32_t)mlxShown[r0 * 32 + a1] * fx) >> 4;
+        int32_t bot = ((int32_t)mlxShown[r1 * 32 + a0] * (256 - fx) + (int32_t)mlxShown[r1 * 32 + a1] * fx) >> 4;
+        int32_t d = ((top * (256 - fy) + bot * fy) >> 8) - 16 * lo2;       // above the coolest, times 16
+        if (d < 0) d = 0;
+        if (d > 16 * span) d = 16 * span;
+        int32_t level = (int32_t)(((uint32_t)d * perCount) >> 16);         // 0 (coolest) to 16 (warmest)
+        if (level > bayer[oy & 3][ox & 3]) mlxFb[oy >> 3][ox] |= (uint8_t)(1 << (oy & 7));
+      }
+    }
+  }
+  memcpy(fb, mlxFb, sizeof fb);
+}
+
 void compose() {
+  if (mlxOk && showThermal) {
+    composeThermal();
+    return;
+  }
   if (tmpl[0][0] == '@') {
     composeTiles();
     return;
@@ -508,8 +879,13 @@ void compose() {
 }
 
 // Called from the Linux side; runs between loop() passes ("safe"), so the I2C bus is free.
+extern volatile bool slipTest;
 bool screen(MsgPack::str_t text) {
   const char *s = text.c_str();
+  if (s[0] == 1 && strncmp(s + 1, "SLIP", 4) == 0) {  // not a layout: the out-of-step test
+    slipTest = true;
+    return true;
+  }
   uint8_t line = 0;
   const char *start = s;
   for (const char *p = s;; p++) {
@@ -527,18 +903,34 @@ bool screen(MsgPack::str_t text) {
   }
   while (line < 8) tmpl[line++][0] = 0;
   screenUpdates++;
+  layoutNew = true;  // the beat the tiles change on
   return true;
 }
 
 // ------------------------------------------------------------------ main
 uint32_t seq = 0, lastRead = 0, lastStatus = 0, batches = 0, presses = 0, notifyUs = 0, lastFrameAt = 0;
-bool buttonDown = false;
+bool buttonDown = false, buttonHeld = false;
+const uint32_t BUTTON_HOLD_MS = 1000;
 uint32_t buttonChange = 0;
 uint32_t lastSampleMs = 0;  // when the FIFO last gave a sample
 uint32_t sensorRestarts = 0;
+// Samples out of step: the FIFO gives 12 bytes a sample, and if a byte is ever lost or doubled on the bus every
+// later sample is put together from the wrong bytes, for good. Seen on the board (14 Nov, 03:37): at the
+// moment the ESP32 lost its power the readings turned into a steady 9 g with clipping, and stayed so for 13
+// minutes until the app was restarted; the sensor itself was fine. Two signs, either one restarts the FIFO:
+//   - the FIFO's count is not a whole number of samples on STEP_ODD_READS reads in a row;
+//   - gravity (the half-second average of the three axes) is outside STEP_MIN_G..STEP_MAX_G for STEP_BAD_MS.
+//     A fixed device always shows about 1 g there, however hard it vibrates.
+// Counted in outOfStep (the heartbeat) and as a FIFO restart.
+const float STEP_MIN_G = 0.4f, STEP_MAX_G = 2.5f;
+const uint32_t STEP_BAD_MS = 1000;
+const uint8_t STEP_ODD_READS = 4;
+uint32_t outOfStep = 0, gravBadSince = 0, oddCounts = 0;
+uint8_t oddRun = 0;
+volatile bool slipTest = false;  // a test from the Linux side: lose 5 bytes on purpose (the screen text "\x01SLIP")
 
 void setup() {
-  Bridge.begin();
+  Bridge.begin(BRIDGE_BAUD);
   Monitor.begin();
   Serial1.begin(115200);  // D0 (RX): the ESP32 microphone front end
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -560,12 +952,39 @@ void setup() {
   Monitor.println(oledOk ? "ok" : "NOT FOUND");
 }
 
+void outOfStepRestart() {
+  outOfStep++;
+  overflows++;  // reported like an overflow: samples were lost and the FIFO restarted
+  fifoReset();
+  gravInit = false;
+  gravBadSince = 0;
+  oddRun = 0;
+}
+
 void readFifo() {
+  if (slipTest) {  // the test: take 5 bytes out, so every sample after is out of step
+    uint8_t junk[5];
+    mpuRead(0x74, junk, 5);
+    slipTest = false;
+  }
   uint16_t avail = fifoCount();
   if (avail >= fifoBytes - 24) {  // nearly full: data was lost (a full FIFO overwrites bytes); start clean, say so
     overflows++;
     fifoReset();
     return;
+  }
+  if (avail % 12 != 0) {
+    oddCounts++;
+    if (++oddRun >= STEP_ODD_READS) { outOfStepRestart(); return; }
+  } else {
+    oddRun = 0;
+  }
+  float g2 = grav[0] * grav[0] + grav[1] * grav[1] + grav[2] * grav[2];
+  if (gravInit && (g2 > STEP_MAX_G * STEP_MAX_G || g2 < STEP_MIN_G * STEP_MIN_G)) {
+    if (!gravBadSince) gravBadSince = millis() | 1;
+    else if (millis() - gravBadSince > STEP_BAD_MS) { outOfStepRestart(); return; }
+  } else {
+    gravBadSince = 0;
   }
   uint16_t n = avail / 12;
   while (n > 0) {
@@ -579,6 +998,7 @@ void readFifo() {
       // FIFO_R_W: one sample (accel xyz, gyro xyz). A short or failed read has still moved the FIFO on,
       // so every later sample would be assembled from the wrong bytes: reset it and start clean instead.
       if (mpuRead(0x74, s, 12) != 12) { failed = true; break; }
+      micPoll();  // the ESP32's bytes, taken as they come (a batch of reads takes about 10 ms)
       for (int k = 0; k < 6; k++) acc.push_back(s[k]);
       onSample(s);
       if ((seq + got) % GYRO_EVERY == 0) for (int k = 6; k < 12; k++) gyr.push_back(s[k]);
@@ -608,6 +1028,8 @@ void readFifo() {
 
 void loop() {
   micPoll();
+  mlxPoll();  // the thermal camera, a small piece at a time
+  if (!mpuOk) sndSend();  // with the sensor running, parts go out after its reads (below)
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
   // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
   // its power-on state (asleep, FIFO off) and reports an empty FIFO for ever (13 Nov, on the board: the
@@ -638,6 +1060,7 @@ void loop() {
   if (mpuOk && now - lastRead >= READ_EVERY_US) {
     lastRead = now;
     readFifo();
+    sndSend();
   }
   static uint8_t nextPage = 8;  // 8: no frame being drawn
   if (oledOk && nextPage >= 8 && micros() - lastFrameAt >= FRAME_EVERY_MS * 1000) {  // a frame every FRAME_EVERY_MS
@@ -650,6 +1073,9 @@ void loop() {
     if (millis() - lastFullAt >= 2000) {
       lastFullAt = millis();
       screenKnown = false;
+      BUS.setClock(OLED_I2C_HZ);
+      oledSettings();  // and the screen's settings with it: see oledSettings
+      BUS.setClock(MPU_I2C_HZ);
     }
   }
   while (oledOk && nextPage < 8 && screenKnown && !memcmp(fb[nextPage], onScreen[nextPage], 128))
@@ -672,13 +1098,27 @@ void loop() {
     lastBeat = millis();
     Bridge.notify("hb", (uint32_t)millis(), mpuOk, oledOk, (uint32_t)whoAmI, (uint32_t)lastBusClocks,
                   (uint32_t)busTries, sdaWasHigh, sclWasHigh, (uint32_t)readErrors, (uint32_t)oledErrors,
-                  (uint32_t)frames, (uint32_t)micLines, (int32_t)(micDb == micDb ? micDb * 10 : 0));
+                  (uint32_t)frames, (uint32_t)micLines, (int32_t)(micDb == micDb ? micDb * 10 : 0),
+                  (uint32_t)outOfStep, (uint32_t)oddCounts, (uint32_t)mlxFrames, (uint32_t)mlxErrors, (uint32_t)(mlxRange < 0 ? 0 : mlxRange),
+                  (int32_t)mlxLo2, (int32_t)mlxHi2, (int32_t)mlxWord0, (int32_t)mlxRaw[0], (int32_t)mlxRaw[400],
+                  (int32_t)mlxOffset[0], (int32_t)mlxOffset[400], (int32_t)mlxEe[0], (int32_t)mlxEe[1],
+                  (int32_t)mlxShown[1], (int32_t)mlxShown[401], (int32_t)mlxChunk, (int32_t)showThermal);
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
+  // Held for a second: what a press used to be (start or stop learning), sent once per hold. A short press
+  // only swaps the screen, so swapping screens never starts a recording.
+  if (buttonDown && !buttonHeld && millis() - buttonChange >= BUTTON_HOLD_MS) {
+    buttonHeld = true;
+    Bridge.notify("button", ++presses);
+  }
   if (down != buttonDown && millis() - buttonChange > 30) {  // 30 ms debounce
     buttonDown = down;
     buttonChange = millis();
-    if (down) Bridge.notify("button", ++presses);
+    if (down) {
+      buttonHeld = false;
+    } else if (!buttonHeld) {
+      showThermal = !showThermal;  // a short press: the other screen (the user, 14 Nov)
+    }
   }
   if (millis() - lastStatus >= 5000) {
     static uint32_t lastSeq = 0, lastUs = 0;

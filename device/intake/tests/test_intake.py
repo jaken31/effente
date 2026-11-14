@@ -502,3 +502,15 @@ if __name__ == "__main__":
                 print(f"FAIL  {name}: {type(e).__name__}: {e}")
     print("all passed" if not failed else f"{failed} failed")
     sys.exit(1 if failed else 0)
+
+
+def test_with_decide_stopped_off_a_quiet_stretch_still_counts_as_running():
+    import numpy as np
+    from effente import history as H
+    vib = np.r_[np.full(30, -1.0), np.full(30, -3.0)]  # log10 vibration: 30 minutes loud, then 30 a hundred times quieter
+    assert H.both_states_seen(vib) and not H.running_mask(vib)[-1]
+    H.DECIDE_STOPPED = False
+    try:
+        assert not H.both_states_seen(vib) and H.running_mask(vib).all()
+    finally:
+        H.DECIDE_STOPPED = True

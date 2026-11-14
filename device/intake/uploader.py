@@ -14,7 +14,8 @@ bounded queue; a thread of its own does the sending. When the platform cannot be
 newest records are kept (the oldest drop, counted) and go out as JSON arrays when it comes back.
 A check-in that could not be sent is dropped: the next one says the same, newer. Failures are
 logged, never raised. A reply that carries "settings" is handed to `on_settings` (the device
-applies a sensitivity that differs from its own).
+applies the settings in it that differ from its own), and one that carries "commands" to
+`on_commands` (the device does each once, by its id).
 
 The platform's address comes from EFFENTE_PLATFORM_URL. Unset or empty means nothing is sent.
 Standard library only.
@@ -123,6 +124,7 @@ class Uploader:
         self.base = base_url.rstrip("/")
         self.device_id, self.machine_id, self.simulated = device_id, machine_id, simulated
         self.on_settings = on_settings  # called with the reply's "settings" dict
+        self.on_commands = None  # called with the reply's "commands" list (the dashboard's, through the platform)
         self.timeout, self.batch = timeout, batch
         self.record_every_s, self.checkin_every_s, self.retry_s = record_every_s, checkin_every_s, tuple(retry_s)
         self.log = log or (lambda m: print(f"uploader: {m}", flush=True))
@@ -362,6 +364,12 @@ class Uploader:
                 self.on_settings(settings)
             except Exception as e:  # noqa: BLE001
                 self._say("settings", f"settings from the platform not applied: {e}")
+        commands = r.body.get("commands")
+        if isinstance(commands, list) and commands and self.on_commands is not None:
+            try:
+                self.on_commands(commands)
+            except Exception as e:  # noqa: BLE001
+                self._say("commands", f"commands from the platform not done: {e}")
 
     def _post(self, path: str, payload) -> _Reply:
         data = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()

@@ -10,10 +10,10 @@ plug in ──> DISPLAY ──button──> RECORDING ──button──> TRAINI
 
 | Mode | Screen | What happens |
 |------|--------|--------------|
-| Streaming | `STREAMING` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
+| Idle (`display`) | `IDLE` and the time, vibration, peak, speed, temperature | Sensors are read and features computed; nothing is kept |
 | Recording | `RECORDING` and the readings | Learn mode: feature rows, per-minute summaries, raw snippets and events go to `data/recordings/rec-…` |
-| Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A recording shorter than 5 minutes is refused, and learning carries on. A day or more trains from the per-minute summaries, so a week fits in memory |
-| Inference | `NOTHING WRONG`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
+| Training | `TRAINING`, then the percentage and stage | The model is trained on the board ([effente/trainer.py](../../effente/trainer.py), NumPy only). A press in the first 2 minutes of a recording doesn't stop it: learning carries on and the screen still says `RECORDING` (the reason is in `/latest` status as `message`, and a `stop_refused` event). A short recording (1 s periods) needs 100 rows; if fewer than that count as running (the device on something still), it learns from every row and the training report says so (`learned_from_all_rows`). A training that fails goes back to `RECORDING` with the reason in status and a `training_failed` event, never on the screen. A day or more trains from the per-minute summaries, so a week fits in memory |
+| Detecting (`watching`) | `DETECTING`, or what is wrong (`UNBALANCE LIKE`, `OUTSIDE NORMAL`, …) and the reading that moved most | Judges every summary period: 1 s after a short recording, up to a minute after a long one |
 
 Pressing the button while in inference starts a new recording, to relearn. Recording happens only in the recording mode, and only a button press starts it. After a power cut:
 
@@ -33,8 +33,12 @@ The device answers two things only: is something wrong, and what. There are no s
   - heating more than 8 °C a minute
   - 5 or more sudden jolts in 10 minutes
 - **After training, against this machine's own normal** (the highest while learning): vibration at 2× normal, 15 °C or 6 dB over normal, and the learned model's line. No one has to say what kind of machine it is.
-- Each check must hold for 10 seconds before it shows, so a bump doesn't count.
-- **Notes after training:** the screen shows notes for 2 minutes after training (status keeps them) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
+  - Each reading is judged on its median over the period the normal was learned from (a minute after a long recording), so like is compared with like. A passing forklift's reversing beeper (15 s, far over normal) no longer counts; a lasting change shows after about 40 seconds. Models trained before this get their own period.
+- **More impacts than normal:** after training on an hour or more, more seconds of impulsive sound (2–7 kHz) or impulsive vibration in the last 30 minutes than twice the most seen while learning. After a shorter recording (100 s or more of running), a simpler form: seconds with the vibration's impulsiveness or peak (or the impulsive sound) over a level set above anything seen while learning, more than 2 of them in the last minute, so the third knock; one bump doesn't count. Either shows as `KNOCKING OR JOLTS` as soon as the count is over, and clears within about a minute of the knocks stopping. It catches repeating knocks too short or too sparse for the model (simulated conveyor and test data only, unverified on a real machine).
+- **A spike in the model's own score** (after a recording short enough for periods under a minute): the model alarms on the median of its last 5 scores, so one abnormal second never showed. Now one second scoring over a spike line alarms at once, named from that second's readings, and stays 30 s. The spike line is learned at training from the unsmoothed held-out scores (4× their one-a-week gamma tail, about 6–7× the model's line on the fake board) and kept in the model's baseline (`model_spike`). Its own dial, the spike sensitivity, scales it (below). After a long recording (1-minute periods) the model sees minute medians, which a 1-second spike can't move, so there the impact checks below are what catch it (simulated data only, unverified on a real machine).
+- **One sudden impact** (after training, 100 s or more of running): a single second whose peak is over 2× the highest peak seen while learning, and at least 0.05 g. It shows at once as `KNOCKING OR JOLTS` and stays 30 s. The spike sensitivity sets how big: 5× at 0, 3× at 0.25, 2× at 0.5, 1.5× at 0.75, 1.25× at 1 (the vibration column of the table below). The `problem` event carries the peak in g (`peak_g`) and how many times the learning maximum it was (`value`). After a long recording (an hour or more) the level is still the biggest peak while learning, so the check only shows impacts bigger than the biggest knock the device took while learning; the spike sensitivity moves the multiple (on the simulated conveyor any lower level, such as a high percentile, gave 0.6–4.5 false alerts a week from people knocking the device; the maximum gave none). A bump of the table that big counts too (simulated and test data only, unverified on a real machine).
+- Each of the other checks must hold for 10 seconds before it shows, so a bump doesn't count.
+- **Notes after training:** `/latest` status has notes (`learning_notes`) if the machine was mostly stopped, hardly vibrated, or was still warming up or changing. They are not shown on the screen. Notes also flag a universal limit the machine was already over while learning. That limit is then dropped for this machine, so it doesn't show for ever.
 
 **Sensitivity:** how far outside normal counts as wrong hasn't been decided. Sensitivity goes from 0 (least sensitive) to 1 (most), and the numbers above are the starting values at the default, 0.5. Each 0.25 step halves or doubles how far outside normal counts:
 
@@ -46,10 +50,31 @@ The device answers two things only: is something wrong, and what. There are no s
 | 0.75 | 1.5× | +7.5 °C | +3 dB | 0.5× |
 | 1 | 1.25× | +3.75 °C | +1.5 dB | 0.25× |
 
-It changes the outside-normal checks and the model, never the universal limits. Change it while the device runs:
+It changes the outside-normal checks and the model, never the universal limits.
+
+**Spike sensitivity** (`spike_sensitivity`, added 13 Nov): a second dial, with the same range, default and scale, for single spikes only: one sudden impact (the vibration column) and one second of the model over its spike line (the model column). It moves nothing else, and the main sensitivity doesn't move it. Turning the main one up to catch smaller spikes would also make the model alarm on ordinary running after a short recording (on the fake board: 24–58 % of the time at 0.75), which is why spikes have their own. It is set, saved and shown like the main one (`/settings`, `settings.json`, `/latest` status, `/view`). 
+
+**Dials of their own** (optional, added 13 Nov): each sets one group on its own, with the same range and scale; unset (`null`) it follows `sensitivity`, so with none set nothing changes.
+
+| Setting | What it sets |
+|---|---|
+| `model_sensitivity` | the model's slow (median) alarm |
+| `vibration_sensitivity` | vibrating beyond its normal (the vibration column) |
+| `heat_sensitivity` | hotter than its normal (the temperature column) |
+| `sound_sensitivity` | louder than its normal (the sound column) |
+| `early_warning_sensitivity` | the early warning |
+| `early_warning` | `false` switches the early warning off |
+
+They are set, saved and shown like the main one; `settings.json` keeps only those that are set. A warm or noisy site can turn heat or sound down without dulling vibration.
+
+Change any of them while the device runs:
 
 ```bash
 curl -X POST -d '{"sensitivity": 0.7}' http://localhost:8765/settings
+```
+
+```bash
+curl -X POST -d '{"spike_sensitivity": 0.75}' http://localhost:8765/settings
 ```
 
 `curl http://localhost:8765/settings` shows the current value and what it means in numbers. Editing `data/settings.json` on the board (`{"sensitivity": 0.7}`) works too, and is picked up within 2 seconds.
@@ -71,8 +96,79 @@ It never counts as wrong: `wrong` stays false. While something is wrong it is se
 | MPU6050 (on this board's module: an MPU-6500, WHO_AM_I 0x70) | Third I2C bus (`Wire2`), address 0x68 | Accelerometer ±8 g, gyro ±250 °/s, 1 kHz. Accelerometer low-pass 218 Hz (6500) or 184 Hz (6050) |
 | OLED 128×64 | `Wire2`, address 0x3C | SSD1306/SSD1309. For an SH1106, set `OLED_COL_OFFSET` to 2 in the sketch |
 | Button | D9 to GND | Internal pull-up, debounced. Until it's wired, `adb shell touch /home/arduino/ArduinoApps/effente/data/press` counts as a press |
-| Microphone INMP441, through an ESP32-S3-N16R8 (screen only so far) | Mic to ESP32: VDD 3V3, GND, L/R to GND, SCK GPIO 5, WS GPIO 4, SD GPIO 6. ESP32 to UNO Q: GPIO 17 (TX) to D0, GPIO 18 (RX) to D1 (optional), GND to GND | The ESP32 ([firmware/esp32_mic](../../firmware/esp32_mic/esp32_mic.ino), a test version) sends a text line 4 times a second at 115200 baud: level, peak and a rough strongest tone. On the UNO Q, D0/D1 are `Serial1` (`Serial` is the Bridge's monitor). Measured 13 Nov: 4 lines a second arrive, none missing. The screen shows the level as dBFS + 120 (the datasheet's conversion; not checked against a sound meter, unverified) and the tone. Nothing of it reaches the Linux side as a feature yet: `sound_db` stays empty, and what is sent for sound is still to be agreed by the team. The raw-audio slot is unchanged: the Linux side takes an `audio` notification, but no sketch sends one. Off unless `EFFENTE_MIC=1`. Raw 16 kHz audio won't fit on the Bridge line (see below) |
+| Microphone INMP441, through an ESP32-S3-N16R8 | Mic to ESP32: VDD 3V3, GND, L/R to GND, SCK GPIO 5, WS GPIO 4, SD GPIO 6. ESP32 to UNO Q: GPIO 17 (TX) to D0, GND to GND | The ESP32 ([firmware/esp32_mic](../../firmware/esp32_mic/esp32_mic.ino)) works the sound readings out and sends them at 115200 baud: a binary frame of 45 readings about 3.7 times a second, then text lines for the screen. On the UNO Q, D0/D1 are `Serial1` (`Serial` is the Bridge's monitor). The readings reach every row and the model (see below); nothing needs switching on. The screen's level is A-weighted with a -5 dB trim set by ear against a phone's sound meter (unverified against a real one). The raw sound goes out from the ESP32 by WiFi (TCP 8770), never over the wire. `EFFENTE_MIC=1` is only for the older raw-audio slot (`audio`), which no sketch sends |
 | Thermal camera MLX90640-D55 (not fitted yet) | I2C, address 0x33, bus not chosen | Slot only: the Linux side takes a `thermal` notification (24 × 32, hundredths of a °C) and the status has `thermal_max_c`, but no sketch reads the camera yet. Off unless `EFFENTE_THERMAL=1` |
+
+## Sound readings for the model (running on the board since 14 Nov)
+
+The firmware in [firmware/esp32_mic](../../firmware/esp32_mic/esp32_mic.ino) does the sound maths on the ESP32 and sends the readings the model uses.
+
+```
+INMP441 ──I2S──> ESP32-S3 ──UART, 115200──> UNO Q D0 ──sketch──> "snd" over the Bridge ──> each row's sound readings
+                 45 readings of the last      frames passed on,                           (snd_env_order added here)
+                 1.024 s, about 4 a second    text line to the screen
+```
+
+- **It starts by itself.** From power-on the ESP32 samples and sends; the first set goes out about 1.2 s after power.
+- **Two things on the wire, one after the other:** a 189-byte binary frame with the 45 readings (start bytes 0xEF 0x53, a CRC at the end, sent 8 bytes every 4 ms), then the same `MIC,...` text line as the test version, so the screen works with either sketch. The sketch here accepts both firmwares: with the test version it just never sees a frame.
+- **Without the full firmware, nothing changes:** rows come as before, with sound missing. If the ESP32 stops, sound goes missing within a second (old readings are never reused). `/latest` status has `sound_frames`, `sound_bad` and `sound_age_s` under `sensors`. Measured 14 Nov on the bench recording: a model learned with sound does not alarm when the sound then goes missing (score 0.14 against 0.16 with it), and nothing on the screen says so either: watch `sound_age_s`.
+- **A model learns the sound it was recorded with.** Record with the full firmware running for sound to count.
+- **The sound maths now exists twice:** in [effente/features.py](../../effente/features.py) (`_sound`, the reference) and in [firmware/esp32_mic/sound_features.h](../../firmware/esp32_mic/sound_features.h). [test_mic_features.py](../intake/tests/test_mic_features.py) compiles the C++ on a computer and compares the two on the same samples (7 test signals: every dB reading within 0.002 dB, every frequency on the same bin). Change one, change the other, and run it. AGENTS.md asks for one implementation of the signal pipeline, so this copy needs the team's agreement.
+- **What differs from a mic on the Linux side:** the window is 1.024 s (16,384 samples), not 1 s; samples are kept at 16 of the mic's 24 bits; a row usually gets the sound from 0.25 to 0.5 s before its vibration; no raw sound is recorded.
+- **Checked on the board (14 Nov):** frames arrive whole (`sound_bad` 0 over two minutes) at 3.7 sets a second, not 3.9: one set takes the ESP32 about 267 ms to work out, a little over the 256 ms between sets, so about 1 set in 20 is skipped. The Bridge between the microcontroller and the Linux side runs at 460800 baud here (`BRIDGE_BAUD` in the sketch, and a systemd drop-in for `arduino-router` on this board): at the stock 115200 the sound frames cost about 9 % of the vibration samples. **That drop-in is on this one board only**; a second board needs it too, or the sketch set back to 115200. Also checked: the maths against Python, on a computer ([test_mic_features.py](../intake/tests/test_mic_features.py)).
+- **Record where the device will run.** A model learned in a quiet room hears a noisy hall as a fault (`sudden_sound`, `louder_than_normal` and the model itself): record the normal running at the place, with its noise, or turn the sound sensitivity down.
+- **Unverified:** the full firmware on the ESP32 itself: the time one set takes (it must stay under 256 ms; its USB line prints it), and that the paced frames arrive whole.
+
+## The thermal camera (13 Nov: written, not yet run with a camera)
+
+The camera (an MLX90640, 24 × 32 pixels) goes on the microphone's ESP32, not on the UNO Q, and its frames travel over WiFi.
+
+```
+MLX90640 ──I2C──> ESP32-S3 ──WiFi──> TCP 8767 (raw frames) ──> UNO Q Linux side ──> each row's heat readings
+                            └──────> HTTP 8768 (/frame.json, /stream) ──> a dashboard, straight from the ESP32
+```
+
+- **Why not on the UNO Q:** its header pins, I2C as much as UART, go to its microcontroller, whose line to the Linux side is full. One 115-byte sound set a second already costs accelerometer samples, and a frame is 1.5 kB. On the UNO Q's own I2C bus the camera would also share the wires with the accelerometer and the screen.
+- **Wiring:** camera VIN to the ESP32's 3V3, GND to GND, SDA to GPIO 8, SCL to GPIO 9.
+- **WiFi:** copy `firmware/esp32_mic/secrets.example.h` to `secrets.h` (git ignores it) and fill in the network. A campus network with a user name and password each (WPA2-Enterprise, PEAP) also needs `WIFI_EAP_USERNAME`. With no `secrets.h` the firmware has no WiFi and no camera, and the microphone works as before. The Arduino library "Adafruit MLX90640" must be installed.
+- **For a dashboard, from the ESP32 itself** (its address is printed on its USB serial line):
+  - `http://<ESP32>:8768/frame.json`: the newest frame, `{"seq", "ms", "rows": 24, "cols": 32, "min", "max", "c": [768 temperatures in °C, row by row]}`
+  - `http://<ESP32>:8768/stream`: the same JSON for every frame as it comes (server-sent events), 2 a second
+  - TCP port 8767: the same frames in binary (the format is in [thermal_link.py](../intake/thermal_link.py))
+- **For the model:** the ESP32 says its address on the UART, the sketch passes it on, and the Linux side fetches the frames and works out the heat readings with the same Python as always (`effente/features.py`; no second copy of that maths). `EFFENTE_THERMAL_HOST` overrides the address. `/latest` status has `heat_frames`, `heat_bad_pixels` and `heat_age_s` under `sensors`.
+- **Nothing waits for it:** without the camera, or when WiFi drops, rows come as before with the camera's heat readings missing; a frame over 3 s old is not used.
+- **Both boards must be on the same network,** and it must let them talk to each other.
+- **Checked:** the firmware compiles for the ESP32-S3 with and without `secrets.h`; the Linux side is tested against a fake ESP32 ([test_thermal_link.py](../intake/tests/test_thermal_link.py)).
+- **Unverified:** everything with the real camera: the pins, its settings (4 Hz, so 2 whole frames a second), whether WiFi disturbs the microphone, and the sketch's passing on of the address.
+
+## A faster Bridge line (13 Nov, on this board)
+
+The line between the microcontroller and the Linux side runs at 115200 baud by default, and the sensor's batches fill it to 65 %: the loop then spends so long sending that the sensor's FIFO overflowed about once every 4 seconds, and anything more on the line cost accelerometer samples. At 460800 baud that is gone.
+
+| Measured over a minute, on the board | Samples a second | FIFO overflows a second |
+|---|---|---|
+| 115200, no sound sets on the line | 992 | 0.25 |
+| 115200, one sound set a second on the line | about 975 | 0.5 |
+| 115200, sound by WiFi | 990 | 0.21 |
+| **460800, sound by WiFi** | **1,000** | **0** |
+
+Two things must match, or nothing arrives at all:
+
+1. **The sketch:** `BRIDGE_BAUD` (460800) in `Bridge.begin(BRIDGE_BAUD)`.
+2. **The board's router service:** a drop-in, `/etc/systemd/system/arduino-router.service.d/20-effente-baud.conf`, that starts `arduino-router` with `--serial-baudrate 460800` (the board's own setting is generated at each boot in `/run/systemd/generator/arduino-router.service.d/10-imola.conf`, with 115200; the drop-in in `/etc` wins). It needs `sudo`:
+
+```
+[Service]
+ExecStart=
+ExecStart=/usr/bin/arduino-router --unix-port /var/run/arduino-router.sock --serial-port /dev/ttyHS1 --serial-baudrate 460800 --after-ready '/usr/bin/gpioset -c /dev/gpiochip1 -t0 70=1'
+```
+
+then `sudo systemctl daemon-reload && sudo systemctl restart arduino-router`, and start the app.
+
+- **It is this board's setting, not the app's:** `deploy.sh` does not make the drop-in. On a board without it, set `BRIDGE_BAUD` back to 115200.
+- **Every other app on the board** that uses the Bridge at its default speed stops reaching the Linux side while the drop-in is there.
+- **To go back:** delete the drop-in, reload and restart the router as above, and set `BRIDGE_BAUD` to 115200. The sketch as it was is saved on the board as `~/sketch-115200-backup.ino`.
+- **Not tried:** faster than 460800, a reboot of the board with the drop-in in place, and a long run.
 
 ## Deploy, and connect to the stream
 
@@ -98,9 +194,35 @@ adb forward tcp:8765 tcp:8765
 curl -N http://localhost:8765/stream
 ```
 
+`http://localhost:8765/view` (or `http://<the board's address>:8765/view`) is a small page for a browser: the state (IDLE, RECORDING, TRAINING or DETECTING), the four readings and what is wrong, refreshed every second. `/latest` status carries the same: `state` beside the contract's `mode` (`display`, `recording`, `training`, `watching`), and `readings`, in every mode; the stream sends status and a feature row every second.
+
 `/settings` is described above. `/latest`, `/features` and `/health` are described in [device/intake/README.md](../intake/README.md). On a network that lets devices see each other, use the board's address instead of `localhost`. University WiFi usually doesn't allow that, so use the USB forward or a phone hotspot.
 
 Data stays on the board in `~/ArduinoApps/effente/data`: `recordings/`, `models/`, `state.json`, `settings.json` and `history.npz`. The deploy script never touches it.
+
+## Watching a test from the laptop, and pulling the recording
+
+With the board on USB and the app deployed:
+
+```bash
+python3 device/app/board_monitor.py --until watching --log data/board-monitor.jsonl
+```
+
+[board_monitor.py](board_monitor.py) presses nothing and changes nothing. It prints the mode, feature rows a second, each IMU stream's rate (accelerometer, gyroscope, temperature), lost samples, FIFO restarts and their rate, the recording folder and its size, training progress and then the training report. It exits with 4 when something needs a look (the app unreachable, the samples stopped, a refused stop, a failed training, a problem the checks raised); `--stay` keeps it going.
+
+```bash
+device/app/pull_recording.sh
+```
+
+[pull_recording.sh](pull_recording.sh) copies the newest recording (or the one named) and its model into `data/real/board/<name>/`, which is never committed.
+
+```bash
+python3 device/app/recording_summary.py data/real/board/<name>
+```
+
+[recording_summary.py](recording_summary.py) prints what is in it: rows and gaps, empty sensors and columns, vibration and temperature levels, the raw clips' sample rates, the events and the training report. Raw clips are 10 s at every 10-minute mark of the clock (and around jolts), so a 5-minute recording has one or none; the gyroscope (100 a second) isn't kept in them.
+
+Tried against a simulated board only (13 Nov), until the first run on the real one.
 
 ## The fan test
 

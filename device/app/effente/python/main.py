@@ -21,30 +21,53 @@ sys.path.insert(0, os.path.join(HERE, "lib"))  # device/ and effente/, copied he
 
 from arduino.app_utils import App, Bridge  # noqa: E402
 
+from effente import history as _history  # noqa: E402
 from device.intake.device_app import DeviceApp  # noqa: E402
 from device.intake.source import UnoQSource  # noqa: E402
 from device.intake.stream import Stream  # noqa: E402
+from device.intake.thermal_link import ThermalLink  # noqa: E402
 from device.intake.uploader import ENV_URL, Uploader  # noqa: E402
 
 DATA = os.environ.get("EFFENTE_DATA", "/app/data")
 MACHINE = os.environ.get("EFFENTE_MACHINE", "machine-1")
 DEVICE = "effente-01"
 
-# Sensors not fitted yet, off until wired (the pipeline waits for every sensor it is told about):
-# EFFENTE_MIC=1 for the INMP441 microphone, EFFENTE_THERMAL=1 for the MLX90640-D55 thermal camera.
+# Raw-sample slots no sketch fills, off unless asked for (the pipeline waits for every sensor it is told about):
+# EFFENTE_MIC=1 for raw audio over the Bridge, EFFENTE_THERMAL=1 for a thermal camera on the microcontroller.
+# The microphone and camera as fitted need neither: see "snd" below and ThermalLink.
 MIC = os.environ.get("EFFENTE_MIC") == "1"
+_history.DECIDE_STOPPED = False  # the device never decides that the machine is stopped: it judges and learns always
 THERMAL = os.environ.get("EFFENTE_THERMAL") == "1"
 
 source = UnoQSource(audio=MIC, thermal=THERMAL)
 Bridge.provide("imu", source.on_imu)
 Bridge.provide("audio", source.on_audio)  # ignored unless EFFENTE_MIC=1
+# The microphone as fitted: its ESP32 works the sound readings out and the sketch passes them on. Nothing
+# comes without the ESP32's full firmware (firmware/esp32_mic); rows then simply have no sound.
+Bridge.provide("snd", source.on_sound)
+
+# The thermal camera is on the ESP32 too, and its frames come over WiFi (device/intake/thermal_link.py). The
+# ESP32 says its address on the UART and the sketch passes it on ("esp"); EFFENTE_THERMAL_HOST overrides it.
+esp = {"ip": os.environ.get("EFFENTE_THERMAL_HOST") or None, "fixed": bool(os.environ.get("EFFENTE_THERMAL_HOST"))}
+
+
+def on_esp(ip):
+    ip = ip.decode() if isinstance(ip, (bytes, bytearray)) else str(ip)
+    if not esp["fixed"] and ip != esp["ip"]:
+        esp["ip"] = ip
+        print(f"the ESP32 is at {ip} (thermal frames from port 8767)", flush=True)
+
+
+Bridge.provide("esp", on_esp)
+thermal = ThermalLink(source.on_thermal_frame, host=lambda: esp["ip"]).start()
 Bridge.provide("thermal", source.on_thermal)  # ignored unless EFFENTE_THERMAL=1
 
 mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and screen found, bus state
 
 
 def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors,
-                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None):
+                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None, out_of_step=None, odd_counts=None,
+                 heat_frames=None, heat_errors=None, heat_range=None, *more):  # the thermal camera on the sketch own bus (screen only)
     # The last four only from sketches that send them. mic_lines: lines received from the ESP32 microphone
     # front end; mic_db10: its last level in tenths of a dB below full scale (screen only, not a feature yet).
     if mpu_ok:
@@ -52,21 +75,38 @@ def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high,
     mcu.update(beat=dict(up_s=round(ms / 1000), sensor=bool(mpu_ok), screen=bool(oled_ok), who_am_i=hex(who_am_i),
                          bus_clocks=bus_clocks, bus_tries=bus_tries, sda_high=bool(sda_high), scl_high=bool(scl_high),
                          read_errors=read_errors, screen_errors=oled_errors, frames=frames,
-                         mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10), at=time.time())
+                         mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10,
+                         # out_of_step: times the sketch found the samples out of step and restarted the FIFO;
+                         # odd_counts: reads where the FIFO did not hold a whole number of samples
+                         out_of_step=out_of_step, odd_counts=odd_counts,
+                         heat_frames=heat_frames, heat_errors=heat_errors, heat_range=heat_range,
+                         heat_debug=list(more)), at=time.time())
 
 
 Bridge.provide("hb", on_heartbeat)
-stream = Stream(port=8765, device_id=DEVICE, machine_id=MACHINE).start()
+# status (the state: IDLE, RECORDING, TRAINING or DETECTING; and the readings) goes out every second, in every mode
+stream = Stream(port=8765, device_id=DEVICE, machine_id=MACHINE, status_every_s=1.0).start()
 uploader = Uploader.from_env(DEVICE, MACHINE)  # None when EFFENTE_PLATFORM_URL is not set
 
 
+SLIP_TEST = os.path.join(DATA, "slip_test")  # touch this file to test the sketch's out-of-step recovery once
+
+
 def screen(text):
+    if os.path.exists(SLIP_TEST):
+        try:
+            os.remove(SLIP_TEST)
+        except OSError:
+            pass
+        text = "\x01SLIP"
     Bridge.call("screen", text, timeout=1)
 
 
 app = DeviceApp(DATA, source, screen=screen, stream=stream, device_id=DEVICE, machine_id=MACHINE, uploader=uploader)
 if uploader is not None:
     uploader.start()
+app.esp_address = lambda: esp["ip"]  # for the list of what can be read (GET /, GET /latest)
+app.start_live_screen()  # the screen's MM/S and HZ 10 times a second, and with them the beat all six tiles change on
 Bridge.provide("button", app.on_button)
 threading.Thread(target=app.run, name="pipeline", daemon=True).start()
 print(f"effente started in {app.mode} mode; sensors {', '.join(source.sensors)}; live stream on port 8765; data in {DATA}; platform "

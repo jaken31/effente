@@ -15,9 +15,25 @@ platform or curl connects. No UI here, only the data.
                   On connect a client first gets the last 30 s of its topics, then live
                   data. Reconnecting with Last-Event-ID (EventSource does this by
                   itself) resumes after the last item it got, without repeats.
-  GET /latest     the last item of each topic, as one JSON object
+  GET /latest     the last item of each topic, as one JSON object; with "you_can_send": every setting and
+                  command the device takes, what each does, the values it takes and what it is now
   GET /features   name, text, unit and sensor of every feature, in row order
   GET /health     the server is up; how old the last result is
+  GET /recordings     every recording; /recordings/<name> its files; /recordings/<name>/<file> a file as it is;
+                      /recordings/<name>/rows the one-a-second rows as JSON (?start=0&limit=600&every=1)
+  GET /models         every model file; /models/<file> the file, weights and all. All of these only read:
+                      nothing here changes a model or a recording
+  GET /model/summary  the model in use and how to compute with it (the model_trained event carries the same);
+  GET /model          the same with the whole model file, weights and all
+  GET /fires_at   the value each check fires at now (also "fires_at" in GET /latest): fixed limits, the lasting
+                  checks against this machine's normal, and the one-moment checks, each with its rule, its default
+                  and the reading's value it fires at with the sensitivities and the model as they are
+  GET /controls   everything a connected program can tell the device (settings and commands), each with
+                  what it does, the values it takes and what it is now; the same list is in GET /
+  POST /settings  change settings, as a JSON object: {"sensitivity": 0.7}
+  POST /command   do something once, as a JSON object: {"command": "clear_history"}
+  GET /view       a small page for a browser on the same network: the state, the readings and what
+                  is wrong, read from /latest every second
 
 Publishing never waits for a client: each client has its own small queue that
 drops its oldest items when full, and a client that stops reading is
@@ -153,6 +169,12 @@ class Stream:
         self.keepalive_s, self.max_clients = keepalive_s, max_clients
         self.status_provider = None  # () -> dict, set by watch mode
         self.settings_handler = None  # (changes dict or None) -> settings dict, set by the device app
+        self.command_handler = None  # (command name or None, its JSON object) -> reply dict, set by the device app
+        self.controls = None  # () -> everything a connected program can tell the device, for GET / and /controls
+        self.fires_at = None  # () -> the value each check fires at now, for GET /latest and /fires_at
+        self.model_info = None  # (full) -> the model in use and how to compute with it, for GET /model
+        self.data = None  # the device app, for reading what was recorded and learned: GET /recordings, /models
+        self.also_read = None  # () -> more to read that is not on this server (the ESP32's addresses)
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -265,11 +287,24 @@ class Stream:
                 "uptime_s": round(time.monotonic() - self._started, 1), "last_result_age_s": age,
                 "clients": len(self._clients), "published": dict(self.counts)}
 
+    def readable(self) -> dict:
+        """Every address a program on the network can read: this server's, and the ESP32's (raw sound, thermal
+        frames) when the device app knows where the ESP32 is. In GET / and in GET /latest."""
+        out = {"this_device_port_8765": dict(_INDEX["endpoints"])}
+        if self.also_read is not None:
+            out.update(self.also_read())
+        return out
+
     def latest_json(self) -> str:
         with self._lock:
             last = {t: (self._rings[t][-1] if self._rings[t] else None) for t in ("results", "features", "events")}
         parts = [f'"{t}":' + (it.data() if it else "null") for t, it in last.items()]
         parts.append('"status":' + dumps(self.status()))
+        if self.controls is not None:  # what whoever reads this may send back: every setting and command, in full
+            parts.append('"you_can_send":' + dumps(self.controls()))
+        parts.append('"you_can_read":' + dumps(self.readable()))  # every address there is, here and on the ESP32
+        if self.fires_at is not None:  # the value each check fires at, with the sensitivities and the model as they are
+            parts.append('"fires_at":' + dumps(self.fires_at()))
         return "{" + ",".join(parts) + "}"
 
     # ------------------------------------------------------------ clients
@@ -327,11 +362,53 @@ def feature_table() -> dict:
     }
 
 
+# GET /view: one small page for a browser on the same network. It only reads /latest once a second and
+# shows the status as the device gives it (the state, the readings, what is wrong); nothing is computed
+# or smoothed here.
+_VIEW = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>effente device</title><style>
+body{font:16px system-ui,sans-serif;margin:16px;background:#111;color:#eee}
+#state{font-size:56px;font-weight:700;margin:8px 0}#what{font-size:22px;min-height:28px;color:#fb5}
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:520px}
+.tile{border:1px solid #666;border-radius:8px;padding:8px}.tile b{display:block;font-size:34px}
+pre{white-space:pre-wrap;color:#aaa;font-size:13px}</style></head><body>
+<div id="at">connecting</div><div id="state">--</div><div id="what"></div>
+<div class="tiles"><div class="tile">VIB mg<b id="vib">--</b></div><div class="tile">PEAK mg<b id="peak">--</b></div>
+<div class="tile">TEMP C<b id="temp">--</b></div><div class="tile">HZ<b id="hz">--</b></div></div>
+<pre id="more"></pre><script>
+const $=id=>document.getElementById(id),n=(v,d)=>v==null?"--":Number(v).toFixed(d);
+async function tick(){try{const j=await (await fetch("/latest",{cache:"no-store"})).json(),s=j.status||{},r=s.readings||{};
+$("at").textContent=(s.device_id||"")+" "+(s.at||"");let st=s.state||s.mode||"--";
+if(s.training)st+=" "+Math.round(100*(s.training.share||0))+"%";
+if(s.learning_s!=null)st+=" "+Math.floor(s.learning_s/60)+":"+String(Math.floor(s.learning_s%60)).padStart(2,"0");
+$("state").textContent=st;$("what").textContent=s.wrong?"WRONG: "+(s.what||[]).join(", "):(s.diagnosis&&s.mode=="watching"?s.diagnosis:"");
+$("vib").textContent=n(r.vib_mg,0);$("peak").textContent=r.peak_g==null?"--":n(1000*r.peak_g,0);
+$("temp").textContent=n(r.imu_temp_c,1);$("hz").textContent=n(r.speed_hz,0);
+const dials={};for(const k of ["sensitivity","spike_sensitivity","model_sensitivity","vibration_sensitivity",
+"heat_sensitivity","sound_sensitivity","early_warning_sensitivity","early_warning"])if(k in s)dials[k]=s[k];
+$("more").textContent=JSON.stringify({mode:s.mode,dials:dials,
+message:s.message,model:s.model,sensors:s.sensors,problems:s.problems,
+early_warning:s.early_warning,learning_notes:s.learning_notes,missing:(j.features||{}).missing},null,1);
+}catch(e){$("at").textContent="not reachable: "+e}}
+tick();setInterval(tick,1000);</script></body></html>"""
+
 _INDEX = {"endpoints": {
     "/stream": "Server-Sent Events; ?topics=results,features,events,status (default all), "
                "?features_every=S, ?replay=S",
     "/latest": "last item of each topic", "/features": "the feature table", "/health": "server up",
-    "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}"}}
+    "/view": "a page for a browser: the state, the readings and what is wrong, refreshed every second",
+    "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}",
+    "/command": "GET the commands the device takes; POST one as JSON, e.g. {\"command\": \"clear_history\"}",
+    "/recordings": "every recording on the device; /recordings/<name> lists its files, /recordings/<name>/<file> is a "
+                   "file as it is, /recordings/<name>/rows the one-a-second rows as JSON (?start=&limit=&every=)",
+    "/models": "every model file on the device; /models/<file> is the file, weights and all",
+    "/model/summary": "the model in use: what it learned (levels, highest values, its lines), the readings in it, "
+                      "its training report, and how to work out from a sensitivity what each check fires at. "
+                      "The same goes out as \"model\" in the model_trained event when a training ends",
+    "/model": "the summary and the whole model file (weights and all, about 100 kB)",
+    "/fires_at": "the value each check fires at now, with the sensitivities and this machine's model as they are",
+    "/controls": "everything a connected program can tell the device: every setting and every command, "
+                 "with what each does, what values it takes and what it is now"}}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -342,15 +419,50 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # no line per request on the device console
         pass
 
-    def _json(self, code: int, body: str) -> None:
+    def _json(self, code: int, body: str, kind: str = "application/json") -> None:
         b = body.encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(b)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(b)
+
+    def _data(self, path: str, q) -> None:
+        """Recordings and model files, to read: lists as JSON, files as they are."""
+        d = self.stream.data
+        if d is None:
+            return self._json(404, dumps({"ok": False, "error": "this device keeps no recordings"}))
+        parts = [p for p in path.split("/") if p]
+        try:
+            if len(parts) == 1:
+                listing = d.data_listing()
+                return self._json(200, dumps({"ok": True, parts[0]: listing[parts[0]], "note": listing["note"],
+                                              "model_in_use": listing["model_in_use"]}))
+            if parts[0] == "recordings" and len(parts) == 2:
+                return self._json(200, dumps({"ok": True, **d.recording_files(parts[1])}))
+            if parts[0] == "recordings" and len(parts) == 3 and parts[2] == "rows":
+                one = lambda k, default: int(q.get(k, [default])[0])  # noqa: E731
+                return self._json(200, dumps({"ok": True, **d.recording_rows(parts[1], one("start", 0), one("limit", 600),
+                                                                             one("every", 1))}))
+            f = d.data_file(parts[0], "/".join(parts[1:]))
+        except (ValueError, OSError) as e:
+            return self._json(404, dumps({"ok": False, "error": str(e)}))
+        kind = "application/json" if f.suffix in (".json", ".jsonl") else "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(f.stat().st_size))
+        self.send_header("Content-Disposition", f'attachment; filename="{f.name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        with open(f, "rb") as fh:
+            while True:
+                chunk = fh.read(65536)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
 
     def do_OPTIONS(self):  # CORS preflight, for browser clients that send custom headers
         self.send_response(204)
@@ -374,10 +486,23 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, s.features_json)
             elif path == "/health":
                 self._json(200, dumps(s.health()))
+            elif path == "/view":
+                self._json(200, _VIEW, "text/html; charset=utf-8")
             elif path == "/settings":
                 self._settings(None)
+            elif path == "/command":
+                self._command(None)
+            elif path in ("/recordings", "/models") or path.startswith(("/recordings/", "/models/")):
+                self._data(path, parse_qs(url.query))
+            elif path in ("/model", "/model/summary"):
+                self._json(200, dumps({"ok": True, **(s.model_info(path == "/model") if s.model_info else {})}))
+            elif path == "/fires_at":
+                self._json(200, dumps({"ok": True, **(s.fires_at() if s.fires_at else {})}))
+            elif path == "/controls":
+                self._json(200, dumps({"ok": True, "you_can_send": s.controls() if s.controls else {}}))
             elif path == "/":
-                self._json(200, dumps(_INDEX))
+                self._json(200, dumps({**_INDEX, "you_can_read": s.readable(),
+                                       "you_can_send": s.controls() if s.controls else {}}))
             else:
                 self._json(404, dumps({"error": f"no such endpoint: {url.path}", **_INDEX}))
         except OSError:  # the client went away
@@ -386,7 +511,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/") or "/"
         try:
-            if path != "/settings":
+            if path not in ("/settings", "/command"):
                 return self._json(404, dumps({"error": f"no such endpoint: {path}", **_INDEX}))
             try:
                 n = int(self.headers.get("Content-Length") or 0)
@@ -395,9 +520,21 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError("send a JSON object, e.g. {\"sensitivity\": 0.7}")
             except ValueError as e:
                 return self._json(400, dumps({"ok": False, "error": str(e)}))
-            self._settings(changes)
+            if path == "/command":
+                self._command(changes)
+            else:
+                self._settings(changes)
         except OSError:
             pass
+
+    def _command(self, body) -> None:
+        handler = self.stream.command_handler
+        if handler is None:
+            return self._json(404, dumps({"ok": False, "error": "this device takes no commands"}))
+        try:
+            self._json(200, dumps({"ok": True, **handler(None if body is None else body.get("command"), body or {})}))
+        except ValueError as e:
+            self._json(400, dumps({"ok": False, "error": str(e)}))
 
     def _settings(self, changes) -> None:
         handler = self.stream.settings_handler

@@ -62,7 +62,7 @@ def test_display_record_train_watch_and_resume():
         assert app.mode == "watching", (app.mode, app.message)
         assert (Path(tmp) / "models").exists() and json.loads((Path(tmp) / "state.json").read_text())["mode"] == "watching"
         lines = app.screen_lines()
-        assert lines[0] == "@INFERENCE" and lines[1][:2].isdigit() and len(lines) == 4, lines  # design B: header, time, tile, speed
+        assert lines[0] == "@DETECTING" and lines[1][0].isdigit() and lines[1][-2:] in ("AM", "PM") and len(lines) == 5 and float(lines[4]) >= 0, lines  # design B: header, time, tile, speed
         assert not any("button" in x or "btn" in x for x in lines)
         # a fault after learning: the once-per-turn vibration four times larger
         run(app, clock, rows(START + 14 * 60, 3, fault=lambda x: x.__setitem__(F.INDEX["vib_1x"], x[F.INDEX["vib_1x"]] + 0.6)))
@@ -71,7 +71,7 @@ def test_display_record_train_watch_and_resume():
         again = DeviceApp(tmp, ConveyorSim(days=1), clock=clock)
         assert again.mode == "watching" and again.watcher is not None
         time.sleep(0.6)  # the screen worker sends what was shown last
-        assert any(s.startswith("@RECORDING") for s in shown) and any(s.startswith("@INFERENCE") for s in shown)
+        assert any(s.startswith("@RECORDING") for s in shown) and any(s.startswith("@DETECTING") for s in shown)
 
 
 def test_too_short_a_recording_keeps_learning_and_the_press_file_works():
@@ -80,7 +80,9 @@ def test_too_short_a_recording_keeps_learning_and_the_press_file_works():
         app = DeviceApp(tmp, ConveyorSim(days=1), clock=clock)
         (Path(tmp) / "press").touch()  # a press from the computer, until the button is wired
         run(app, clock, rows(START, 2), press_at=(START + 90,))
-        assert app.mode == "recording" and "learn 5 min" in app.message, (app.mode, app.message)
+        assert app.mode == "recording" and "learn 2 min" in app.message, (app.mode, app.message)
+        assert app.screen_lines()[0] == "@RECORDING", app.screen_lines()  # the reason is in status, not on the screen
+        assert app.status()["message"] == app.message
 
 
 def test_a_power_cut_while_recording_never_records_again_by_itself():

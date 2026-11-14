@@ -16,6 +16,16 @@ Two parts:
 (effente.model_input.MinuteSummary, the same summaries the recorder stores), scores the minute,
 needs the score over the threshold for the median of the last few minutes (persistence), and
 returns a result in the TRD log-record shape.
+
+A spike (added 13 Nov): the median outvotes one abnormal period whatever its score, so something that
+happens once (a part falls off, a hard knock) never showed. When the model's baseline carries a spike
+line (effente.trainer: "model_spike", from the UNSMOOTHED held-out scores, well above the threshold,
+which is fitted to smoothed ones), a single period scoring over that line x the margin alarms at
+once, named from that period's own deviations, and is held SPIKE_HOLD_S so it can be seen. Its margin
+is spike_margin (the device's own dial, "spike_sensitivity"), or the main margin when none is given. The
+median rule is unchanged. With 1-minute periods (long recordings) the model is fed minute medians,
+so a 1-second spike cannot reach it at all: there the per-second impact checks (effente.safety) are
+what catch it, and the trainer stores no spike line. Simulated data only: unverified on a real machine.
 """
 
 from __future__ import annotations
@@ -30,6 +40,7 @@ from effente import fault_types as FT
 from effente import features as F
 from effente.model_input import MinuteSummary, Prep
 
+SPIKE_HOLD_S = 30.0  # how long a spike alarm stays, so it can be seen
 FORMAT = "effente-model-1"
 FAR_SPREADS = 6.0  # this far from usual counts as evidence whatever the context
 
@@ -96,6 +107,10 @@ class Model:
         ps = d.get("pca_score")
         self.pattern_scale = np.asarray(ps["pattern_scale"], float) if ps else None
         self.residual_ref = float(ps["residual_ref"]) if ps else 1.0
+        # the line one period's own score must pass to alarm at once (None: no spike rule, as before). Kept in
+        # the baseline, which already carries added keys, so the model file gets no new key
+        sp = ((d.get("baseline") or {}).get("model_spike") or {}).get("line")
+        self.spike_line = float(sp) if sp else None
 
     @classmethod
     def load(cls, path) -> "Model":
@@ -146,9 +161,11 @@ def _version() -> str:
 class Watcher:
     """One machine's live judgement. predict_at(t0, x) for every row; the result changes once a minute."""
 
-    def __init__(self, model: Model, margin: float = 1.0):
+    def __init__(self, model: Model, margin: float = 1.0, spike_margin: float | None = None):
         self.m = model
         self.margin = margin  # how far over the learned line counts as wrong (effente.safety.margins)
+        # how far over the spike line one period must go: the spike sensitivity's margin; None: the same as margin
+        self.spike_margin = spike_margin
         self.summary = MinuteSummary()
         self.minute: int | None = None
         self.scores: deque = deque(maxlen=model.smooth)
@@ -156,6 +173,7 @@ class Watcher:
         self.episode: Counter = Counter()  # fault types named during the current abnormal stretch
         self.said: Counter = Counter()  # what was going on (symptoms), the same stretch
         self.rows = 0
+        self.spike_until, self.spike_state = -float("inf"), None  # a spike alarm being held, and what it said
         self.state = {"diagnosis": "warming_up", "confidence": 0.0, "unknown_score": None,
                       "note": "the first minute is still being summarised"}
 
@@ -181,6 +199,7 @@ class Watcher:
             self.abnormal_minutes = 0
             self.episode.clear()
             self.said.clear()
+            self.spike_until = -float("inf")
             self.state = {"diagnosis": "stopped", "confidence": 1.0, "unknown_score": None, "minute": minute_t,
                           "note": "the machine is not running; nothing is judged while it is stopped"}
             return
@@ -190,7 +209,12 @@ class Watcher:
         oor = int(self.m.prep.out_of_range(row[None])[0])
         dev = self.m.deviations(r, Z)
         state = {"unknown_score": round(level, 3), "minute": minute_t, "out_of_range": oor}
-        if level > self.margin:
+        # A spike: this one period's own score over the spike line (x the margin, so the sensitivity sizes it)
+        line = self.m.spike_line
+        spike = line is not None and float(s[0]) > line * (self.margin if self.spike_margin is None else self.spike_margin)
+        if line is not None:
+            state["spike_score"] = round(float(s[0]) / line, 3)  # this period alone, in units of the spike line
+        if level > self.margin or spike:
             self.abnormal_minutes += 1
             d = FT.diagnose(dev, self.abnormal_minutes, self.m.learned_types(r, Z))
             self.episode[d.diagnosis] += 1
@@ -207,6 +231,11 @@ class Watcher:
             first = self.said.most_common(1)[0][0]
             state["symptoms"] = [first] + [s for s, _ in now if s != first][:FT.SAY_AT_MOST - 1]
             state["symptom"] = first
+            if spike:  # said at once, and kept for SPIKE_HOLD_S below
+                state["spike"] = True
+                self.spike_until, self.spike_state = minute_t + SPIKE_HOLD_S, dict(state)
+        elif minute_t < self.spike_until:  # nothing wrong this period, but a spike is still being shown
+            state = {**self.spike_state, **state, "spike": False, "spike_held": True}
         else:
             self.abnormal_minutes = 0
             self.episode.clear()

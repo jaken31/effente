@@ -104,6 +104,198 @@ def test_a_sensor_that_goes_missing_clears_its_problem():
     assert not s.problems()
 
 
+def test_outside_normal_is_judged_on_the_median_over_the_learned_period():
+    # trained from 1-minute medians: a forklift's reversing beeper (15 s, 20 dB over) doesn't count ...
+    base = {"levels": {"snd_level_db": 77.0}, "period_s": 60}
+    s = SF.Safety(base)
+    started, _ = feed(s, 120, snd=75.0)
+    started += feed(s, 15, start=120, snd=94.0)[0]
+    started += feed(s, 60, start=135, snd=75.0)[0]
+    assert not started and not s.problems(), s.problems()
+    # ... a lasting rise does, once it fills half the minute and holds (about 40 s)
+    started, _ = feed(s, 60, start=195, snd=85.0)
+    assert started == ["louder_than_normal"], started
+    assert s.problems()[0]["since"] - 195 < 45 and s.problems()[0]["value"] == 8.0
+    _, cleared = feed(s, 60, start=255, snd=75.0)
+    assert cleared == ["louder_than_normal"]
+    # nothing is judged until half the period is covered: a beeper right after the normal is set
+    s = SF.Safety(base)
+    assert not feed(s, 20, snd=94.0)[0]
+    # the same burst judged a row at a time (no period): shows, as before
+    s = SF.Safety({"levels": {"snd_level_db": 77.0}})
+    assert feed(s, 15, snd=94.0)[0] == ["louder_than_normal"]
+    # the universal limits stay per row: 15 s over 11 mm/s still shows with a period
+    s = SF.Safety({"levels": {"vib_velocity_mm_s": 1.0}, "period_s": 60})
+    feed(s, 120, vel=1.0)
+    assert feed(s, 15, start=120, vel=14.0)[0] == ["vibration_over_limit"]
+
+
+def test_baseline_of_gives_older_models_their_period():
+    old = {"period_s": 60, "baseline": {"levels": {"snd_level_db": 77.0}, "dropped": []}}
+    assert SF.baseline_of(old)["period_s"] == 60 and "period_s" not in old["baseline"]  # not changed in place
+    new = {"period_s": 60, "baseline": {"levels": {}, "period_s": 5}}
+    assert SF.baseline_of(new)["period_s"] == 5  # the baseline's own wins
+    assert SF.baseline_of({"period_s": 60}) is None and SF.baseline_of(None) is None
+    assert "period_s" not in SF.baseline_of({"baseline": {"levels": {}}})  # nothing to fill it from
+    b = SF.learn_baseline(np.array([row(snd=70.0)] * 50), F.FEATURE_NAMES, period_s=60)
+    assert b["period_s"] == 60 and SF.learn_baseline(np.array([row()] * 50), F.FEATURE_NAMES)["period_s"] == 1
+
+
+def test_more_impacts_than_normal_is_learned_and_counted_once_a_second():
+    rng = np.random.default_rng(0)
+    n = 4 * 3600  # four hours of one-a-second rows, a rare spike now and then
+    t = np.arange(n, dtype=float)
+    snd = rng.normal(2.0, 1.0, n)
+    snd[rng.choice(n, 5, replace=False)] = 60.0
+    kurt = rng.normal(0.0, 0.3, n)
+    lv = SF.learn_spike_levels(t, {"snd_kurt_hf": snd, "vib_kurtosis": kurt}, np.ones(n, bool))
+    assert set(lv["features"]) == {"snd_kurt_hf", "vib_kurtosis"} and lv["window_s"] == 1800 and lv["factor"] == 2
+    assert lv["features"]["snd_kurt_hf"]["count"] >= 1
+    assert SF.learn_spike_levels(t[:1000], {"snd_kurt_hf": snd[:1000]}, np.ones(1000, bool))["short"]  # under an hour: the short form
+    assert SF.learn_spike_levels(t[:50], {"snd_kurt_hf": snd[:50]}, np.ones(50, bool)) is None  # too little for either
+    base = {"levels": {}, "spikes": lv}
+    limit = 2 * max(lv["features"]["snd_kurt_hf"]["count"], 1)
+
+    def make(spiky):
+        def f(tt):
+            x = row()
+            x[F.INDEX["trend_running"]] = 1
+            x[F.INDEX["snd_kurt_hf"]] = 60.0 if spiky(tt) else 2.0
+            x[F.INDEX["vib_kurtosis"]] = 0.0
+            return x
+        return f
+    s = SF.Safety(base)
+    # as many spike seconds as learning ever had in half an hour: nothing (4 rows a second, counted once a second)
+    started, _ = feed(s, 1800, make=make(lambda tt: int(tt) % 60 == 0 and int(tt) // 60 < limit // 2))
+    assert not started, started
+    # a knock every 20 s for 20 minutes: 60 seconds over, well past the limit
+    started, _ = feed(s, 1200, start=1800, make=make(lambda tt: int(tt) % 20 == 0))
+    assert started == ["more_impacts"], started
+    p = s.problems()[-1]
+    assert p["symptom"] == "knocking_or_jolts" and SF.screen_text(p) == "KNOCKING OR JOLTS"
+    assert "more_impacts" not in [p["name"] for p in SF.Safety({"levels": {}}).problems()]  # no levels: no check
+    assert SF.Safety({"levels": {}}).spikes is None
+
+
+def test_more_impacts_from_a_short_recording_counts_knocks_in_the_last_minute():
+    """5 minutes of learning: no false alarm in 10 clean minutes, none from one bump, a knock every 3 to 5 s shows
+    within 15 s as KNOCKING OR JOLTS, and it clears within about a minute of the knocks stopping."""
+    rng = np.random.default_rng(1)
+    n = 300
+    kurt, peak = rng.normal(0.0, 0.3, n), rng.normal(-1.30, 0.02, n)
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_kurtosis": kurt, "vib_peak_g": peak}, np.ones(n, bool))
+    assert lv["short"] and lv["window_s"] == 60 and lv["factor"] == 2 and set(lv["features"]) == {"vib_kurtosis", "vib_peak_g"}
+    for name, v in (("vib_kurtosis", kurt), ("vib_peak_g", peak)):  # above everything seen, with headroom
+        f = lv["features"][name]
+        assert f["count"] == 0 and f["level"] >= v.max() + SF.SPIKE_SHORT_FLOOR[name] - 1e-3 and not (v > f["level"]).any()
+    assert SF.learn_spike_levels(np.arange(50.0), {"vib_kurtosis": kurt[:50]}, np.ones(50, bool)) is None  # too little
+    long = SF.learn_spike_levels(np.arange(4000.0), {"vib_kurtosis": rng.normal(0, 0.3, 4000)}, np.ones(4000, bool))
+    assert "short" not in long and long["window_s"] == 1800  # an hour or more: the long form, as before
+
+    def make(knock_at):  # knock_at(second) -> a knock early in that second: it is in that second's whole-second
+        def f(tt):         # row, and in the overlapping rows of the second before
+            x = row(kurt=float(rng.normal(0.0, 0.3)), peak_g=10 ** float(rng.normal(-1.30, 0.02)))
+            x[F.INDEX["trend_running"]] = 1
+            sec, frac = int(tt), tt - int(tt)
+            if knock_at(sec) and frac == 0 or knock_at(sec + 1) and frac > 0.2:
+                # 1.6x the highest peak while learning: over the count's level, under one sudden impact's (2x)
+                x[F.INDEX["vib_kurtosis"]], x[F.INDEX["vib_peak_g"]] = 40.0, float(peak.max()) + math.log10(1.6)
+            return x
+        return f
+
+    s = SF.Safety({"levels": {}, "spikes": lv})
+    assert feed(s, 600, make=make(lambda sec: False)) == ([], [])  # 10 clean minutes
+    assert feed(s, 120, start=600, make=make(lambda sec: sec in (630, 631))) == ([], [])  # one bump, two seconds long
+    for lap, t0 in ((3, 1000), (5, 2000)):
+        s = SF.Safety({"levels": {}, "spikes": lv})
+        feed(s, 60, start=t0 - 60, make=make(lambda sec: False))
+        when, starts, clears = None, 0, []
+        for k in range(4 * 30):
+            tt = t0 + k * 0.25
+            a, c = s.update(tt, make(lambda sec: sec >= t0 and (sec - t0) % lap == 0)(tt))
+            starts, clears = starts + len(a), clears + c
+            if a and when is None:
+                when = tt - t0
+                assert a[0]["name"] == "more_impacts" and SF.screen_text(a[0]) == "KNOCKING OR JOLTS", a
+        assert when is not None and when <= 15, (lap, when)  # the third knock
+        assert starts == 1 and not clears, (lap, starts, clears)  # on once, and it stays on while the knocks go on
+        _, cleared = feed(s, 75, start=t0 + 30, make=make(lambda sec: False))  # the coin is out
+        assert cleared == ["more_impacts"] and not s.problems(), (lap, cleared)
+    still = SF.Safety({"levels": {}, "spikes": lv})  # a stopped machine's seconds don't count
+    def stopped(tt):
+        x = make(lambda sec: True)(tt)
+        x[F.INDEX["trend_running"]] = 0
+        return x
+    assert feed(still, 60, make=stopped) == ([], [])
+
+
+def test_one_sudden_impact_shows_at_once_holds_30_s_and_follows_the_sensitivity():
+    """Something falls off: one second whose peak is well over anything while learning. At the default sensitivity
+    2x the highest counts, at 0.75 1.5x; it shows with that second's row, stays 30 s and clears."""
+    rng = np.random.default_rng(2)
+    n = 300
+    peak = rng.normal(-1.30, 0.02, n)  # about 0.05 g, as the fake board at 30 mg
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_kurtosis": rng.normal(0, 0.3, n), "vib_peak_g": peak},
+                               np.ones(n, bool))
+    top = 10 ** float(peak.max())
+    assert abs(lv["peak_max"] - float(peak.max())) < 1e-3
+
+    def make(spikes, running=1):  # spikes {second: times the highest while learning}; the peak is in that second's rows
+        def f(tt):
+            x = row(kurt=float(rng.normal(0.0, 0.3)), peak_g=10 ** float(rng.normal(-1.30, 0.02)))
+            x[F.INDEX["trend_running"]] = running
+            if int(tt) in spikes:
+                x[F.INDEX["vib_peak_g"]] = math.log10(spikes[int(tt)] * top)
+            return x
+        return f
+
+    def run(s, seconds, start, spikes, running=1):  # -> [(when it started), ...], [(when it cleared), ...]
+        on, off = [], []
+        for k in range(int(seconds * 4)):
+            tt = start + k * 0.25
+            a, c = s.update(tt, make(spikes, running)(tt))
+            on += [(tt, p) for p in a]
+            off += [tt for name in c if name == "sudden_impact"]
+        return on, off
+
+    for sens in (0.5, 0.75):  # 10 clean minutes: nothing
+        assert run(SF.Safety({"levels": {}, "spikes": lv}, spike_sensitivity=sens), 600, 0, {}) == ([], []), sens
+    s = SF.Safety({"levels": {}, "spikes": lv})
+    on, off = run(s, 60, 1000, {1010: 2.5})
+    assert [t for t, _ in on] == [1010.0] and off == [1040.0], (on, off)  # with the second's own row; 30 s later
+    p = on[0][1]
+    assert p["name"] == "sudden_impact" and SF.screen_text(p) == "KNOCKING OR JOLTS" and p["symptom"] == "knocking_or_jolts"
+    assert abs(p["value"] - 2.5) < 0.05 and abs(p["peak_g"] - 2.5 * top) < 0.01, p  # how big, for the event
+    assert run(s, 60, 2000, {2010: 1.6}) == ([], [])  # 1.6x: not at the default sensitivity
+    s.set_sensitivity(1.0)  # the main dial doesn't move it
+    assert run(s, 60, 2500, {2510: 1.6}) == ([], [])
+    s.set_sensitivity(0.5)
+    s.set_spike_sensitivity(0.75)  # its own dial does (what POST /settings {"spike_sensitivity": 0.75} does)
+    on, off = run(s, 60, 3000, {3010: 1.6})
+    assert [t for t, _ in on] == [3010.0] and off == [3040.0], (on, off)  # but at 0.75 (1.5x) it is
+    s.set_spike_sensitivity(0.5)
+    on, off = run(s, 80, 4000, {4010: 3.0, 4025: 4.0})  # a second one inside the hold: still one alert, held from it
+    assert [t for t, _ in on] == [4010.0] and off == [4055.0] and s.problems() == [], (on, off)
+    assert run(s, 60, 5000, {5010: 5.0}, running=0) == ([], [])  # a stopped machine's seconds don't count
+    # a quiet machine: 2x its highest is a footstep, so nothing under 0.05 g counts
+    quiet = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_peak_g": rng.normal(-1.9, 0.02, n)}, np.ones(n, bool))
+    q = SF.Safety({"levels": {}, "spikes": quiet})
+    qtop = 10 ** quiet["peak_max"]
+    def at(g):
+        def f(tt):
+            x = row(peak_g=g if int(tt) == 10 else 0.0126)
+            x[F.INDEX["trend_running"]] = 1
+            return x
+        return f
+    assert 3 * qtop < 0.05 and feed(q, 60, make=at(3 * qtop)) == ([], [])
+    assert feed(q, 60, start=100, make=lambda tt: at(0.06)(tt - 100)) == (["sudden_impact"], ["sudden_impact"])
+    # a long recording: the same rule, with the highest peak of the whole recording
+    long = SF.learn_spike_levels(np.arange(4000.0), {"vib_kurtosis": rng.normal(0, 0.3, 4000),
+                                                     "vib_peak_g": rng.normal(-1.30, 0.02, 4000)}, np.ones(4000, bool))
+    assert "short" not in long and "peak_max" in long
+    assert SF.Safety({"levels": {}}).measure(0.0, row()).get("sudden_impact") is None  # no levels: no check
+
+
 def test_baseline_levels_dropped_limits_and_warnings():
     rng = np.random.default_rng(0)
     steady = np.array([row(vel=1.0 + 0.05 * rng.standard_normal(), imu=45.0) for _ in range(400)])
@@ -213,7 +405,7 @@ def test_device_shows_problems_and_takes_sensitivity_from_the_stream_and_the_fil
                                          headers={"Content-Type": "application/json"})
             got = json.loads(urllib.request.urlopen(req, timeout=5).read())
             assert got["sensitivity"] == 0.75 and app.safety.margins["vibration"] == 1.5
-            assert json.loads((Path(tmp) / "settings.json").read_text()) == {"sensitivity": 0.75}
+            assert json.loads((Path(tmp) / "settings.json").read_text()) == {"sensitivity": 0.75, "spike_sensitivity": 0.5}
             bad = urllib.request.Request(url, data=b'{"sensitivity": 1.5}', method="POST")
             try:
                 urllib.request.urlopen(bad, timeout=5)
@@ -328,3 +520,150 @@ if __name__ == "__main__":
                 print(f"FAIL  {name}: {type(e).__name__}: {e}")
     print("all passed" if not failed else f"{failed} failed")
     sys.exit(1 if failed else 0)
+
+
+def test_one_sudden_loud_sound_shows_at_once_holds_30_s_and_follows_the_spike_dial():
+    """A shout into the microphone: one second well louder than any second while learning. 6 dB over the loudest
+    counts at the default spike sensitivity, 3 dB at 0.75; it shows with that second's row and stays 30 s."""
+    rng = np.random.default_rng(3)
+    n = 300
+    snd = rng.normal(90.0, 2.0, n)
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_kurtosis": rng.normal(0, 0.3, n),
+                                                           "vib_peak_g": rng.normal(-1.3, 0.02, n),
+                                                           "snd_level_db": snd}, np.ones(n, bool))
+    top = float(snd.max())
+    assert abs(lv["sound_max"] - top) < 0.01
+
+    def make(loud, running=1):  # loud {second: dB over the loudest while learning}
+        def f(tt):
+            x = row(kurt=float(rng.normal(0.0, 0.3)), peak_g=0.05)
+            x[F.INDEX["trend_running"]] = running
+            x[F.INDEX["snd_level_db"]] = top + loud[int(tt)] if int(tt) in loud else float(rng.normal(90.0, 2.0))
+            return x
+        return f
+
+    def run(s, seconds, loud, running=1):
+        on, off = [], []
+        for k in range(int(seconds * 4)):
+            tt = k * 0.25
+            a, c = s.update(tt, make(loud, running)(tt))
+            on += [(tt, p) for p in a if p["name"] == "sudden_sound"]
+            off += [tt for name in c if name == "sudden_sound"]
+        return on, off
+
+    spikes = lambda sens: SF.Safety({"levels": {}, "spikes": lv}, spike_sensitivity=sens)  # noqa: E731
+    assert run(spikes(0.5), 300, {}) == ([], [])  # the room as it was: nothing
+    on, off = run(spikes(0.5), 120, {40: 20.0})  # a yell: 20 dB over the loudest second while learning
+    assert [tt for tt, _ in on] == [40.0] and off == [70.0], (on, off)
+    p = on[0][1]
+    assert p["symptom"] == "louder_than_normal" and SF.screen_text(p) == "LOUDER THAN NORMAL" and abs(p["value"] - 20.0) < 0.01
+    assert run(spikes(0.5), 120, {40: 4.0})[0] == []  # 4 dB over: not at the default
+    assert [tt for tt, _ in run(spikes(0.75), 120, {40: 4.0})[0]] == [40.0]  # but at 0.75 (3 dB)
+    assert run(spikes(0.5), 120, {40: 20.0}, running=0)[0] == []  # a stopped machine is not judged
+    no_sound = dict(lv)
+    no_sound.pop("sound_max")
+    assert SF.Safety({"levels": {}, "spikes": no_sound}).measure(0.0, row()).get("sudden_sound") is None  # learned without a mic
+
+
+def test_one_sudden_twist_or_fast_rise_in_temperature_shows_too_and_a_missing_sensor_is_not_checked():
+    """The other sensors' single moments (MORE_MOMENTS): the gyro's peak at twice the highest while learning (and
+    30 deg/s or more), the temperature rising 5 degC a minute faster than it ever did while learning; the
+    thermal camera's reading only when there was a camera. A temperature that is merely higher, not rising, is
+    not a moment: a device recorded cold and used warm must not alarm for good (the review, 14 Nov)."""
+    rng = np.random.default_rng(4)
+    n = 300
+    cols = {"vib_kurtosis": rng.normal(0, 0.3, n), "vib_peak_g": rng.normal(-1.3, 0.02, n),
+            "gyr_peak": rng.normal(1.3, 0.02, n), "trend_heat_rise_per_min": rng.normal(0.0, 0.05, n)}
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), cols, np.ones(n, bool))
+    assert set(lv["moment_max"]) == {"gyr_peak", "trend_heat_rise_per_min"}  # no camera: th_change_c is not learned
+    g_top, r_top = lv["moment_max"]["gyr_peak"], lv["moment_max"]["trend_heat_rise_per_min"]
+
+    def run(sens, at, lasting=None, base=lv, **change):
+        s = SF.Safety({"levels": {}, "spikes": base}, spike_sensitivity=sens)
+        on, names_on = [], set()
+        for k in range(120 * 4):
+            tt = k * 0.25
+            x = row(kurt=0.0, peak_g=0.05, imu=30.0)
+            x[F.INDEX["trend_running"]] = 1
+            x[F.INDEX["gyr_peak"]] = 1.3
+            x[F.INDEX["trend_heat_rise_per_min"]] = 0.0
+            if int(tt) == at:
+                for name, v in change.items():
+                    x[F.INDEX[name]] = v
+            if lasting and tt >= at:
+                for name, v in lasting.items():
+                    x[F.INDEX[name]] = v
+            a, _ = s.update(tt, x)
+            on += [(tt, p["name"], SF.screen_text(p)) for p in a]
+            names_on |= {p["name"] for p in s.problems()}
+        return on, names_on
+
+    assert run(0.5, 40)[0] == []
+    assert run(0.5, 40, gyr_peak=g_top + math.log10(3.0))[0] == [(40.0, "sudden_twist", "KNOCKING OR JOLTS")]
+    assert run(0.5, 40, gyr_peak=g_top + math.log10(1.6))[0] == []  # 1.6x: not at the default (2x)
+    still = dict(lv, moment_max={**lv["moment_max"], "gyr_peak": 0.5})  # learned lying still: 3 deg/s at the most
+    assert run(0.5, 40, base=still, gyr_peak=math.log10(12.0))[0] == []  # 4x that, but under 30 deg/s: nothing
+    assert [n for _, n, _ in run(0.5, 40, base=still, gyr_peak=math.log10(40.0))[0]] == ["sudden_twist"]
+    hot = run(0.5, 40, trend_heat_rise_per_min=r_top + 8.0)[0]
+    assert [(tt, name) for tt, name, _ in hot] == [(40.0, "sudden_heat")], hot
+    assert run(0.5, 40, trend_heat_rise_per_min=r_top + 3.0)[0] == []
+    assert [n for _, n, _ in run(0.75, 40, trend_heat_rise_per_min=r_top + 3.0)[0]] == ["sudden_heat"]
+    # 10 degC warmer for good, with no rise to speak of: never a moment
+    assert "sudden_heat" not in run(0.5, 40, lasting={"imu_temp_c": 40.0})[1]
+    assert run(0.5, 40, th_change_c=500.0)[0] == []  # a camera reading with nothing learned for it: not checked
+    p = SF.Safety({"levels": {}, "spikes": lv})
+    x = row(kurt=0.0, peak_g=0.05)
+    x[F.INDEX["trend_running"]] = 1
+    x[F.INDEX["gyr_peak"]] = g_top + 1.0
+    started, _ = p.update(40.0, x)
+    assert started and "peak_g" not in started[0]  # a twist carries no impact's peak
+
+
+def test_a_device_that_is_not_where_it_was_says_device_moved_first():
+    """Gravity's direction more than 10 degrees from the direction learned, held like the other lasting checks:
+    DEVICE MOVED, said before anything else that moving it set off; a few degrees is nothing; and with no
+    direction learned (an older model, or a sensor that shows no gravity) there is no such check."""
+    def tilted(deg):
+        x = row(gravity=1.0)
+        a = math.radians(deg)
+        x[F.INDEX["vib_gravity_x"]], x[F.INDEX["vib_gravity_z"]] = math.sin(a), math.cos(a)
+        return x
+
+    X = np.array([tilted(0.0) for _ in range(120)])
+    base = SF.learn_baseline(X, F.FEATURE_NAMES)
+    assert np.allclose(base["gravity"], [0.0, 0.0, 1.0], atol=1e-4)
+    for deg, want in ((0.0, []), (6.0, []), (18.0, ["device_moved"])):
+        s = SF.Safety(base)
+        started, _ = feed(s, 30, make=lambda tt, deg=deg: tilted(deg))
+        assert started == want, (deg, started)
+        if want:
+            p = s.problems()[0]
+            assert SF.screen_text(p) == "DEVICE MOVED" and abs(p["value"] - 18.0) < 0.5
+            v = SF.verdict({"diagnosis": "vibration_too_high", "symptoms": ["vibration_too_high"]}, s.problems())
+            assert v["what"][0] == "device_moved" and "vibration_too_high" in v["what"]
+    s = SF.Safety(base)
+    feed(s, 30, make=lambda tt: tilted(18.0))
+    assert feed(s, 30, start=30, make=lambda tt: tilted(1.0))[1] == ["device_moved"]  # put back: it clears
+    older = {k: v for k, v in base.items() if k != "gravity"}
+    assert feed(SF.Safety(older), 30, make=lambda tt: tilted(60.0))[0] == []
+
+
+def test_a_short_recordings_model_leaves_out_what_ten_minutes_cannot_learn():
+    """effente.trainer.SHORT_LEAVES_OUT: the time of day, the tilt and the temperature are not in a short
+    recording's model (they are in a long one's), and the baseline says which were left out."""
+    from effente import trainer as TR
+    from effente.model_runtime import Model
+    rng = np.random.default_rng(5)
+    n = 400
+    X = np.full((n, F.N_FEATURES), np.nan)
+    t = 1_700_000_000.0 + np.arange(n)
+    for name in F.FEATURE_NAMES:
+        if name.startswith(("vib_", "gyr_", "imu_temp", "time_hour")) and not name.startswith("vib_axis"):
+            X[:, F.INDEX[name]] = rng.normal(0.0, 1.0, n)
+    X[:, F.INDEX["vib_gravity_z"]] = 1.0 + rng.normal(0, 0.001, n)
+    d, rep = TR.train_model(t, X, F.FEATURE_NAMES, period=1)
+    kept = set(Model(d).prep.columns)
+    left = set(d["baseline"]["model_leaves_out"])
+    assert {"vib_gravity_z", "imu_temp_c", "time_hour_sin"} <= left and not kept & left
+    assert "vib_rms_x" in kept and "gyr_rms" in kept
+    assert "gravity" in d["baseline"] and "imu_temp_c" in d["baseline"]["levels"]  # the checks still have them

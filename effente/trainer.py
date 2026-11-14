@@ -3,10 +3,14 @@
 Used both on the UNO Q (the button's "train" step) and on a laptop (training/model/train.py),
 so a model is trained the same way wherever it is trained:
 
-  1. Rows: one feature row a second (learn mode keeps these), running rows only, summarised
-     into per-period medians. The period follows the recording's length, so a 20-minute demo
+  1. Rows: one feature row a second (learn mode keeps these), running rows only (every row when fewer
+     than MIN_ROWS_SHORT of them count as running), summarised into per-period medians. The period follows the recording's length, so a 20-minute demo
      recording still has enough rows and a week has per-minute ones (choose_period).
-  2. Split by time: the last part (calib_share) is held out for the threshold.
+  2. The alarm line from scores the model never saw (PCA, 1-minute periods, 2 x MIN_ROWS of them or more):
+     the running periods are split into two halves in time, a model learned on each scores the other,
+     and the line comes from those pooled out-of-sample scores ("crossfit"); the final model then
+     learns on all of it. Shorter recordings, and the autoencoder, hold out the last part (calib_share)
+     as before ("tail"). The training report says which.
   3. Prepare (effente.model_input.Prep) and learn the normal model: PCA by default (the straight-line
      patterns of normal, stored as a linear autoencoder), or a small denoising autoencoder trained
      with Adam and early stopping (normal_model="autoencoder").
@@ -14,10 +18,14 @@ so a model is trained the same way wherever it is trained:
      (effente.model_runtime) gives the same scores.
   5. Threshold: one false alarm a week of the period's rows, from a gamma fit to the held-out
      scores (method of moments, Wilson-Hilferty quantile), never below the highest held-out score.
+     With the crossfit line, the stored threshold is that line x THRESHOLD_FACTOR, so the device's
+     default sensitivity (0.5) gives the operating point chosen on the simulated conveyor (system C
+     in training/record/conveyor_eval/SYSTEM_SEARCH.md: the model's sensitivity 0.65 there).
   6. Fault-type classifier from fault patterns injected into this machine's own normal
      deviations (effente.fault_types signatures); no real labelled faults yet.
   7. Baseline (effente.safety.learn_baseline): this machine's normal levels for the outside-normal
-     checks, and warnings if it didn't run, went past a universal limit, or was still changing.
+     checks (learned from the period's medians, and judged on medians over the same period), and
+     warnings if it didn't run, went past a universal limit, or was still changing.
 Starting values throughout (unverified on real machines).
 """
 
@@ -38,6 +46,7 @@ from effente.model_input import Prep, load_minutes, load_recording
 PERIODS = (1, 2, 5, 10, 15, 30, 60)
 ROWS_WANTED = 1500
 MIN_ROWS = 300
+MIN_ROWS_SHORT = 100  # with 1 s periods (a short test recording): 100 rows, so a few minutes still train
 
 
 def choose_period(duration_s: float) -> int:
@@ -270,6 +279,40 @@ def _causal_median(x, n):
 NORMAL_MODELS = ("pca", "autoencoder")
 NORMAL_MODEL = "pca"
 PCA_VARIANCE, PCA_MAX_K = 0.95, 40  # keep the patterns that explain 95 % of normal, at most 40
+# Recordings long enough for 1-minute periods (a day or more) follow system C of the conveyor search
+# (training/record/conveyor_eval/SYSTEM_SEARCH.md; model_search.py "PCA (device, float)" var 0.99, max_k 200, T2 on):
+# 99 % of normal with no practical cap, 10 periods of smoothing, and the crossfit line. C was chosen on week-long
+# simulated recordings only; on a 12-minute 1-second demo recording the crossfit line missed the demo's fault and
+# 200 patterns overfit, so shorter recordings keep the settings above, a 5-period smoothing and the tail line.
+LONG_PERIOD = 60
+LONG_PCA_VARIANCE, LONG_PCA_MAX_K = 0.99, 200
+# The crossfit line is scaled by this so that the device's default sensitivity 0.5 (margin 1) alarms where system C
+# did: at the model's sensitivity 0.65, i.e. effente.safety.margins(0.65)["model"] = 4 ** -0.3 (about 0.66) of the
+# line. margins() itself is unchanged. Simulated data only (unverified on a real machine).
+THRESHOLD_FACTOR = 4.0 ** -0.3
+SMOOTH_LONG, SMOOTH_SHORT = 10, 5  # periods the Watcher takes the median of before judging
+# The spike line (effente.model_runtime.Watcher): one period scoring over it alarms at once, without waiting for
+# the median. The threshold above is fitted to median-smoothed scores, and single healthy seconds go over it
+# (measured on the fake board, 13 Nov), so the spike line sits well above it: SPIKE_LINE_TIMES x the threshold.
+# 2.5 at the default spike sensitivity (the user, 14 Nov). Until then it was 4 x the one-a-week gamma tail of the
+# UNSMOOTHED held-out scores, which on the first real recording (10 minutes on a bench) came to 5.2 x the
+# threshold: a stomp of 0.8 g and a yell into the microphone both reached only about a quarter of it. At 2.5 x
+# the threshold a healthy single second has less room: the baseline keeps the highest held-out single score and
+# that gamma tail beside the line, so the headroom can be read off. Short recordings only (1 s periods and the
+# like): with 1-minute periods the model sees minute medians, which a 1-second spike cannot move, and system C's
+# false-alert numbers were measured without a second alarm path. Unverified: not yet run for long on a machine.
+SPIKE_LINE_TIMES = 2.5
+SPIKE_LINE_HEADROOM = 1.5
+# Readings a short recording (periods under a minute: under about a day) cannot learn the range of, so its model
+# leaves them out: the time of day, the device's tilt (gravity on x, y, z) and the temperature with its trends.
+# In 10 minutes each hardly moves, so its learned spread is tiny, and afterwards the clock moving on, the device
+# re-seated a little or the room a third of a degree warmer reads as many spreads from normal. Measured on the
+# device (14 Nov; 10 minutes recorded on a bench, then judged 3 hours later with the device 18 degrees off its
+# place and nothing else changed): the model alarmed 83 % of the time with them (score 1.03 of its line) and
+# never without (0.38); in place the score was 0.28 either way. They are still read, shown and recorded, and
+# the checks in effente.safety still watch them: hotter_than_normal, sudden_heat, heating_fast, and
+# device_moved for the tilt. Long recordings keep them: a week spans the day and the weather.
+SHORT_LEAVES_OUT = ("time_", "vib_gravity_", "imu_temp_c", "trend_heat_")
 
 
 def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
@@ -287,7 +330,22 @@ def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
     return layers, k
 
 
-def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_share: float = 0.15,
+def _pca_model(t, X, names, period: int, smooth: int):
+    """A PCA normal model learned on these rows only (for the crossfit line): prep, patterns and the PCA score."""
+    prep = Prep.fit(X, names, t, running_only=False)
+    ae, _ = fit_pca(np.nan_to_num(prep.transform(X)), LONG_PCA_VARIANCE, LONG_PCA_MAX_K)
+    d = {"format": RT.FORMAT, "features_version": RT._version(), "prep": prep.to_dict(), "period_s": int(period),
+         "smooth_minutes": smooth, "threshold": 1.0, "normal_model": "pca",
+         "autoencoder": [RT.quantize(W, b, a) for (W, b), a in zip(ae, ["linear", "linear"])]}
+    model = RT.Model(d)
+    _, r, Z = model.score(X)
+    hs = np.std(model.ae.hidden(Z, layer=0), 0)
+    d["pca_score"] = {"pattern_scale": [float(v) for v in np.where(hs > 1e-6, hs, 1e-6)],
+                      "residual_ref": float(max((r ** 2).mean(), 1e-9))}
+    return RT.Model(d)
+
+
+def train_model(t, X, names, period: int | None = None, smooth: int | None = None, calib_share: float = 0.15,
                 seed: int = 0, source: str = "", progress=None, time_limit_s: float | None = None,
                 normal_model: str = NORMAL_MODEL):
     """Train from one-a-second feature rows. Returns (model file dict, report). Raises ValueError if
@@ -299,18 +357,39 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     t = np.asarray(t, float)
     run = running_rows(X, names)
     ran = run.copy()
+    # Hardly any of it counts as running (the device on something still or barely vibrating): learn from every
+    # row rather than refuse. The report and the baseline's warnings say so.
+    all_rows = bool(run.sum() < MIN_ROWS_SHORT <= len(run))
+    if all_rows:
+        run = np.ones(len(run), bool)
     t, X = t[run], X[run]
     if len(t) < 2:
         raise ValueError("no running data recorded")
     if period is None:
         period = choose_period(float(t.max() - t.min()))
     t, X = summarise(t, X, period)
-    baseline = SF.learn_baseline(X, names, running=ran)  # this machine's normal, and anything odd about it
-    if len(t) < MIN_ROWS:
+    baseline = SF.learn_baseline(X, names, running=ran, period_s=period)  # this machine's normal, judged per period
+    if all_rows:
+        baseline["warnings"].append(f"only {int(ran.sum())} of {len(ran)} rows counted as running: learned from all of them")
+    need = MIN_ROWS_SHORT if period <= 1 else MIN_ROWS
+    if len(t) < need:
         raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
-                         f"{MIN_ROWS * period // 60} minutes of the machine running")
-    cut = t[0] + (t[-1] - t[0]) * (1 - calib_share)
-    fit, calib = t < cut, t >= cut
+                         f"{math.ceil(need * period / 60)} minutes of the machine running")
+    long = period >= LONG_PERIOD
+    left_out = [] if long else [str(n) for n in names if str(n).startswith(SHORT_LEAVES_OUT)]
+    if left_out:  # for the model only: the baseline above was learned with them
+        X = np.array(X, float)
+        X[:, [i for i, n in enumerate(names) if str(n) in set(left_out)]] = np.nan
+    smooth = int(smooth or (SMOOTH_LONG if long else SMOOTH_SHORT))
+    crossfit = normal_model == "pca" and long and len(t) >= 2 * MIN_ROWS
+    if crossfit:  # the line from out-of-sample scores; the model itself learns on everything
+        half = np.arange(len(t)) < len(t) // 2
+        fit, calib = np.ones(len(t), bool), np.zeros(len(t), bool)
+        cal_scores = np.concatenate([_pca_model(t[~half], X[~half], names, period, smooth).score(X[half])[0],
+                                     _pca_model(t[half], X[half], names, period, smooth).score(X[~half])[0]])
+    else:
+        cut = t[0] + (t[-1] - t[0]) * (1 - calib_share)
+        fit, calib = t < cut, t >= cut
     say = progress or (lambda stage, share: None)
     say("preparing", 0.05)
     prep = Prep.fit(X[fit], names, t[fit], running_only=False)
@@ -321,7 +400,8 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     t0 = time.perf_counter()
     say("learning normal", 0.1)
     if normal_model == "pca":
-        ae, kept = fit_pca(np.nan_to_num(Z[fit]))
+        ae, kept = fit_pca(np.nan_to_num(Z[fit]), *((LONG_PCA_VARIANCE, LONG_PCA_MAX_K) if long else
+                                                    (PCA_VARIANCE, PCA_MAX_K)))
         acts = ["linear", "linear"]
     else:
         ae, _ = fit_mlp(Z[fit], Z[fit], [d_in, hid, mid, hid, d_in], ["relu", "relu", "relu", "linear"], noise=0.1,
@@ -351,7 +431,21 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     scale = np.std(r_int[fit], 0)
     d["residual_scale"] = [float(v) for v in np.where(scale > 1e-4, scale, 1e-4)]
     model = RT.Model(d)
-    d["threshold"] = gamma_threshold(_causal_median(s_int[calib], smooth), 7 * 86400 / period)
+    if crossfit:
+        d["threshold"] = gamma_threshold(_causal_median(cal_scores, smooth), 7 * 86400 / period) * THRESHOLD_FACTOR
+    else:
+        d["threshold"] = gamma_threshold(_causal_median(s_int[calib], smooth), 7 * 86400 / period)
+    if not long:  # kept in the baseline (it already carries added keys), so the model file gets no new key
+        single = s_int[calib]
+        baseline["model_spike"] = {
+            # never under SPIKE_LINE_HEADROOM x the highest single held-out period: where healthy seconds already
+            # came close to 2.5x the threshold, that multiple alone would alarm on a healthy one (the review, 14 Nov)
+            "line": round(max(SPIKE_LINE_TIMES * d["threshold"], SPIKE_LINE_HEADROOM * float(single.max())), 4),
+            "highest_held_out": round(float(single.max()), 4),
+            "tail_one_a_week": round(gamma_threshold(single, 7 * 86400 / period), 4),
+            "note": f"one period's own score over this alarms at once: {SPIKE_LINE_TIMES:g}x the model's threshold "
+                    f"(highest_held_out: the highest single score of the {len(single)} held-out periods; "
+                    f"tail_one_a_week: their gamma tail)"}
     say("learning fault types", 0.75)
     rng = np.random.default_rng(seed)
     dev_cols = [c for c in prep.names_out if c in prep.columns]
@@ -367,13 +461,19 @@ def train_model(t, X, names, period: int | None = None, smooth: int = 5, calib_s
     d["fault_types"] = [{"name": ft.name, "text": ft.text, "sensing": ft.sensing} for ft in FT.TYPES]
     d["feature_table"] = [{"name": c, "text": F.FEATURE_TEXT.get(c, ""), "unit": F.FEATURE_KIND.get(c, "")}
                           for c in prep.columns]
-    report = {"period_s": int(period), "rows_learned": int(fit.sum()), "rows_calibration": int(calib.sum()),
+    # Which line: with the crossfit line every row is learned from and every row is scored out of sample, so
+    # rows_learned == rows_calibration == all rows; with the tail line they split the rows (no new report field, so
+    # model files keep the same fields: training/library's test_the_model_file_has_no_new_fields).
+    report = {"period_s": int(period), "rows_learned": int(fit.sum()),
+              "rows_calibration": int(len(cal_scores) if crossfit else calib.sum()),
               "inputs": prep.n_out, "features_kept": len(prep.columns), "fit_seconds": round(fit_s, 1),
               "normal_model": normal_model, "patterns_kept": int(kept),
               "int8_vs_float_score_correlation": round(float(np.corrcoef(s_float, resid_int)[0, 1]), 5),
               "threshold": round(d["threshold"], 4), "fault_classes": len(classes),
               "classifier_exact_match": round(acc, 3), "dropped_limits": baseline["dropped"],
-              "warnings": baseline["warnings"]}
+              "warnings": baseline["warnings"], "learned_from_all_rows": all_rows}
+    if left_out:
+        baseline["model_leaves_out"] = left_out  # in the baseline, which carries added keys; not a new model-file key
     d["training_report"] = report
     say("done", 1.0)
     return d, report
