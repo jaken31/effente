@@ -149,6 +149,12 @@ def record_problems(r: dict) -> list[str]:
         p.append("wrong does not match the diagnosis and problems")
     if r.get("heat") is not None:
         p += heat_problems(r["heat"])
+    readings = r.get("readings")
+    if not isinstance(readings, dict) or "vib_velocity_mm_s" not in readings:
+        p.append("readings.vib_velocity_mm_s missing (contract 9.2)")
+    elif readings["vib_velocity_mm_s"] is not None and not (
+            _num(readings["vib_velocity_mm_s"]) and readings["vib_velocity_mm_s"] >= 0):
+        p.append("readings.vib_velocity_mm_s is not null or a number 0 or more")
     return p
 
 

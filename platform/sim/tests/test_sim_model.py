@@ -205,3 +205,31 @@ def test_new_sensitivity_restarts_the_outside_normal_hold():
     rng = random.Random(1)
     assert [p["name"] for p in checks.current(m.WATCHING, rng, 25.0)] == ["too_hot"]
     assert [p["name"] for p in checks.current(m.WATCHING, rng, 30.0)] == ["too_hot", "vibration_above_normal"]
+
+
+def test_every_record_carries_a_velocity_that_moves_with_the_case():
+    """Contract 9.2: readings.vib_velocity_mm_s on every record, in mm/s."""
+    rng = random.Random(4)
+    seen = {case: [m.make_record(case, rng)["readings"]["vib_velocity_mm_s"] for _ in range(WINDOWS)]
+            for case in m.CASES}
+    for case, values in seen.items():
+        lo, hi = m.VELOCITY_MM_S[case]
+        assert all(lo <= v <= hi for v in values), case
+    assert max(seen["stopped"]) < min(seen["normal"]) <= max(seen["normal"]) < min(seen["unrecognised"])
+    assert max(seen["unrecognised"]) < min(seen["looseness"]) <= max(seen["looseness"]) < min(seen["unbalance"])
+    assert record_problems({k: v for k, v in m.make_record("normal", rng).items() if k != "readings"})  # the check can fail
+
+
+def test_the_velocity_never_disagrees_with_a_vibration_problem():
+    rng = random.Random(2)
+    over = m.make_problem("vibration_over_limit", rng, "2026-11-14T16:00:00Z")
+    assert m.make_record("normal", rng, [over])["readings"]["vib_velocity_mm_s"] == over["value"] > 11
+    above = m.make_problem("vibration_above_normal", rng, "2026-11-14T16:00:00Z")
+    v = m.make_record("normal", rng, [above])["readings"]["vib_velocity_mm_s"]
+    assert v == round(above["value"] * m.NORMAL_VELOCITY_MM_S, 2)
+    assert m.make_record("unbalance", rng, [above])["readings"]["vib_velocity_mm_s"] >= 4.2  # never lowered
+
+
+def test_the_sensitivity_does_not_move_the_velocity():
+    low, high = (m.make_record("unbalance", random.Random(3), [], sensitivity=s) for s in (0.0, 1.0))
+    assert low["readings"] == high["readings"]
