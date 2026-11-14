@@ -197,6 +197,17 @@ def test_it_refuses_too_little_running():
     raises(lambda: C.calibrate(d, t[:10], X, NAMES), "10 times for 600 rows")
 
 
+def test_it_refuses_a_sensor_that_gave_no_reading():
+    d, _ = entry()
+    t, X = seconds(600, seed=31)
+    dead = np.full_like(X, np.nan)  # every reading missing: a model from this could never alarm
+    raises(lambda: C.calibrate(d, t, dead, NAMES), "no reading the entry uses was measured")
+    one = dead.copy()
+    one[:, F.INDEX["vib_1x"]] = X[:, F.INDEX["vib_1x"]]  # one reading is enough to go on (MIN_READINGS)
+    _, report = C.calibrate(d, t, one, NAMES)
+    assert C.MIN_READINGS == 1 and len(report["readings_missing"]) == report["readings"] - 1
+
+
 def test_min_running_s_can_be_lowered_but_not_below_the_floor():
     d, _ = entry()
     t, X = seconds(120, seed=7)

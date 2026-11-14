@@ -15,6 +15,7 @@ and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
                            full training)
   with the entry as guard  - spreads: never below the entry's own spreads (refit_prep)
                            - readings this machine did not give while calibrating are not judged
+                             (if it gave none at all, calibration is refused)
 
 The alarm threshold is this machine's own:
 
@@ -72,6 +73,10 @@ from effente.model_input import MAX_NAN_FRAC, Prep, _transform_raw
 MIN_RUNNING_S = 300  # the hard minimum (the trainer's 5 minutes). Ask people for 10 minutes: RECOMMENDED_S
 RECOMMENDED_S = 600
 MIN_ROWS = 60  # below this there are too few held-out rows to set a threshold at all, whatever min_running_s says
+# Calibration is refused when fewer of the entry's readings than this were measured (a dead or
+# unplugged sensor): the model would judge nothing and could never alarm. One is the least that
+# means anything; how many readings an entry needs to be useful is not known (unverified).
+MIN_READINGS = 1
 # The alarm threshold is this many times the median of this machine's own held-out smoothed scores.
 # PROVISIONAL, simulated only: 5.0 is a placeholder until it is set from measurements.
 THRESHOLD_MEDIAN_MULTIPLE = 5.0
@@ -170,7 +175,8 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     entry_model: the entry's effente-model-1 dict (not changed). t, X, names: one-a-second feature
     rows with their times and feature names, as for effente.trainer.train_model. Returns
     (model file dict, report). Raises ValueError if the entry is not a model this device can run,
-    the machine ran for less than min_running_s seconds in the rows given, or no threshold can be
+    the machine ran for less than min_running_s seconds in the rows given, no reading the entry
+    uses was measured, or no threshold can be
     set from the held-out rows (fewer of them than the entry's smoothing window, or a median score
     that is zero or not a number).
     threshold_median_multiple: the alarm threshold is this many times the median of the held-out
@@ -209,6 +215,10 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     s_before = entry.score(X)[0]  # this machine through the entry as shipped, for the report only
     widen, held_cols = _entry_settings(entry_model, entry.prep.columns)
     prep, fell_back = refit_prep(entry.prep, X[fit], widen, held_cols)
+    judged = len(prep.columns) - len(fell_back["missing"]) - len(fell_back["held"])
+    if judged < MIN_READINGS:
+        raise ValueError(f"no reading the entry uses was measured while calibrating ({len(fell_back['missing'])} of "
+                         f"{len(prep.columns)} missing, {len(fell_back['held'])} held): nothing could alarm; check the sensor")
     d = copy.deepcopy(entry_model)
     d.update(created=datetime.now(timezone.utc).isoformat(timespec="seconds"), prep=prep.to_dict(),
              period_s=int(period), baseline=baseline)
