@@ -29,7 +29,9 @@ FOLDS = 5  # the learning clips' out-of-sample scores: 5 blocks in time, each sc
 def data():
     global _DATA
     if _DATA is None:
-        _DATA = C.load_data()
+        import os
+        ced = os.path.isdir(C.BASE / "features_ced") and len(list((C.BASE / "features_ced").glob("*.npz"))) == 97
+        _DATA = C.load_data(("dev", "gen_v16", "gen_v1", "gen_v1c", "gen_a") + (("ced_a", "ced_v") if ced else ()))
     return _DATA
 
 
@@ -59,6 +61,10 @@ def raw_rows(fs: str, ids: np.ndarray) -> np.ndarray:
             parts.append(D["gen_v1c"][ids].reshape(len(ids), 5, -1))
         elif p == "ga":
             parts.append(D["gen_a"][ids].reshape(len(ids), 5, -1))
+        elif p == "ca":  # CED-tiny embedding of the sound (embed_ced.py)
+            parts.append(D["ced_a"][ids].reshape(len(ids), 5, -1))
+        elif p == "cv":  # CED-tiny embeddings of the 3 full-band vibration axes
+            parts.append(D["ced_v"][ids].reshape(len(ids), 5, -1))
         elif p in ("ga32", "ga32b"):  # the same sound with the device's 32 bands (pairs of the 64 summed)
             a = D["gen_a"][ids].astype(float)
             b32 = np.log10(10 ** a[..., 0:64:2] + 10 ** a[..., 1:64:2])
@@ -76,10 +82,10 @@ def raw_rows(fs: str, ids: np.ndarray) -> np.ndarray:
 
 def group_of_generic(fs: str) -> list[str]:
     sizes = {"g16": 105, "g16m": 35, "g16all": 140, "g1": 69, "g1c": 69, "ga": 67, "ga32": 35, "ga32b": 32, "gab": 64,
-             "g1tot": 23}
+             "g1tot": 23, "ca": 192, "cv": 576}
     out = []
     for p in fs.split("+"):
-        out += ["snd" if p.startswith("ga") else "vib"] * sizes[p]
+        out += ["snd" if p.startswith(("ga", "ca")) else "vib"] * sizes[p]
     return out
 
 

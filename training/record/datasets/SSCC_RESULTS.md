@@ -43,6 +43,10 @@ background changes, and when the learning comes from the end of a recording and 
 (2) 350 + 175 held-out normal clips are 44 minutes of normal running; one false alarm in 350 clips is about two an
 hour, far more than the device's one-a-week goal, and rates near one a week cannot be measured here.
 (3) Normal and fault clips come from separate recording sessions, so "caught" also includes any session difference.
+(4) Uncertainty (Wilson 95 %): false alarms 1/175 = 0.6 % [0.1-3.2], 2/175 = 1.1 % [0.3-4.1]; on the selection set
+1/350 = 0.3 % [0.1-1.6], 5/350 = 1.4 % [0.6-3.3]. So the false-alarm difference between the two is **not**
+resolvable here; the difference in catches is (confirmation 93.6 % [92.3-94.7] against 74.6 % [72.4-76.7]),
+although clips of one recording are not independent, so the true intervals are wider.
 
 ## The paper and its benchmark
 

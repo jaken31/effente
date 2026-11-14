@@ -59,7 +59,10 @@ def load_data(kinds=("dev", "gen_v16", "gen_v1", "gen_v1c", "gen_a")) -> Data:
             metas.setdefault(k, []).extend(list(d[k]))
         metas.setdefault("raw_std", []).extend(list(d["raw_std"]))
         for k in kinds:
-            feats[k].append(d[k])
+            if k.startswith("ced"):  # optional pretrained embeddings, made by embed_ced.py
+                feats[k].append(np.load(BASE / "features_ced" / p.name)[k])
+            else:
+                feats[k].append(d[k])
     meta = {k: np.array(v) for k, v in metas.items()}
     meta["cond"] = np.array([cond_key(a, b, c) for a, b, c in zip(meta["load"], meta["speed"], meta["noise"])])
     feats = {k: np.concatenate(v) for k, v in feats.items()}
