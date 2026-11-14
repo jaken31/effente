@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from ..theme import fonts, schemes
 from ..theme import tokens as t
-from ..widgets import StatusDot
+from ..widgets import StatusDot, motion
 from . import icons
 
 # key, label, shortcut, child of Live
@@ -80,9 +80,33 @@ class NavItem(QAbstractButton):
         self.setFixedHeight(30 if child else 34)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setAccessibleName(label)
+        # Each eases between 0 and 1: under the mouse, the open page, lit in the accent.
+        self._hover = motion.Glide(self)
+        self._on = motion.Glide(self)
+        self._accent = motion.Glide(self)
+        self.key_opacity = 0.0  # the shortcut key's, set by Nav
 
     def sizeHint(self) -> QSize:
         return QSize(180, self.height())
+
+    def set_state(self, on: bool, parent_on: bool) -> None:
+        self.on, self.parent_on = on, parent_on
+        self._on.to(1.0 if on else 0.0)
+        self._accent.to(1.0 if on or parent_on else 0.0)
+
+    def enterEvent(self, e) -> None:
+        super().enterEvent(e)
+        self._hover.to(1.0)
+
+    def leaveEvent(self, e) -> None:
+        super().leaveEvent(e)
+        self._hover.to(0.0)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._hover.jump(1.0 if self.underMouse() else 0.0)
+        self._on.jump(1.0 if self.on else 0.0)
+        self._accent.jump(1.0 if self.on or self.parent_on else 0.0)
 
     def set_badge(self, text: str | None) -> None:
         self.badge = text or None
@@ -92,14 +116,16 @@ class NavItem(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect())
-        hover = self.underMouse()
-        if self.on or hover:
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(t.qcolor(t.NAV_ON if self.on else t.HOVER))
-            p.drawRoundedRect(r, t.R_NAV, t.R_NAV)
-        lit = self.on or self.parent_on or hover
-        text_c = t.qcolor(t.TEXT if lit else t.SOFT)
-        icon_c = t.qcolor(t.ACCENT) if (self.on or self.parent_on) else text_c
+        hover, on, accent = self._hover.at, self._on.at, self._accent.at
+        p.setPen(Qt.PenStyle.NoPen)
+        for token, amount in ((t.HOVER, hover * (1 - on)), (t.NAV_ON, on)):
+            if amount > 0:
+                fill = t.qcolor(token)
+                fill.setAlphaF(fill.alphaF() * amount)
+                p.setBrush(fill)
+                p.drawRoundedRect(r, t.R_NAV, t.R_NAV)
+        text_c = motion.mix(t.qcolor(t.SOFT), t.qcolor(t.TEXT), max(hover, accent))
+        icon_c = motion.mix(text_c, t.qcolor(t.ACCENT), accent)
         icons.paint_icon(p, self.key, QRectF(10, (r.height() - 16) / 2, 16, 16), icon_c)
         p.setFont(self.font())
         p.setPen(text_c)
@@ -115,7 +141,8 @@ class NavItem(QAbstractButton):
             p.drawRoundedRect(b, h / 2, h / 2)
             p.setPen(t.qcolor(t.WHITE))
             p.drawText(b, Qt.AlignmentFlag.AlignCenter, self.badge)
-        elif self.show_key:
+        elif self.key_opacity > 0:
+            p.setOpacity(self.key_opacity)
             p.setFont(self._key_font)
             p.setPen(t.qcolor(t.MUTED))
             p.drawText(r.adjusted(0, 0, -10, 0), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
@@ -156,20 +183,24 @@ class Nav(QWidget):
             if key == "live":
                 lay.addWidget(sub)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self._keys = motion.Glide(self, on_change=self._fade_keys)
+
+    def _fade_keys(self) -> None:
+        for item in self.items.values():
+            item.key_opacity = self._keys.at
+            item.update()
 
     def event(self, e) -> bool:
         if e.type() in (QEvent.Type.HoverEnter, QEvent.Type.HoverLeave):
             show = e.type() == QEvent.Type.HoverEnter
             for item in self.items.values():
                 item.show_key = show
-                item.update()
+            self._keys.to(1.0 if show else 0.0)
         return super().event(e)
 
     def set_active(self, key: str) -> None:
         for k, item in self.items.items():
-            item.on = k == key
-            item.parent_on = k == "live" and key in ("spectrum", "thermal")
-            item.update()
+            item.set_state(k == key, k == "live" and key in ("spectrum", "thermal"))
 
 
 class _RightElidedLabel(QLabel):

@@ -89,7 +89,7 @@ class TestFaultTypes:
 class TestAgents:
     RUN: ClassVar[dict] = {
         "run_id": "run-1", "agent": "maintenance_report", "machine_id": "m", "at": "2026-11-14T16:03:00Z",
-        "status": "done", "ok": True, "model": "stand-in (no Claude call)", "simulated": True, "usage": {},
+        "status": "done", "ok": True, "model": "stand-in (no model call)", "simulated": True, "usage": {},
         "tool_calls": [{"at": "2026-11-14T16:03:01Z", "name": "get_readings", "input": {"since": ""}, "output": "{}"}],
         "report": {"summary": "Stand-in report: x", "priority": "medium", "cited_features": ["vib_1x"],
                    "recommended_action": "Check it.", "part_reference": ""},
@@ -104,10 +104,29 @@ class TestAgents:
         assert fields["Checks"] == "all passed"
 
     def test_no_report_shows_reason(self):
-        run = dict(self.RUN, ok=False, report=None, reason="agent unavailable: ANTHROPIC_API_KEY is not set")
+        run = dict(self.RUN, ok=False, report=None, reason="agent unavailable: no model server is running at http://127.0.0.1:8081")
         fields = dict(agents.report_fields(run, {}))
         assert fields["Status"] == "no report"
-        assert fields["Reason"] == "agent unavailable: ANTHROPIC_API_KEY is not set"
+        assert fields["Reason"] == "agent unavailable: no model server is running at http://127.0.0.1:8081"
+        assert fields["Next"].startswith("Start the model server")
+
+    def test_no_report_lists_each_problem_and_only_known_next_steps(self):
+        run = dict(self.RUN, ok=False, report=None, reason="report failed checks", problems=["a", "b"])
+        fields = dict(agents.report_fields(run, {}))
+        assert fields["Problems"] == "a\nb"
+        assert fields["Next"].endswith("Run again.")
+        assert "Next" not in dict(agents.report_fields(dict(run, reason="agent error: boom"), {}))
+
+    def test_model_path_is_cut_to_the_file_name(self):
+        assert agents.short_model("local: /Users/someone/effente-models/small.gguf") == "local: small.gguf"
+        assert agents.short_model("stand-in (no model call)") == "stand-in (no model call)"
+        [row] = agents.run_rows([dict(self.RUN, model="local: /m/large.gguf")])
+        assert row.who == "maintenance_report · local: large.gguf"
+        assert agents.usage_hint(dict(self.RUN, model="local: /m/large.gguf")).endswith("local: large.gguf")
+
+    def test_empty_tool_input_is_a_dash(self):
+        [call] = agents.call_rows(dict(self.RUN, tool_calls=[{"at": "", "name": "get_feature_table", "input": {}, "output": "x"}]))
+        assert call.input == "–"
 
     def test_io_pane(self):
         assert agents.call_io(self.RUN, None) == agents.IO_EMPTY
@@ -118,7 +137,7 @@ class TestAgents:
     def test_run_rows(self):
         [row] = agents.run_rows([self.RUN])
         assert row.status == "report ready"
-        assert row.who == "maintenance_report · stand-in (no Claude call)"
+        assert row.who == "maintenance_report · stand-in (no model call)"
         assert agents.run_status(dict(self.RUN, status="running")) == "running"
 
 

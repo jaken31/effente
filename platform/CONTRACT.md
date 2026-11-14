@@ -264,6 +264,16 @@ When the device is not watching (display, calibrating, recording or training), i
 
 Reply: `{"ok": true}`, with `settings` as in message 2 once the dashboard has set a sensitivity.
 
+### Readings (optional, proposed: not yet agreed by the team)
+
+A check-in or a record may carry `readings`, the numbers on the device's own screen, so the dashboard can show them in every mode:
+
+```json
+"readings": {"vib_mg": 4.5, "peak_g": 0.014, "speed_hz": 0.0, "imu_temp_c": 26.6, "tilt": [0.98, 0.41, 0.25], "sound_db": 82.6, "thermal_max_c": null}
+```
+
+These are `readings` in the device's status (`device/intake/device_app.py`). A value is `null` when its sensor gave none. The platform keeps the newest for each connected device: `readings` (`{"at", "readings"}`) in `GET /api/state`, and a `readings` event on the stream (`device_id`, `machine_id`, `at`, `readings`). A check-in may also carry `spectrum` with `spectrum_edges_hz` and `heat`, in the shapes of messages 2 and 1, so the spectrum and heat panels have something to draw while the device is not watching; the platform keeps them beside the readings. `readings` may then include features from the device's newest row under their own names: `vib_velocity_mm_s`, `snd_tone_hz`, `snd_tone_db` and `snd_centroid_hz`. They are not stored in the history. Today only `platform/link/device_link.py` sends them; `device/intake/uploader.py` does not.
+
 ## 4. Agent sends its report
 
 The agents run on the laptop. An agent sends the whole run each time something happens: once when it starts, after each tool call, and once at the end. Same `run_id` every time; the platform keeps the latest copy. This is how tool calls show up live.
@@ -277,7 +287,7 @@ The agents run on the laptop. An agent sends the whole run each time something h
   "machine_id": "conveyor-07",
   "at": "2026-11-14T16:03:00Z",
   "status": "done",
-  "model": "claude-opus-5-5",
+  "model": "local: small.gguf",
   "usage": {"input_tokens": 2140, "output_tokens": 310},
   "ok": true,
   "reason": "",
@@ -306,13 +316,13 @@ The agents run on the laptop. An agent sends the whole run each time something h
 | `report` | `null` unless `ok` is `true`. Shape is fixed as shown. `cited_features` holds only readings that appear in `features` of the records the agent read. It may be empty, and must be for `normal`. |
 | `reason`, `problems` | Why there is no report: for example `agent unavailable: no connection`, or the list of failed checks. These `problems` are the agent's, not the device's of message 2. |
 | `tool_calls` | In order. `output` is a string, cut to 2,000 characters. |
-| `simulated` | `true` if the report did not come from a real Claude call, or was written from simulated readings. |
+| `simulated` | `true` if the report did not come from a real model call, or was written from simulated readings. |
 
 Reply: `{"ok": true}`
 
 If the platform's HTTP endpoint cannot be reached the agent still writes its own log and carries on.
 
-The desktop app starts at most one run per machine at a time: its button is disabled while that machine's latest run is `running`. The live Claude call is opt-in; the default is the stand-in.
+The desktop app starts at most one run per machine at a time: its button is disabled while that machine's latest run is `running`. The local model call is opt-in; the default is the stand-in.
 
 ## 5. What the dashboard reads
 
@@ -476,7 +486,7 @@ The device's own `/settings` on port 8765 and `data/settings.json` stay for benc
 
 ## Not in version 3.3
 
-- No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The API key comes from the laptop's environment and is never sent to or through the platform.
+- No HTTP endpoint starts an agent, and the web dashboard cannot start one. A person starts it on the laptop: from a terminal (`python3 platform/report.py`), or with the Run Report Agent button in the desktop app, which runs the same command as a local process. The model runs on the laptop or elsewhere on the site, so there is no key, and nothing is sent off the site.
 - Machine profiles and model delivery to the device. Planned in [docs/model-lifecycle.md](../docs/model-lifecycle.md).
 - Answering an alarm on the device, reminders for unanswered alarms, and any use of answers by training or thresholds. Also planned there.
 - More than one platform, or any security.

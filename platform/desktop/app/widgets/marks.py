@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..theme import fonts
 from ..theme import tokens as t
+from . import motion
 
 
 def _color(value) -> QColor:
@@ -26,6 +27,12 @@ class StatusDot(QWidget):
         self._color = _color(color)
         self._size = size
         self.setFixedSize(size, size)
+        self._beat = motion.Glide(self, motion.PULSE, 1.0)
+
+    def pulse(self) -> None:
+        """One beat: the dot dips small and grows back. For something that just happened."""
+        self._beat.jump(0.0)
+        self._beat.to(1.0)
 
     def color(self) -> QColor:
         return QColor(self._color)
@@ -39,7 +46,9 @@ class StatusDot(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(self._color)
-        p.drawEllipse(QRectF(0, 0, self._size, self._size))
+        half = self._size / 2
+        r = half * (0.55 + 0.45 * self._beat.at)
+        p.drawEllipse(QPointF(half, half), r, r)
 
 
 class Pill(QWidget):

@@ -31,7 +31,7 @@ def test_post_one_record_and_read_back_by_state(client):
     assert state["machines"] == ["conveyor-07"]
     assert state["models"] == {"conveyor-07-20261114": MODEL}
     dev = state["devices"]["effente-01"]
-    assert set(dev) == {"connected", "last_seen", "mode", "machine_id", "model_version", "wrong", "problems", "sensitivity", "settings", "latest"}
+    assert set(dev) == {"connected", "last_seen", "mode", "machine_id", "model_version", "wrong", "problems", "sensitivity", "settings", "latest", "readings"}
     assert dev["connected"] is True and dev["mode"] == "watching" and dev["machine_id"] == "conveyor-07"
     assert dev["model_version"] == "conveyor-07-20261114"
     assert dev["wrong"] is True and dev["problems"] == []

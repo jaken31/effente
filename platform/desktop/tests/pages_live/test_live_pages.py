@@ -290,3 +290,38 @@ def test_possible_tag_comes_from_logic(live, state):
     assert state.model_line()["possible"]
     assert not live.status.possible.isHidden()
     assert live.status.possible.text() == logic.fault_type_tag({"name": "unbalance_like", "validated": False})
+
+
+def test_the_devices_own_readings_get_rows_only_when_it_sends_them(live, state):
+    assert live.signals.row("device_vib_mg") is None  # FakeState's device sends none
+    device = state.devices()[state.device_id()]
+    device["readings"] = {"at": "2026-11-14T03:16:42Z",
+                          "readings": {"vib_mg": 4.5, "peak_g": 0.014, "sound_db": 82.6, "thermal_max_c": None,
+                                       "snd_tone_hz": 186.5}}
+    state._readings_history[state.device_id()] = [{"vib_mg": 4.0, "sound_db": 80.0}, {"vib_mg": 4.5, "sound_db": 82.6}]
+    live.refresh()
+    assert live.signals.row("device_vib_mg").value.text() == "4.5 mg"
+    assert live.signals.row("device_sound_db").value.text() == "82.6 dB"
+    assert live.signals.row("device_peak_g").value.text() == "0.014 g"
+    assert live.signals.row("device_snd_tone_hz").value.text() == "186 Hz"
+    assert live.signals.row("device_imu_temp_c") is None  # no number sent: no row
+    device["connected"] = False
+    live.refresh()
+    assert live.signals.row("device_vib_mg") is None
+
+
+def test_an_idle_devices_check_in_fills_the_spectrum_heat_and_velocity(live, state):
+    device = state.devices()[state.device_id()]
+    record = state.latest()
+    assert state.live_record() is record  # watching: the newest record, as before
+    device["mode"] = "display"
+    device["readings"] = {"at": "2026-11-14T03:16:42Z", "readings": {"vib_mg": 4.5, "vib_velocity_mm_s": 0.41},
+                          "spectrum": [-5.0 - i / 10 for i in range(20)],
+                          "heat": {"source": "imu", "imu_temp_c": 26.6}}
+    assert state.live_record() == {"at": "2026-11-14T03:16:42Z", "spectrum": device["readings"]["spectrum"],
+                                   "heat": {"source": "imu", "imu_temp_c": 26.6}}
+    live.refresh()
+    assert live.spectrum.spectrum() == device["readings"]["spectrum"]
+    assert "IMU 26.6 °C" in live.thermal_panel.hint()
+    device["readings"] = {"at": "2026-11-14T03:16:43Z", "readings": {"vib_mg": 4.5}}
+    assert state.live_record() is record  # nothing to draw from the check-in: back to the record
