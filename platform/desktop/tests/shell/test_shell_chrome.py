@@ -1,3 +1,4 @@
+import pytest
 from app.shell import format as fmt
 
 
@@ -86,3 +87,55 @@ def test_format_helpers():
     assert fmt.thermal_rate(latest, recs, stale=False) == "2 frames / s"
     assert fmt.thermal_rate({"heat": {"source": "imu"}}, recs, stale=False) == "no camera"
     assert fmt.model_text(None) == "–"
+
+
+def _page_that_says(key: str, simulated: bool):
+    from app.shell.pages import PlaceholderPage
+    from PySide6.QtCore import Signal
+
+    class SaysSimulated(PlaceholderPage):
+        simulated_changed = Signal()
+
+        def __init__(self):
+            super().__init__(key)
+            self.simulated = simulated
+
+        def shows_simulated(self) -> bool:
+            return self.simulated
+
+    return SaysSimulated()
+
+
+@pytest.fixture
+def real_record(state):
+    state._records[-1] = dict(state._records[-1], simulated=False)
+    return state
+
+
+def test_sim_chip_is_on_when_the_current_page_draws_something_simulated(qtbot, real_record):
+    from app.shell import MainWindow
+
+    page = _page_that_says("live", True)
+    w = MainWindow(real_record, placeholders=True, pages={"live": page}, receiver_address="0.0.0.0:8000")
+    qtbot.addWidget(w)
+    w.show()
+    w.navigate("live")
+    assert w.topbar.sim_chip.isVisible()
+    page.simulated = False
+    page.simulated_changed.emit()
+    assert not w.topbar.sim_chip.isVisible()
+    page.simulated = True
+    page.simulated_changed.emit()
+    w.navigate("history")  # a page that says nothing goes by the latest record, which is real
+    assert not w.topbar.sim_chip.isVisible()
+
+
+def test_a_page_that_says_nothing_simulated_never_hides_a_simulated_record(qtbot, state):
+    from app.shell import MainWindow
+
+    w = MainWindow(state, placeholders=True, pages={"live": _page_that_says("live", False)},
+                   receiver_address="0.0.0.0:8000")
+    qtbot.addWidget(w)
+    w.show()
+    w.navigate("live")
+    assert w.topbar.sim_chip.isVisible()
