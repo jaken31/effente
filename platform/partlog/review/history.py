@@ -4,6 +4,9 @@ A machine's log data is read from a file (tests, `--history`) or from the
 receiver. `part_history` keeps only what belongs to one part. `fact_sheet`
 turns that into the plain facts the writer of a review is given. Every check
 in review.py is made against that fact sheet: it is "the history supplied".
+
+Since contract 3.5 (section 9.7) the history also holds the part's readings
+summary and its projection, as the readings route gives them (section 9.3).
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ ENTRY_FIELDS = ("entry_id", "at", "kind", "text", "by", "needs_repair", "alarm_i
 ALARM_FIELDS = ("alarm_id", "start", "end", "open", "diagnosis", "periods", "peak_unknown_score", "simulated")
 ANSWER_FIELDS = ("verdict", "by", "at", "finding")
 STATE_FIELDS = ("name", "since", "reason", "alarm_id", "entry_id")
+NOT_BUILT = "not built yet"  # what a stub route answers (contract section 9)
 
 
 class HistoryUnavailable(Exception):
@@ -30,9 +34,11 @@ class HistoryUnavailable(Exception):
 
 
 def read_file(path: str | Path, machine_id: str) -> dict:
-    """A machine's log data from a JSON file: `parts`, `entries`, `alarms`, `fault_types`.
+    """A machine's log data from a JSON file: `parts`, `entries`, `alarms`, `fault_types`, `readings`.
 
     `fault_types` is the list from the model announcement (contract message 1).
+    `readings` is optional: part id -> that part's readings route reply
+    (contract 9.3), with its `summary` and `projection`.
     """
     try:
         with open(path, encoding="utf-8") as history_file:
@@ -47,14 +53,19 @@ def read_file(path: str | Path, machine_id: str) -> dict:
         "entries": list(data.get("entries") or []),
         "alarms": list(data.get("alarms") or []),
         "fault_types": list(data.get("fault_types") or []),
+        "readings": dict(data.get("readings") or {}),
     }
 
 
 def fetch(platform_url: str, machine_id: str, part_id: str | None = None) -> dict:
     """The same data from the receiver (contract sections 5, 6, 8.5 and 8.6).
 
-    With a `part_id`, only that part's entries are asked for. Without one, no
-    entries are read: enough to list the machine's parts.
+    With a `part_id`, only that part's entries and readings are asked for.
+    Without one, neither is read: enough to list the machine's parts. A
+    readings route that answers "not built yet" means no readings.
+
+    UNVERIFIED: the readings route (contract 9.3) was a stub on master when
+    this was written. Run against a fake receiver in the tests only.
 
     UNVERIFIED on master: the parts and log routes were stubs there when this
     was written. Run once by hand against the routes of branch
@@ -63,10 +74,15 @@ def fetch(platform_url: str, machine_id: str, part_id: str | None = None) -> dic
     base = platform_url.rstrip("/")
     machine = urllib.parse.quote(machine_id, safe="")
     parts = get_json(f"{base}/api/machines/{machine}/parts?removed=1").get("parts")
-    entries = []
+    entries, readings = [], {}
     if part_id is not None:
         part = urllib.parse.quote(part_id, safe="")
         entries = get_json(f"{base}/api/machines/{machine}/log?part={part}&limit={ENTRY_LIMIT}").get("entries")
+        try:
+            readings[part_id] = get_json(f"{base}/api/parts/{part}/readings")
+        except HistoryUnavailable as error:
+            if not str(error).endswith(NOT_BUILT):
+                raise
     alarms = get_json(f"{base}/api/machines/{machine}/alarms?limit={ALARM_LIMIT}").get("alarms")
     models = get_json(f"{base}/api/state").get("models")
     return {
@@ -75,6 +91,7 @@ def fetch(platform_url: str, machine_id: str, part_id: str | None = None) -> dic
         "entries": entries if isinstance(entries, list) else [],
         "alarms": alarms if isinstance(alarms, list) else [],
         "fault_types": _fault_types(models if isinstance(models, dict) else {}, machine_id),
+        "readings": readings,
     }
 
 
@@ -167,7 +184,19 @@ def part_history(data: dict, part_id: str) -> dict:
         "alarms": alarms,
         "fault_types": [f for f in data["fault_types"] if isinstance(f, dict)],
         "other_parts": [{"part_id": p.get("part_id"), "name": p.get("name")} for p in parts if p is not part],
+        "readings": _readings_of((data.get("readings") or {}).get(part_id)),
     }
+
+
+def _readings_of(reply) -> dict | None:
+    """The readings summary and projection from a readings route reply, or None when the part has
+    none. The readings themselves stay out: the writer gets the summary and the projection only."""
+    if not isinstance(reply, dict) or not isinstance(reply.get("summary"), dict):
+        return None
+    if not reply["summary"].get("count"):
+        return None
+    projection = reply.get("projection")
+    return {"summary": reply["summary"], "projection": projection if isinstance(projection, dict) else None}
 
 
 def fact_sheet(history: dict) -> dict:
@@ -175,7 +204,9 @@ def fact_sheet(history: dict) -> dict:
 
     Counts come first, so they survive when a run's tool output is cut short.
     `fault_type` is the fault type behind the part's state, with its own text
-    from the model announcement, or `None` when there is none.
+    from the model announcement, or `None` when there is none. `readings` is
+    the part's readings summary and projection (contract 9.7), or `None` when
+    it has no readings.
     """
     part, entries, alarms = history["part"], history["entries"], history["alarms"]
     state = part.get("state") if isinstance(part.get("state"), dict) else {}
@@ -204,6 +235,7 @@ def fact_sheet(history: dict) -> dict:
         },
         "state": {key: state.get(key) for key in STATE_FIELDS},
         "fault_type": _fault_type(history, state),
+        "readings": history.get("readings"),
         "entries": [{key: entry.get(key) for key in ENTRY_FIELDS} for entry in entries],
         "alarms": [
             {
@@ -236,9 +268,13 @@ def _fault_type(history: dict, state: dict) -> dict | None:
 
 
 def is_simulated(history: dict) -> bool:
-    """Whether any alarm or person's entry in the history is simulated. Earlier reviews do not count."""
-    return any(a.get("simulated") is True for a in history["alarms"]) or any(
-        e.get("simulated") is True for e in history["entries"] if e.get("kind") != "review"
+    """Whether any alarm, person's entry, readings summary or projection in the history is simulated.
+    Earlier reviews do not count."""
+    readings = history.get("readings") or {}
+    return (
+        any(a.get("simulated") is True for a in history["alarms"])
+        or any(e.get("simulated") is True for e in history["entries"] if e.get("kind") != "review")
+        or any((readings.get(key) or {}).get("simulated") is True for key in ("summary", "projection"))
     )
 
 

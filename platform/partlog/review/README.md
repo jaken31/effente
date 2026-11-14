@@ -40,6 +40,7 @@ The code builds a fact sheet for the part (`history.py`, `fact_sheet`) and the w
 - the fault type behind the state, with its own text from the model announcement
 - the part's own entries, oldest first, earlier reviews included
 - the alarms linked to the part, each with its newest answer
+- `readings`: the part's readings `summary` and `projection` from `GET /api/parts/<part_id>/readings` (contract 9.3, 9.5), or `null` when the part has none. The readings themselves are left out. A receiver whose readings route answers "not built yet" counts as no readings.
 
 An alarm is linked when one of the part's entries or its state names it, or when it is waiting on the part: open or unanswered, started after the part's newest repair, with a diagnosis in the part's `fault_types`. Entries of other parts and alarms that only concern other parts never reach the fact sheet.
 
@@ -48,31 +49,33 @@ An alarm is linked when one of the part's entries or its state names it, or when
 - `what`, `why`, `needs_repair`, `cited_alarms`, `cited_entries`: the writer (a model or the stand-in).
 - `how`: the code. It copies the fault type's own `text` from the model announcement. The fault type is the `diagnosis` of the entry behind the part's state, or else of the alarm behind it. With no fault type, or one the announcement does not list (such as `unrecognised_pattern`), `how` is empty.
 - `since`: the code. It copies the part's `state.since`.
+- `trend`: the code (contract 9.7). The sentence in contract 9.5's table for the projection's status, from `trend_sentence` in `platform/partlog/projection.py`, with "Simulated:" in front when the projection is simulated. Empty when the part has no readings. A review may leave it out; one that has it must have the code's sentence.
 
-The schema a model is given has no `how` and no `since`. A draft that holds either is refused, even with the right value.
+The schema a model is given has no `how`, no `since` and no `trend`. A draft that holds any of them is refused, even with the right value.
 
 ## Checks
 
 `review.py`, `check_review`, for every review, whoever wrote it:
 
-1. Shape: the seven keys, their types, nothing extra.
+1. Shape: the seven keys, `trend` if there, their types, nothing extra.
 2. `needs_repair` is `yes`, `no` or `not_sure`. `what` and `why` are not blank.
-3. `how` and `since` are the values the code copies.
+3. `how`, `since` and `trend` are the values the code copies.
 4. Every cited id is on the fact sheet.
 5. Every number in `what` and `why` is on the fact sheet: a count, a score, or digits in a time or a text. Digits inside an id (`alarm-1234`, `conveyor-07`) are not a number, on either side. The match is exact, so "about 2.5" for a score of 2.4 fails.
 6. `what` and `why` name no fault type and no part that the fact sheet does not name. The names looked for are every fault type in the model announcement, `unrecognised_pattern`, and the name and id of every other part of the machine. A name matches in any case, with `_`, `-` or a space between its words.
-7. With no alarm and no entry that says `needs_repair: true`, `needs_repair` is not `yes`.
+7. With no alarm and no entry that says `needs_repair: true`, `needs_repair` is not `yes`. A rising projection does not change this.
+8. `what` and `why` give no time ahead, even with numbers the fact sheet holds: no "in 51 days", "within 2 weeks", "a few months left", no remaining life, no "will fail", and none of the projection's dates ("2027-01-04", "4 Jan", "Jan 4"). Only `trend` says when, and code writes it.
 
 A review that fails is discarded: the run ends with `ok: false`, `reason: "review failed checks"` and the problems.
 
-Not handled: a number written as a word ("one alarm"), and a fault type or a part described in other words ("the roller at the far end").
+Not handled: a number written as a word ("one alarm"), a fault type or a part described in other words ("the roller at the far end"), and a time ahead put in other words ("by the new year").
 
 ## Behaviour worth knowing
 
 - **Reuse.** The run (`ReviewRun`) is the report agent's `Run` from `device/agent/run.py` with the three differences of section 8.8. The local call (`LocalReviewCall`) is its `LocalCall`: the same model lookup, request, fall back to plain JSON and error reasons. The errors and the agent log writer are the report agent's too. `device/agent/` is not changed. Two pieces could not be reused as they are, because both are tied to device log records and `check_report`: `run_agent`, and the retry inside `LocalCall.__call__`. `agent.py` and `local.py` hold the same flow and the same one retry for a review. They use three names `device/agent` marks as private (`_append_log`, `_ask`, `_find_model`), so a change to those there has to keep them working here.
 - **Error wording.** A model answer with a missing key is reported in the report agent's words: `the model's answer was not a report: ...`.
 - **One run per part at a time.** The command skips a part whose newest review run is still `running` and started less than 10 minutes ago, and says so. An older `running` run is taken as dead.
-- **simulated** is true unless the review came from a real model call and no alarm and no person's entry in the history is simulated. Earlier reviews do not count.
+- **simulated** is true unless the review came from a real model call and no alarm, no person's entry, no readings summary and no projection in the history is simulated. Earlier reviews do not count.
 - **The log entry.** Its `text` is `what`, then `Needs repair: yes (advice).` (or `no`, `not sure`), then `why`. `by` is `part review agent`. The entry's id is on the run as an extra `entry_id` field. If the receiver refuses the entry, the run still ends `ok: true` with a note.
 - **Posting.** As the report agent: the whole run is PUT at start, after the one tool call (`get_part_history`) and at the end. The tool output is the fact sheet, cut to 2,000 characters; the counts come first so they survive the cut.
 - **`run_id`** is `review-YYYYMMDD-HHMMSS-<part_id>`: two runs for the same part in the same second share an id and the platform keeps only the later one.

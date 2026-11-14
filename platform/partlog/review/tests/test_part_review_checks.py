@@ -92,11 +92,11 @@ def test_a_since_that_is_not_the_parts_state_since_is_rejected(confirmed):
     assert check_review(review, confirmed) == ["since is not the part's state.since"]
 
 
-@pytest.mark.parametrize("key", ["how", "since"])
+@pytest.mark.parametrize("key", ["how", "since", "trend"])
 def test_a_draft_that_fills_how_or_since_itself_is_refused(confirmed, key):
     """Even with the right value: the writer may not fill it."""
     review = good(confirmed)
-    draft = {k: v for k, v in review.items() if k not in ("how", "since")}
+    draft = {k: v for k, v in review.items() if k not in ("how", "since", "trend")}
 
     assert check_draft(draft, confirmed) == []
     assert check_draft({**draft, key: review[key]}, confirmed) == [f"{key} is filled by the code, not by the writer"]

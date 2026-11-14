@@ -55,8 +55,9 @@ def test_a_good_answer_becomes_a_checked_review(tmp_path):
         result = review(server.url, tmp_path)
 
     assert result.ok, result
-    assert result.review == {**json.loads(GOOD), "how": HOW, "since": "2026-11-14T19:12:03Z"}
-    assert list(result.review) == ["what", "how", "since", "needs_repair", "why", "cited_alarms", "cited_entries"]
+    assert result.review == {**json.loads(GOOD), "how": HOW, "since": "2026-11-14T19:12:03Z", "trend": ""}
+    assert list(result.review) == ["what", "how", "since", "needs_repair", "why", "cited_alarms", "cited_entries",
+                                   "trend"]
     logged = json.loads((tmp_path / "log.jsonl").read_text())
     assert logged["model"] == "local: llama-test.gguf"
     assert logged["usage"] == {"input_tokens": 100, "output_tokens": 20}

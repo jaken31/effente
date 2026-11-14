@@ -1,7 +1,9 @@
 """A tiny standard library HTTP server that stands in for the receiver's part and log routes.
 
 It serves one machine's data in the shapes of platform/CONTRACT.md sections
-5, 6, 8.5 and 8.6, keeps every run PUT to it and every entry POSTed to it.
+5, 6, 8.5, 8.6 and 9.3, keeps every run PUT to it and every entry POSTed to it.
+A part with no readings reply in the data gets "not built yet", as the stub
+route on master answers.
 """
 
 from __future__ import annotations
@@ -46,6 +48,13 @@ class FakeReceiver:
                     part = query.get("part", [None])[0]
                     entries = [e for e in fake.data["entries"] + fake.posted if part in (None, e["part_id"])]
                     self.reply({"ok": True, "entries": sorted(entries, key=lambda e: e["at"], reverse=True)})
+                elif url.path.startswith("/api/parts/") and url.path.endswith("/readings"):
+                    part = urllib.parse.unquote(url.path.split("/")[3])
+                    reply = (fake.data.get("readings") or {}).get(part)
+                    if reply is None:
+                        self.reply({"ok": False, "error": "not built yet"}, 400)
+                    else:
+                        self.reply({"ok": True, **reply})
                 elif url.path == f"{machine}/alarms":
                     self.reply({"ok": True, "alarms": fake.data["alarms"]})
                 elif url.path == f"{machine}/agent-runs":
