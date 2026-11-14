@@ -108,6 +108,15 @@ def test_model_message_and_record_shape_follow_the_contract():
         assert a["fault_types"] == {"unbalance_like": 9.1} and a["problems"] == []
         assert b["reason"] == NO_TYPE_FITS and b["wrong"] is True and "fault_types" not in b
         assert c["reason"] == "" and c["wrong"] is False and c["unknown_score"] is None
+        assert [r["readings"] for r in fp.records] == [{"vib_velocity_mm_s": 1.0}] * 3  # every record, in mm/s
+
+
+def test_a_record_without_a_velocity_says_null():
+    up = Uploader("http://127.0.0.1:9", "effente-01", "conveyor-07")
+    res = {"diagnosis": "normal", "confidence": 0.9, "unknown_score": 0.2}
+    assert up.record(1000.0, row(vel=math.nan), res, [], "v")["readings"] == {"vib_velocity_mm_s": None}
+    assert up.record(1000.0, None, res, [], "v")["readings"] == {"vib_velocity_mm_s": None}
+    assert up.record(1000.0, row(vel=3.14159), res, [], "v")["readings"] == {"vib_velocity_mm_s": 3.142}
 
 
 def test_a_problem_while_the_diagnosis_is_normal():

@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import math
 import os
 import threading
 import time
@@ -52,6 +53,7 @@ WALL_CLOCK_AFTER_S = 1e9  # same rule as live.log_record: above this, device tim
 QUIET = ("normal", "warming_up", "stopped")  # diagnoses that are not "something is wrong"
 NO_TYPE_FITS = "abnormal, no known fault type fits"
 _SPECTRUM = [F.INDEX[f"vib_band_{i:02d}"] for i in range(len(F.VIB_EDGES_HZ) - 1)]
+_VELOCITY = F.INDEX["vib_velocity_mm_s"]
 _SENSORS = {t.name: t for t in FT.TYPES}
 
 
@@ -257,6 +259,10 @@ class Uploader:
             bands = [float(x[i]) for i in _SPECTRUM]
             if all(b == b for b in bands):  # no NaN: a band the device cannot compute leaves the spectrum out
                 rec["spectrum"] = [round(b, 3) for b in bands]
+        # Contract 3.5, section 9.2: every record carries the velocity in mm/s, whatever the diagnosis;
+        # null when the sensor gave none. A partial band (10-250 Hz), not an ISO 10816 number.
+        vel = float(x[_VELOCITY]) if x is not None else math.nan
+        rec["readings"] = {"vib_velocity_mm_s": round(vel, 3) if math.isfinite(vel) else None}
         rec["simulated"] = self.simulated
         return json_safe(rec)
 
