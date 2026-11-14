@@ -151,6 +151,8 @@ class DeviceApp:
         if self.stream is not None:
             self.stream.status_provider = self.status
             self.stream.settings_handler = self.settings
+            self.stream.command_handler = self.command
+            self.stream.controls = self.controls
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -350,6 +352,8 @@ class DeviceApp:
     def _row(self, t0, x):
         self.latest, self.latest_t = x, t0
         self._check_press_file()
+        if getattr(self, "_clear_history", False):
+            self._clear_history_now()
         with self.lock:
             mode, rec, watcher = self.mode, self.recorder, self.watcher
         if mode == "recording" and rec is not None:
@@ -441,6 +445,47 @@ class DeviceApp:
                         "each set one group on its own (null: follow sensitivity); early_warning false switches "
                         "the early warning off"}
 
+    def command(self, name: str | None = None, body: dict | None = None) -> dict:
+        """Do something once, for POST /command on the stream; with no name, list the commands (GET /command).
+        Raises ValueError for a command there isn't."""
+        if name is None:
+            return {"commands": COMMANDS, "send": 'POST /command with {"command": "<name>"}'}
+        if name == "press":
+            before = self.mode
+            self.on_button()
+            return {"command": name, "mode_before": before, "mode": self.mode}
+        if name == "clear_history":
+            self._clear_history = True  # done by the pipeline, between two rows, since it is the one using it
+            return {"command": name, "note": "the history is cleared before the next row (within a second)"}
+        raise ValueError(f"no such command {name!r}; there are {', '.join(COMMANDS)}")
+
+    def controls(self) -> dict:
+        """Everything a connected program (a dashboard, say) can tell the device: for GET /controls and GET /."""
+        lo, hi = SF.SENSITIVITY_RANGE
+        dials = self._dials()
+        number = f"a number from {lo:g} (least sensitive) to {hi:g} (most); each 0.25 halves or doubles how far outside normal counts as wrong"
+        settings = {
+            "sensitivity": {"now": dials["sensitivity"], "default": SF.DEFAULT_SENSITIVITY, "takes": number,
+                            "does": "how far outside this machine's normal counts as wrong, for every check that "
+                                    "compares with normal (vibration, heat, sound, the model). The fixed limits "
+                                    "(vibration over 11 mm/s, over 100 degC and so on) never change"},
+            "spike_sensitivity": {"now": dials["spike_sensitivity"], "default": SF.DEFAULT_SENSITIVITY, "takes": number,
+                                  "does": "the same, for single spikes only: one sudden impact, and one second of "
+                                          "the model over its spike line"},
+            **{k: {"now": dials.get(k), "default": None, "takes": number + "; or null to follow sensitivity",
+                   "does": f"sensitivity for {what} alone"}
+               for k, what in (("model_sensitivity", "the learned model"), ("vibration_sensitivity", "vibration against normal"),
+                               ("heat_sensitivity", "temperature against normal"), ("sound_sensitivity", "sound against normal"),
+                               ("early_warning_sensitivity", "the early warning"))},
+            "early_warning": {"now": dials.get("early_warning", True), "default": True, "takes": "true or false",
+                              "does": "the early warning (small lasting changes, before they count as wrong) on or off"},
+        }
+        return {"note": "settings stay until changed again and survive a restart; commands happen once. Nothing "
+                        "else can be sent to the device. There is no password: anyone on the network can send these",
+                "settings": {"send": 'POST /settings with a JSON object of the settings to change, e.g. {"sensitivity": 0.7}; '
+                                     "GET /settings shows them and what they mean in numbers", **settings},
+                "commands": {"send": 'POST /command with {"command": "<name>"}', **COMMANDS}}
+
     def platform_settings(self, settings: dict) -> None:
         """Settings in a reply from the platform (CONTRACT.md section 7): a sensitivity that differs
         from the device's own is applied and saved, so it survives a restart."""
@@ -497,6 +542,15 @@ class DeviceApp:
             self._assign(values)
         except (ValueError, AttributeError) as e:
             self.message = f"settings.json not used: {e}"[:80]
+
+    def _clear_history_now(self) -> None:
+        """Forget what the device remembers of past vibration, sound and heat (the history, data/history.npz): the
+        trends, and which level counts as the machine running. Called from the pipeline thread, between rows.
+        Recordings, the model and the settings are untouched."""
+        self._clear_history = False
+        self.history.__init__()  # the same object the features and the recorder hold, emptied in place
+        self.history.save(self.dir / "history.npz")
+        self._event("history_cleared", {"mode": self.mode})
 
     def _check_press_file(self):
         now = time.monotonic()
@@ -603,6 +657,15 @@ class DeviceApp:
 # the device does exactly what the main dial alone did. early_warning False switches the early warning off.
 OVERRIDES = ("model_sensitivity", "vibration_sensitivity", "heat_sensitivity", "sound_sensitivity",
              "early_warning_sensitivity")
+# What can be sent to POST /command, and what each does (shown as it is to whoever asks: GET /command, /controls).
+COMMANDS = {
+    "press": "the same as pressing the button: starts a recording (from idle or detecting), or stops the recording "
+             "and trains (a recording under 2 minutes carries on); does nothing while training",
+    "clear_history": "forget what the device remembers of past vibration, sound and heat: the trends, and which "
+                     "level counts as the machine running. Use it after the device was carried or handled and "
+                     "before recording on a machine, or when it wrongly says the machine is stopped. Recordings, "
+                     "the model and the settings are kept; the trend readings are empty again until time has passed",
+}
 SETTINGS = {"sensitivity": SF.DEFAULT_SENSITIVITY, "spike_sensitivity": SF.DEFAULT_SENSITIVITY,
             **{k: None for k in OVERRIDES}, "early_warning": True}
 

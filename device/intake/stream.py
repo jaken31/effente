@@ -18,6 +18,10 @@ platform or curl connects. No UI here, only the data.
   GET /latest     the last item of each topic, as one JSON object
   GET /features   name, text, unit and sensor of every feature, in row order
   GET /health     the server is up; how old the last result is
+  GET /controls   everything a connected program can tell the device (settings and commands), each with
+                  what it does, the values it takes and what it is now; the same list is in GET /
+  POST /settings  change settings, as a JSON object: {"sensitivity": 0.7}
+  POST /command   do something once, as a JSON object: {"command": "clear_history"}
   GET /view       a small page for a browser on the same network: the state, the readings and what
                   is wrong, read from /latest every second
 
@@ -155,6 +159,8 @@ class Stream:
         self.keepalive_s, self.max_clients = keepalive_s, max_clients
         self.status_provider = None  # () -> dict, set by watch mode
         self.settings_handler = None  # (changes dict or None) -> settings dict, set by the device app
+        self.command_handler = None  # (command name or None, its JSON object) -> reply dict, set by the device app
+        self.controls = None  # () -> everything a connected program can tell the device, for GET / and /controls
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -364,7 +370,10 @@ _INDEX = {"endpoints": {
                "?features_every=S, ?replay=S",
     "/latest": "last item of each topic", "/features": "the feature table", "/health": "server up",
     "/view": "a page for a browser: the state, the readings and what is wrong, refreshed every second",
-    "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}"}}
+    "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}",
+    "/command": "GET the commands the device takes; POST one as JSON, e.g. {\"command\": \"clear_history\"}",
+    "/controls": "everything a connected program can tell the device: every setting and every command, "
+                 "with what each does, what values it takes and what it is now"}}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -411,8 +420,12 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, _VIEW, "text/html; charset=utf-8")
             elif path == "/settings":
                 self._settings(None)
+            elif path == "/command":
+                self._command(None)
+            elif path == "/controls":
+                self._json(200, dumps({"ok": True, "you_can_send": s.controls() if s.controls else {}}))
             elif path == "/":
-                self._json(200, dumps(_INDEX))
+                self._json(200, dumps({**_INDEX, "you_can_send": s.controls() if s.controls else {}}))
             else:
                 self._json(404, dumps({"error": f"no such endpoint: {url.path}", **_INDEX}))
         except OSError:  # the client went away
@@ -421,7 +434,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/") or "/"
         try:
-            if path != "/settings":
+            if path not in ("/settings", "/command"):
                 return self._json(404, dumps({"error": f"no such endpoint: {path}", **_INDEX}))
             try:
                 n = int(self.headers.get("Content-Length") or 0)
@@ -430,9 +443,21 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError("send a JSON object, e.g. {\"sensitivity\": 0.7}")
             except ValueError as e:
                 return self._json(400, dumps({"ok": False, "error": str(e)}))
-            self._settings(changes)
+            if path == "/command":
+                self._command(changes)
+            else:
+                self._settings(changes)
         except OSError:
             pass
+
+    def _command(self, body) -> None:
+        handler = self.stream.command_handler
+        if handler is None:
+            return self._json(404, dumps({"ok": False, "error": "this device takes no commands"}))
+        try:
+            self._json(200, dumps({"ok": True, **handler(None if body is None else body.get("command"), body or {})}))
+        except ValueError as e:
+            self._json(400, dumps({"ok": False, "error": str(e)}))
 
     def _settings(self, changes) -> None:
         handler = self.stream.settings_handler
