@@ -227,6 +227,41 @@ def paper(data):
     return out
 
 
+def paper_ced(data):
+    """The paper's protocol with CED-tiny embeddings (embed_ced.py) in place of our band features: clip mean of the
+    per-second embeddings, per channel (Zoom sound; 3 vibration axes), kNN, ECDF fusion; as paper()."""
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.preprocessing import StandardScaler
+    tr = data.idx(label="normal", speed=[20, 40, 60, 80])
+    te = np.r_[data.idx(label="normal", speed=100), data.idx(label=list(C.FAULTS))]
+    y = (data.meta["label"][te] != "normal").astype(int)
+    D = data.feats
+    channels = {"audio": [D["ced_a"]], "vibration": [D["ced_v"][:, :, c] for c in range(3)]}
+    out = {}
+    for k in (1, 11):
+        for metric in ("euclidean", "cosine"):
+            per = {}
+            for name, arrs in channels.items():
+                qs = []
+                for a in arrs:
+                    A = a.reshape(len(a), 5, -1).mean(1)
+                    sc = StandardScaler().fit(A[tr])
+                    Xtr, Xte = sc.transform(A[tr]), sc.transform(A[te])
+                    nn = NearestNeighbors(n_neighbors=k + 1, metric=metric).fit(Xtr)
+                    ref = np.sort(nn.kneighbors(Xtr)[0][:, 1:].mean(1))
+                    dte = nn.kneighbors(Xte, n_neighbors=k)[0].mean(1)
+                    qs.append(np.clip((np.searchsorted(ref, dte, side="right") + 0.5) / (len(ref) + 1), 1e-6, 1 - 1e-6))
+                per[name] = np.mean(qs, 0)
+            allch = (per["audio"] + 3 * per["vibration"]) / 4
+            r = {"audio": C.auroc(per["audio"][y == 0], per["audio"][y == 1]),
+                 "vibration": C.auroc(per["vibration"][y == 0], per["vibration"][y == 1]),
+                 "fused_mean_over_channels": C.auroc(allch[y == 0], allch[y == 1])}
+            out[f"k{k}_{metric}"] = r
+            print(f"paper protocol, CED-tiny, k={k} {metric}: " + json.dumps({kk: round(v, 3) for kk, v in r.items()}),
+                  flush=True)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--part", default="paper,shift,variety")
@@ -234,10 +269,13 @@ def main(argv=None) -> int:
     ap.add_argument("--methods", default="device," + ",".join(ALT))
     ap.add_argument("--tag", default="", help="added to the output file names")
     args = ap.parse_args(argv)
-    data = C.load_data()
-    methods = args.methods.split(",")
     res = {}
-    if "paper" in args.part:
+    data = EM.data()
+    methods = args.methods.split(",")
+    if "ced" in args.part:
+        res["paper_ced"] = paper_ced(data)
+        (C.RESULTS / "paper_protocol_ced.json").write_text(json.dumps(res["paper_ced"], indent=1))
+    if "paper" in args.part.replace("ced", ""):
         res["paper"] = paper(data)
         (C.RESULTS / "paper_protocol.json").write_text(json.dumps(res["paper"], indent=1))
     if "shift" in args.part:

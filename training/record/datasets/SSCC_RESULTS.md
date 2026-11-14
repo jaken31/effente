@@ -166,7 +166,7 @@ All tables: `C:\Users\finnf\effente-sscc\results\tables.md` (regenerate with `ma
 | sensitivity | 0.75 | 0.63 | 0.56 | **0.5 (default)** | 0.42 | 0.35 | 0.25 | 0.10 |
 |---|---|---|---|---|---|---|---|---|
 | FA | 290/350 | 69/350 | 13/350 | **5/350** | 3/350 | 3/350 | 1/350 | 0/350 |
-| caught | 99 % | 86 % | 75 % | **68 %** | 57 % | 49 % | 42 % | 18 % |
+| caught | 99 % | 85 % | 75 % | **68 %** | 57 % | 49 % | 42 % | 18 % |
 
 ### 2. Alternatives on the device's own features and on generic features (selection set)
 
@@ -334,7 +334,25 @@ most faults are at learned speeds (60, 80), so a distance score partly measures 
 AUROC 0.12 (faults look *more* normal than the speed-100 normals), the same effect as the paper's vibration AUROCs
 under 0.5. That is why our main protocol learns and judges within a condition.
 
-### 10. Confirmation set (med load; run once at the end)
+### 10. Optional: a frozen pretrained audio model (CED-tiny)
+
+CED-tiny (`mispeech/ced-tiny`, 5.4 M parameters, official weights from Hugging Face) was run frozen on every
+1-second window of the Zoom sound and of the three full-band vibration axes (`embed_ced.py`; mean of its 24 output
+tokens, 192 numbers; about 2 ms a window on this PC). Selection set, the recommended model's scheme on these inputs:
+
+| inputs | FA | caught | clean | noise |
+|---|---|---|---|---|
+| CED-tiny of the sound (PCA per group / Gaussian / kNN) | 5-16/350 | 5-16 % | 3-9 % | 6-24 % |
+| MPU vibration bands + CED-tiny sound | 11/350 | 33 % | 17 % | 50 % |
+| CED-tiny of the full-band vibration | 9/350 | 78 % | 100 % | 56 % |
+| band features (recommended), for reference | 1/350 | 83 % | 100 % | 67 % |
+
+On one-second windows the frozen embedding of the sound is far worse than plain bands: it describes what kind of
+sound it is, not small changes in its level per band. In the paper's protocol (clip means, kNN) it gives audio 0.70-0.76,
+vibration 0.76-0.88, fused 0.80-0.91 AUROC, against the paper's CED 0.835 / 0.772 / 0.854 (they embed whole clips
+and resample differently). Not recommended for the board on this evidence; not tuned (window length, layer, pooling).
+
+### 11. Confirmation set (med load; run once at the end)
 
 | | FA | caught | dry | lean | loose | screwdrop | AUROC pooled | pAUC 0.1 | best@0 | best@1 % | best@5 % |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -439,7 +457,7 @@ z-score fusion, PCA at 99 % or residual-only scoring.
   fault recordings are separate sessions, so session differences count as "caught".
 - Learning data per condition is only 3.3-5 minutes (40-59 clips); the device normally learns 10-30 minutes.
 - False-alarm rates can only be resolved to about 1 in 350 clips (2 an hour); the one-a-week goal is not testable here.
-- Pretrained audio embeddings (BEATs, CED) were not run; the comparison with the paper uses our band features.
+- BEATs was not run; CED-tiny was run frozen, untuned, on 1-second windows only (section 10).
 - Phone audio (iOS, Android) was not used.
 - The paper's numbers were read through a summarising fetch of the paper; verify against the PDF.
 - `training/record/datasets/sscc.py` was not changed; the new pipeline in `sscc_eval/` replaces it for this work.
@@ -451,12 +469,14 @@ Code (this worktree, branch `track2/sscc-benchmark`), `training/record/sscc_eval
 the what-if), `common.py` (splits, rules, metrics), `methods.py` (models), `eval_device.py` (device as it is),
 `eval_methods.py` (alternatives), `eval_shift.py` (Protocol B and the paper protocol), `report.py`,
 `make_tables.py`, `tables_b.py`, `analyze.py` (dial, early detection, per condition, safety), `board_model.py`
-(NumPy reference + check against scikit-learn), `timing.py`.
+(NumPy reference of the recommended detector + checks), `timing.py`, `yell_test.py`, `embed_ced.py` (optional,
+needs torch/transformers).
 
 Data and results, `C:\Users\finnf\effente-sscc\`: `cache\` (97 files, 5.1 GB), `features\` and `features_x10\`
-(per-folder features), `results\` (`device_A.*`, `A\*.npz` raw scores per configuration, `A_x10\`, `A_rev\`,
+(per-folder features), `features_ced\` (CED-tiny embeddings), `results\` (`device_A.*`, `A\*.npz` raw scores per configuration, `A_x10\`, `A_rev\`,
 `device_A_x10.*`, `device_A_rev.*`, `tables.md`, `analysis_select.json`, `analysis_confirm.json`,
-`protocolA_select_*.json`, `shift_*.json`, `variety_*.json`, `paper_protocol.json`, `timing.json`), `RESUME.md` (log).
+`protocolA_select_*.json`, `shift_*.json`, `variety_*.json`, `paper_protocol.json`, `paper_protocol_ced.json`,
+`yell_test.json`, `timing.json`), `RESUME.md` (log).
 
 ```bash
 export PYTHONPATH=C:/Users/finnf/effente-sscc-work
