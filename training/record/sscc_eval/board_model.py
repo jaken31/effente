@@ -168,8 +168,9 @@ class Final:
     learn(rows): rows = one window_row() a second, in time order, normal running only.
     judge(row) -> (alarm, level): call once a second; level is the median of the last 3 scores over the line."""
 
-    def __init__(self, blocks=5, q=0.99, spike_times=1.0):
+    def __init__(self, blocks=5, q=0.99, spike_times=1.0, rows_per_clip=5):
         self.blocks, self.q, self.spike_times = blocks, q, spike_times
+        self.rows_per_clip = rows_per_clip
 
     def _prep_fit(self, R):
         med = np.median(R, 0)
@@ -190,16 +191,18 @@ class Final:
         return p, GroupPCA([g for g in groups if len(g)]).fit(self._prep(p, R))
 
     def learn(self, R):
+        """Fixed 14 Nov (second round) to set the line exactly as the benchmark (eval_methods.run_config +
+        report.alt_stats "med3"/"q99"): blocks of whole clips (rows_per_clip rows each; 1 = blocks of rows, as on the
+        device), the out-of-sample scores put back in time order, and the median of 3 running across block edges."""
         R = np.asarray(R, float)
-        b = np.arange(len(R)) * self.blocks // len(R)
-        cal, single = [], []
+        clip = np.arange(len(R)) // self.rows_per_clip
+        b = clip * self.blocks // (clip[-1] + 1)
+        oof = np.empty(len(R))
         for k in range(self.blocks):
             p, m = self._model(R[b != k])
-            s = m.score(self._prep(p, R[b == k]))
-            single.append(s)
-            cal.append(median3(s))
-        self.line = float(np.quantile(np.concatenate(cal), self.q))
-        self.spike = float(np.concatenate(single).max()) * self.spike_times
+            oof[b == k] = m.score(self._prep(p, R[b == k]))
+        self.line = float(np.quantile(median3(oof), self.q))
+        self.spike = float(oof.max()) * self.spike_times
         self.p, self.m = self._model(R)
         self.recent = []
         return self
@@ -209,6 +212,26 @@ class Final:
         self.recent = (self.recent + [s])[-3:]
         level = float(np.median(self.recent)) / self.line
         return (level > 1.0 or s > self.spike), level
+
+
+def check_final_lines(which="select"):
+    """Final().line against the line the benchmark sets from its saved out-of-sample scores, every condition."""
+    from training.record.sscc_eval import common as C
+    from training.record.sscc_eval import eval_methods as EM
+    from training.record.sscc_eval import report as RP
+    data = C.load_data()
+    saved = np.load(C.A_DIR / "g1-ga__fused_pca95_t2_max.npz")
+    flat = lambda a: a.reshape(-1, a.shape[-1])
+    worst = 0.0
+    for cond in C.fault_conditions(data):
+        if not RP.in_set(cond, which):
+            continue
+        learn, _ = C.split_normal(data, cond)
+        fm = Final().learn(flat(EM.raw_rows("g1+ga", learn)))
+        ref = float(np.quantile(C.running_median(saved[f"{cond}|cal"].ravel(), 3), 0.99))
+        worst = max(worst, abs(fm.line - ref) / ref)
+        print(f"  {cond:22s} Final line {fm.line:.4f} benchmark line {ref:.4f}")
+    print(f"largest relative difference {worst:.2e}")
 
 
 def check_final():

@@ -3,6 +3,21 @@
 Overnight benchmark, 14 Nov 2026. Data: the SSCC dataset (Zhang et al., arXiv 2603.07130, CC BY 4.0). Every number
 below was measured on that data with the scripts in `training/record/sscc_eval/`. Nothing here was run on the board.
 
+## Round 2 (14 Nov, morning): final choice frozen BEFORE its confirmation run
+
+Written at 03:58 (machine clock) and committed before any round-2 model was run on the confirmation set (med loads).
+Chosen on the selection set only (heavy + light). Final model: `effente/band_model.py`, `BandModel()` with its
+default settings (explore.py name `v1+alin|fuse=mean,snr=6,q=0.995`):
+- features per second: vibration 3 x (20 log bands 5-500 Hz, log rms, kurtosis, crest); sound 159 linear 50 Hz bands
+  50-8000 Hz, log rms, kurtosis, crest;
+- vibration group used only if >= 25 % of its bands are >= 6 dB over the MPU-6500 noise floor (on SSCC: never);
+- per group PCA (95 %, <= 40 patterns, residual + T2), 5 time blocks, group levels = median of out-of-sample block
+  scores, groups fused by the mean, judged by the mean of the 5 block models;
+- line = 99.5th percentile of the median of 3 out-of-sample scores; alarm on the median of the last 3 seconds; no
+  spike rule.
+Selection set: 0/350 normal clips alarmed; 96 % of fault clips caught (97 % without screwdrop, 93 % screwdrop).
+Confirmation run: see the round-2 section above this one once it is written.
+
 ## Summary
 
 **What was done.** All 6,724 SSCC clips (5 s each) were unpacked one folder at a time, turned into the signals our
