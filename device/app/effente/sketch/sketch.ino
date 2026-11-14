@@ -271,9 +271,9 @@ char micLine[64];
 uint8_t micLen = 0;
 bool micOk = false;
 float micDb = NAN, micToneHz = NAN;
-// The tone as the screen shows it: smoothed, 0.6 of what it showed and 0.4 of each new reading (the user,
+// The tone as the screen shows it: smoothed, TONE_KEEP of what it showed and the rest from each new reading (the user,
 // 14 Nov), so the number doesn't jump about. Only the screen: the readings sent on are untouched.
-const float TONE_KEEP = 0.6f;
+const float TONE_KEEP = 0.8f;  // it was 0.6; smoother still (the user, 14 Nov)
 // The six tiles' numbers are replaced all at once, at the moment a layout arrives from the Linux side (10 a
 // second: it works the velocity and the speed out that often from the newest second of vibration, and sends a
 // layout each time). Those two come in the layout, so only then can all six be new at the same instant (the
