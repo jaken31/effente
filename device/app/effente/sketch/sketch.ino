@@ -267,6 +267,9 @@ uint8_t micLen = 0;
 bool micOk = false;
 float micDb = NAN, micToneHz = NAN;
 uint32_t micLines = 0, micAt = 0;
+char espIp[20] = "";
+bool espTell = false;
+uint32_t espSaidMs = 0;
 uint32_t micFastAt = 0;  // when the last LVL line came: the ESP32's quick level, about 11 a second (its full
                          // firmware only), so the SND tile moves as fast as the IMU's tiles do
 
@@ -368,6 +371,12 @@ uint16_t halfFloat(float f) {  // IEEE 754 single to half precision, rounded
 }
 
 void sndSend() {  // called after a read of the sensor's FIFO, when there is the most time before it fills
+  if (espTell) {  // rare and small (about 25 bytes)
+    espTell = false;
+    espSaidMs = millis();
+    Bridge.notify("esp", MsgPack::str_t(espIp));
+    return;
+  }
   if (!sndReady || millis() - sndSentMs < SND_EVERY_MS) return;
   sndSentMs = millis();
   sndReady = false;
@@ -403,6 +412,13 @@ void micPoll() {
         micToneHz = parseNum(p);
         micLines++;
         micAt = millis();
+      } else if (!strncmp(micLine, "IP,", 3)) {
+        // The ESP32's WiFi address (every 5 s, once it has the thermal camera's WiFi up): the Linux side
+        // fetches the camera's frames from it. Passed on when it changes, and every 30 s besides.
+        if (strlen(micLine + 3) < sizeof espIp && (strcmp(espIp, micLine + 3) || millis() - espSaidMs > 30000)) {
+          strcpy(espIp, micLine + 3);
+          espTell = true;
+        }
       } else if (!strncmp(micLine, "LVL,", 4)) {
         const char *p = micLine + 4;
         float db = parseNum(p);

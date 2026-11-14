@@ -90,6 +90,7 @@ def feature_stream(source, window_s: float = WINDOW_S, hop_s: float = HOP_S, str
     wd = Windower(window_s=window_s, hop_s=hop_s, sensors=source.sensors)
     engine = FeatureEngine(history)
     sound_at = getattr(source, "sound_features_at", None)  # UnoQSource: the ESP32 microphone's readings
+    heat_at = getattr(source, "thermal_frames_at", None)  # UnoQSource: the ESP32's thermal camera
     k = 0
 
     def drain():
@@ -102,6 +103,8 @@ def feature_stream(source, window_s: float = WINDOW_S, hop_s: float = HOP_S, str
             w = to_window(t0, parts, source.info)
             if w.audio is None and sound_at is not None:  # sound readings worked out elsewhere (the mic's ESP32)
                 w.sound_features = sound_at(t0 + window_s)
+            if w.thermal_c is None and heat_at is not None:  # the camera's frames, fetched over WiFi
+                w.thermal_c = heat_at(t0, t0 + window_s)
             x = engine.update(w)
             if timing is not None:
                 timing["seconds"] = timing.get("seconds", 0.0) + time.perf_counter() - t

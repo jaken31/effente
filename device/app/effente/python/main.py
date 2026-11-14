@@ -24,6 +24,7 @@ from arduino.app_utils import App, Bridge  # noqa: E402
 from device.intake.device_app import DeviceApp  # noqa: E402
 from device.intake.source import UnoQSource  # noqa: E402
 from device.intake.stream import Stream  # noqa: E402
+from device.intake.thermal_link import ThermalLink  # noqa: E402
 from device.intake.uploader import ENV_URL, Uploader  # noqa: E402
 
 DATA = os.environ.get("EFFENTE_DATA", "/app/data")
@@ -41,6 +42,21 @@ Bridge.provide("audio", source.on_audio)  # ignored unless EFFENTE_MIC=1
 # The microphone as fitted: its ESP32 works the sound readings out and the sketch passes them on. Nothing
 # comes without the ESP32's full firmware (firmware/esp32_mic); rows then simply have no sound.
 Bridge.provide("snd", source.on_sound)
+
+# The thermal camera is on the ESP32 too, and its frames come over WiFi (device/intake/thermal_link.py). The
+# ESP32 says its address on the UART and the sketch passes it on ("esp"); EFFENTE_THERMAL_HOST overrides it.
+esp = {"ip": os.environ.get("EFFENTE_THERMAL_HOST") or None, "fixed": bool(os.environ.get("EFFENTE_THERMAL_HOST"))}
+
+
+def on_esp(ip):
+    ip = ip.decode() if isinstance(ip, (bytes, bytearray)) else str(ip)
+    if not esp["fixed"] and ip != esp["ip"]:
+        esp["ip"] = ip
+        print(f"the ESP32 is at {ip} (thermal frames from port 8767)", flush=True)
+
+
+Bridge.provide("esp", on_esp)
+thermal = ThermalLink(source.on_thermal_frame, host=lambda: esp["ip"]).start()
 Bridge.provide("thermal", source.on_thermal)  # ignored unless EFFENTE_THERMAL=1
 
 mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and screen found, bus state

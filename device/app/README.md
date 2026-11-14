@@ -119,6 +119,28 @@ INMP441 ──I2S──> ESP32-S3 ──UART, 115200──> UNO Q D0 ──sketc
 - **Unverified:** the full firmware on the ESP32 itself: the time one set takes (it must stay under 256 ms; its USB line prints it), and that the paced frames arrive whole.
 - **The tone tile is a wave** (the user, 13 Nov): a sine with more cycles for a higher tone, on a log scale from 100 Hz to 8 kHz, drawn from the tone's frequency (not the sound's own waveform), in place of the number.
 
+## The thermal camera (13 Nov: written, not yet run with a camera)
+
+The camera (an MLX90640, 24 × 32 pixels) goes on the microphone's ESP32, not on the UNO Q, and its frames travel over WiFi.
+
+```
+MLX90640 ──I2C──> ESP32-S3 ──WiFi──> TCP 8767 (raw frames) ──> UNO Q Linux side ──> each row's heat readings
+                            └──────> HTTP 8768 (/frame.json, /stream) ──> a dashboard, straight from the ESP32
+```
+
+- **Why not on the UNO Q:** its header pins, I2C as much as UART, go to its microcontroller, whose line to the Linux side is full. One 115-byte sound set a second already costs accelerometer samples, and a frame is 1.5 kB. On the UNO Q's own I2C bus the camera would also share the wires with the accelerometer and the screen.
+- **Wiring:** camera VIN to the ESP32's 3V3, GND to GND, SDA to GPIO 8, SCL to GPIO 9.
+- **WiFi:** copy `firmware/esp32_mic/secrets.example.h` to `secrets.h` (git ignores it) and fill in the network. A campus network with a user name and password each (WPA2-Enterprise, PEAP) also needs `WIFI_EAP_USERNAME`. With no `secrets.h` the firmware has no WiFi and no camera, and the microphone works as before. The Arduino library "Adafruit MLX90640" must be installed.
+- **For a dashboard, from the ESP32 itself** (its address is printed on its USB serial line):
+  - `http://<ESP32>:8768/frame.json`: the newest frame, `{"seq", "ms", "rows": 24, "cols": 32, "min", "max", "c": [768 temperatures in °C, row by row]}`
+  - `http://<ESP32>:8768/stream`: the same JSON for every frame as it comes (server-sent events), 2 a second
+  - TCP port 8767: the same frames in binary (the format is in [thermal_link.py](../intake/thermal_link.py))
+- **For the model:** the ESP32 says its address on the UART, the sketch passes it on, and the Linux side fetches the frames and works out the heat readings with the same Python as always (`effente/features.py`; no second copy of that maths). `EFFENTE_THERMAL_HOST` overrides the address. `/latest` status has `heat_frames`, `heat_bad_pixels` and `heat_age_s` under `sensors`.
+- **Nothing waits for it:** without the camera, or when WiFi drops, rows come as before with the camera's heat readings missing; a frame over 3 s old is not used.
+- **Both boards must be on the same network,** and it must let them talk to each other.
+- **Checked:** the firmware compiles for the ESP32-S3 with and without `secrets.h`; the Linux side is tested against a fake ESP32 ([test_thermal_link.py](../intake/tests/test_thermal_link.py)).
+- **Unverified:** everything with the real camera: the pins, its settings (4 Hz, so 2 whole frames a second), whether WiFi disturbs the microphone, and the sketch's passing on of the address.
+
 ## Deploy, and connect to the stream
 
 **Starting at power-up:** on 13 Nov effente was set as the board's default app, so it starts by itself when the board is plugged in:

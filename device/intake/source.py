@@ -235,6 +235,10 @@ class UnoQSource:
         # the microphone's readings (an ESP32 on the header's UART): the last few sets, as (window end, readings)
         self._sound: list[tuple[float, np.ndarray]] = []
         self.stats.update(sound_frames=0, sound_bad=0, sound_age_s=None)
+        # the thermal camera's frames, fetched over WiFi from the ESP32 (device/intake/thermal_link.py): the last
+        # few, as (when it arrived, frame in deg C)
+        self._heat: list[tuple[float, np.ndarray]] = []
+        self.stats.update(heat_frames=0, heat_bad_pixels=0, heat_age_s=None)
 
     # ------------------------------------------------------------ the microphone's readings (an ESP32, by UART)
     SOUND_NAMES = tuple(n for n in F.FEATURE_NAMES if n.startswith("snd_"))
@@ -275,6 +279,39 @@ class UnoQSource:
         self._sound = (self._sound + [(end, row)])[-8:]  # replaced, not changed: the pipeline thread reads it
         self.stats["sound_frames"] += 1
         self.stats["sound_age_s"] = round(self.clock() - end, 3)
+
+    HEAT_KEEP = 8  # frames kept: 4 seconds at the camera's 2 a second
+    HEAT_MAX_AGE_S = 3.0  # a frame older than this is not this row's
+
+    def on_thermal_frame(self, frame_c) -> None:
+        """One frame from the ESP32's camera (a (24, 32) array, deg C), timed by its arrival: it is about 0.5 s
+        old by then (the camera fills a frame in two halves), which is nothing to how fast heat changes.
+        A pixel the camera could not give (the ESP32 writes absolute zero) takes the frame's median, so one
+        dead pixel doesn't read as a cold spot; a frame that is mostly such pixels is dropped."""
+        f = np.array(frame_c, np.float32)
+        if f.shape != (24, 32):
+            return
+        bad = ~np.isfinite(f) | (f < -100.0)
+        if bad.any():
+            self.stats["heat_bad_pixels"] += int(bad.sum())
+            if bad.mean() > 0.5:
+                return
+            f[bad] = np.median(f[~bad])
+        self._heat = (self._heat + [(self.clock(), f)])[-self.HEAT_KEEP:]  # replaced, not changed
+        self.stats["heat_frames"] += 1
+
+    def thermal_frames_at(self, window_start: float, window_end: float):
+        """The camera's frames for a row: those that arrived during its window, or failing that the newest one
+        if it is under HEAT_MAX_AGE_S old; None when there is none (heat from the camera is then missing).
+        Never waits."""
+        frames = self._heat
+        if not frames:
+            return None
+        self.stats["heat_age_s"] = round(self.clock() - frames[-1][0], 2)
+        inside = [f for t, f in frames if window_start <= t < window_end]
+        if not inside and window_end - self.HEAT_MAX_AGE_S <= frames[-1][0] <= window_end + 1.0:
+            inside = [frames[-1][1]]
+        return np.stack(inside) if inside else None
 
     def sound_features_at(self, window_end: float):
         """The sound readings for a row whose window ends at `window_end`: the set whose own window ends nearest,

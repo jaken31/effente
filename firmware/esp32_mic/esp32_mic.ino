@@ -30,6 +30,8 @@
 //        LVL,<level dBFS, A-weighted>,<peak dBFS>     of the sound since the line before
 //      A sketch that doesn't know it ignores it.
 //
+//   4. With the thermal camera's WiFi up (thermal.h), every 5 s: IP,<this board's address>
+//
 // The MIC line also goes to USB, with how long one set of readings took to work out.
 //
 // The sound maths is checked against the Python on a computer (device/intake/tests/test_mic_features.py), and
@@ -41,6 +43,7 @@
 #include <ESP_I2S.h>
 #include <math.h>
 #include "sound_features.h"
+#include "thermal.h"  // the thermal camera and WiFi; nothing unless secrets.h exists
 
 const int PIN_SCK = 5, PIN_WS = 4, PIN_SD = 6;
 const int PIN_TX = 17, PIN_RX = 18;
@@ -215,6 +218,14 @@ static void sendTask(void *) {
     }
     Serial1.println(o.line);
     sendLevel();
+#if HAVE_THERMAL
+    static uint32_t saidIp = 0;  // this board's WiFi address, every 5 s: the UNO Q's Linux side fetches the frames
+    if (thIp[0] && millis() - saidIp > 5000) {
+      saidIp = millis();
+      Serial1.print("IP,");
+      Serial1.println(thIp);
+    }
+#endif
   }
 }
 
@@ -239,6 +250,7 @@ void setup() {
   i2sOk = I2S.begin(I2S_MODE_STD, RATE_HZ, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
   xTaskCreatePinnedToCore(captureTask, "mic", 4096, NULL, 5, NULL, 0);
   xTaskCreatePinnedToCore(sendTask, "send", 4096, NULL, 4, NULL, 0);
+  thermalBegin();
 }
 
 void loop() {
@@ -281,5 +293,10 @@ void loop() {
   // byte it has to take in is time it is not reading its sensor (measured on the board, 13 Nov).
   o.withFrame = (n % FRAME_EVERY) == 1;
   if (xQueueSend(outbox, &o, 0) != pdTRUE) skipped++;  // the wire is behind: drop this set, never wait
+#if HAVE_THERMAL
+  Serial.printf("%s | one set took %lu ms, %lu skipped | WiFi %s, camera %s, %lu frames\n", o.line, (unsigned long)lastWorkMs,
+                (unsigned long)skipped, thIp[0] ? thIp : "not joined", thOk ? "ok" : "not found", (unsigned long)thFrames);
+#else
   Serial.printf("%s | one set took %lu ms, %lu skipped\n", o.line, (unsigned long)lastWorkMs, (unsigned long)skipped);
+#endif
 }
