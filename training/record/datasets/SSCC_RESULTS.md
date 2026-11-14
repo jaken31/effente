@@ -3,6 +3,200 @@
 Overnight benchmark, 14 Nov 2026. Data: the SSCC dataset (Zhang et al., arXiv 2603.07130, CC BY 4.0). Every number
 below was measured on that data with the scripts in `training/record/sscc_eval/`. Nothing here was run on the board.
 
+## Round 2 (14 Nov, 03:33-04:30 machine clock): a better model? Not on the held-back set, for real faults
+
+**Headline, plainly.** On the selection set (heavy + light loads) the new model looked clearly better (97 % of fault
+clips caught without screwdrop at 0/350 false alarms, against 85 % at 1/350). On the held-back confirmation set (med
+loads, its second use) it was **not**: 94 % against the previous recommendation's 96 % without screwdrop, both 1/175
+false alarms. It is a different trade-off, not an improvement: much better under factory noise (100 % against 94 %)
+and on the screwdrop (98 % against 84 %), worse in quiet conditions (87 % against 98 %: dry and lean at med 60/80
+clean). The difference between the two on real faults is within what one machine's 6 recordings can tell apart.
+What did hold: the several-speeds weakness of the previous model was the normaliser's fault (fixed: 100 % clean,
+97 % noise, 0/175 across speeds), `board_model.py` now sets the benchmark's line exactly, and the code is ready
+(`effente/band_model.py`, both models as presets, tested).
+
+### What the fault classes physically are (task 1)
+
+| class | the source says | how sure |
+|---|---|---|
+| dry | "insufficient chain lubrication" (paper, sec. 3.4) | stated |
+| lean | "guide rail misalignment" (paper) | stated |
+| loose | "excessive looseness of the chains on both sides" (paper); "one of the two conveyor chains becomes excessively slack" (project page) | stated; the two texts disagree on one chain or both |
+| screwdrop | "foreign-object intrusion events that may cause local obstruction or jamming in the chain transmission path" (paper); "a small screw drops into the chain conveyor during operation" (project page) | stated that it is a foreign object; **not** stated where the screw came from |
+
+Neither source says how any fault was made. The repository (`SSCC-Fault-Benchmark`) and the archive listings hold no
+other description. **Inference:** "foreign-object intrusion" means an object from outside the machine (as the user
+guessed, a screw dropped in), not a screw that came out of the machine. **What the data shows** (`screw_nature.py`,
+selection set): every screwdrop recording (4-5 minutes) is abnormal from its first to its last minute, as steadily as
+dry, lean and loose; it is not one short event. So in SSCC "screwdrop" is a persistent state: a screw riding or stuck
+in the chain path for the whole recording. A detector that learns normal only cannot tell it from a machine fault,
+and a "brief event" display rule would not separate it here (it does not end). It is an alarm the user may want shown
+as "foreign object in the chain", not "machine worn". Results below are given three ways; nothing was tuned on
+screwdrop (selection used catches without screwdrop as its main figure).
+
+### The headline table
+
+Confirmation set (med loads: 175 held-out normal clips = 15 minutes, 1,602 fault clips; **second use of this set**,
+the choice was frozen and committed before, `dafd70c` at 03:58):
+
+| | normal clips alarmed [95 % CI] | caught: all faults | without screwdrop | screwdrop alone | dry | lean | loose | clean: FA, caught w/o screwdrop | factory noise: FA, caught w/o screwdrop | best single line at 1 % FA (all / w/o screwdrop) | caught by 1 / 2 / 3 / 5 s | each fault recording as one stream |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Device as it is | 2/175 [0.3-4.1 %] | 75 % | 79 % | 59 % | 100 | 88 | 59 | 1/74, 100 % | 1/101, 58 % | 69 / 72 | 40 / 48 / 67 / 75 | 79 % (checker) |
+| Previous recommendation (as reported) | 1/175 [0.1-3.2 %] | 94 % | **96 %** | 84 % | 99 | 100 | 93 | 0/74, 98 % | 1/101, 94 % | 98 / 99 | 0 / 73 / 86 / 94 | 97 % (checker) |
+| Previous, as `board_model.Final` ships it (spike rule on) | 2/175 [0.3-4.1 %] | 94 % | 96 % | 85 % | 99 | 100 | 93 | 1/74, 98 % | 1/101, 94 % | 93 / 95 | 36 / 75 / 87 / 94 | - |
+| **New final** (`BandModel()`, lin50) | 1/175 [0.1-3.2 %] | **95 %** | 94 % | **98 %** | 87 | 91 | 100 | 0/74, 87 % | 1/101, **100 %** | 97 / 96 | 0 / 80 / 90 / 95 | 97 % |
+
+Selection set (heavy + light: 350 held-out normal clips, 3,196 fault clips; every choice was made here, about 170
+configurations: optimistic for the new model):
+
+| | normal clips alarmed | all | w/o screwdrop | screwdrop | dry | lean | loose | clean: FA, w/o screwdrop | noise: FA, w/o screwdrop | best@1 % | by 1 / 2 / 3 / 5 s | stream |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Device as it is | 5/350 [0.6-3.3 %] | 68 % | 74 % | 49 % | 99 | 85 | 52 | 4/148, 93 % | 1/202, 54 % | 67 / 71 | 32 / 39 / 58 / 68 | - |
+| Previous recommendation | 1/350 [0.1-1.6 %] | 83 % | 85 % | 76 % | 94 | 94 | 74 | 0/148, 100 % | 1/202, 71 % | 85 / 87 | 0 / 71 / 79 / 83 | 88 % (re-run) |
+| Previous, as shipped (spike on) | 1/350 | 84 % | 85 % | 77 % | 95 | 94 | 74 | 0/148, 100 % | 1/202, 71 % | 85 / 87 | 13 / 71 / 79 / 84 | - |
+| New final | 0/350 [0.0-1.1 %] | 96 % | 97 % | 93 % | 98 | 96 | 97 | 0/148, 96 % | 0/202, 97 % | 98 / 99 | 0 / 83 / 92 / 96 | 97 % |
+
+"False-alarm episodes per hour" (rising edges of the alarm in the held-out normal stream): final 4.1/h on the
+confirmation set (1 episode in 15 minutes), 0 on selection; previous 4.1/h and 2.1/h; device 8.2/h and 8.2/h. All far
+above one a week; SSCC is too short to measure that. Raw: `results\A2\final_tables.{select,confirm}.json`,
+`results\A2\*.npz`; log `C:\Users\finnf\effente-sscc\confirm_round2.log`. Stream = each fault recording judged as one
+continuous stream, share of its 5-second clips with an alarm.
+
+Normal clips under changed conditions (selection set, `explore.py --part shift`; share of 5 s clips that alarm):
+
+| | other load, same speed | next speed (20 apart) | learn late, judge the first minutes |
+|---|---|---|---|
+| previous recommendation | 1 % | 18 % | 27 % |
+| new final | 6 % | 21 % | 24 % |
+
+The new model alarms more often when the load changes. Still: learn at the conditions of use.
+
+### What the new final is (frozen before its confirmation run)
+
+`effente/band_model.py`, `BandModel()` (= `make_model("lin50")`), per second:
+- features: vibration, per axis, 20 log bands 5-500 Hz + log rms, kurtosis, crest (69); sound, **159 linear bands of
+  50 Hz** from 50 to 8000 Hz + log rms, kurtosis, crest (162). On SSCC the finer, linear bands carried the gain
+  (32 < 64 < 128 log bands < linear 50 Hz; per-condition AUROC 1.000).
+- **vibration only if the accelerometer hears the machine**: the group is used when at least 25 % of its bands are
+  6 dB or more over the MPU-6500's own noise floor (computed from its datasheet noise). SSCC's vibration sits at that
+  floor (median 0-1 dB over it, `vib_floor.py`), so on SSCC the model is sound only. With the x10 unit what-if it keeps
+  vibration and catches 98 % at 0/350 (selection).
+- per group a PCA (95 %, at most 40 patterns, residual + T2 as the device scores); 5 blocks in time; each group's level
+  = the median of its out-of-sample block scores; groups fused by the **mean**; judged by the mean of the 5 block
+  models (the same models that set the line).
+- line = 99.5th percentile of the median of 3 out-of-sample scores; alarm when the median of the last 3 seconds is
+  over it. No spike rule.
+
+### What changed in the machinery, and why (fixes, task 2)
+
+1. **Group normaliser.** The first round took its two halves in time over the joined learning rows. Now: inside each
+   recording (`norm="halves"` keeps that, fixed), or (new default) the median of the 5-block out-of-sample scores, no
+   halves at all. For one recording the first fix changes nothing.
+2. **Judging with the block models.** The line came from models learned on 4/5 of the rows, the judging from one
+   model on all rows; with 40 patterns from about 250 rows those differ, and the results depended sharply on the
+   40-pattern cap (30 / 40 / 50 patterns: 84 / 91 / 84 %). Judging with the same block models removed that (within
+   2 points). The first round's halves normaliser had, by accident, made up for this mismatch; with the new machinery
+   the first round's own features lose that boost (81 % at 0/350 on selection) and do better under the old settings,
+   so preset `log64` keeps them.
+3. **`board_model.py`'s line** now uses blocks of whole clips and a median of 3 running across block edges:
+   identical to the benchmark's line on all 18 conditions (`check_final_lines`, relative difference 0). As shipped
+   (spike rule at 1x the highest out-of-sample second): selection 1/350, 84 %; confirmation 2/175, 94 % (93.6 %),
+   best@1 % 93 % (the checker's figures).
+
+### Several speeds in one model (task 2)
+
+Per load and background, learned on speeds 60, 80 and 100 together (each its own recording), judged per speed
+(`multispeed2.py`; % caught without screwdrop, false alarms):
+
+| | selection clean | selection noise | confirmation clean | confirmation noise |
+|---|---|---|---|---|
+| previous recommendation, normaliser fixed (`log64`) | 93 %, 0/148 | 71 %, 3/202 | **100 %, 0/74** | **97 %, 0/101** |
+| new final, one model | 28 %, 0/148 | 96 %, 0/202 | 53 %, 0/74 | 100 %, 1/101 |
+| new final, `BandModes` (one model per learned speed, closest wins) | 93 %, 0/148 | 91 %, 0/202 | 80 %, 0/74 | 100 %, 0/101 |
+
+(First round, normaliser broken: light load 33 %; the checker's fix: 72 %; device about 95 %.) The checker was
+right: the first round's several-speeds loss was the normaliser. With it fixed the previous model handles three
+speeds as well as one. The new model's fine bands are speed-specific: it needs one model per speed (`BandModes`, which
+needs each speed learned as its own recording) and is still weaker in quiet rooms.
+
+### What was tried and did not help (selection set)
+
+- Sound frame features (16 ms frames: per-band std, peaks, spectral flux), modulation spectrum of band energies,
+  vibration envelope spectrum, cross-axis coherence, 40 vibration bands, 256 log or 25 Hz linear sound bands: no gain
+  or more false alarms (the vibration extras only add MPU noise).
+- Gaussian (Ledoit-Wolf), kNN (k = 1, 5) per group instead of PCA: worse (44-78 %). The first round already found
+  isolation forest, a small autoencoder and max-|z| far worse.
+- Averaging rows over 2-5 seconds before scoring (the paper's clip pooling, in effect): up to +8 points, but at an
+  equal rate of alarms on load/speed changes the gain disappears (`tradeoff.py`), and it delays alarms.
+- Faster alarm rules: median of 2, or one second over a higher line: fewer catches (32-82 %). The spike rule adds
+  5 % of catches within the first second but raised alarms in the first minutes after a start from 24 % to 39 % of
+  clips: left off.
+- Fusing by the maximum (first round) vs the mean: the mean was as good or better in every vibration scenario
+  (MPU-style, x10, noiseless). Per-group tail normalisers (90-99th percentile): worse.
+- Pretrained audio models: not run in this round. BEATs-base is about 90 M parameters, about 9 GFLOP per second of
+  sound; on the UNO Q's 4 Cortex-A53 cores that is an estimated 2-4 s per second of sound with a float32 runtime it
+  does not have now (estimate, not measured); CED-tiny was already far worse than bands (5-16 %). Not worth it.
+- From the paper's own method (frozen encoder per channel, clip mean, kNN, ECDF-mean fusion): clip pooling = the
+  averaging above; kNN and ECDF fusion were worse here. Nothing to borrow beyond the idea of learning per operating
+  point, which `BandModes` does.
+
+### Cost on the board (PC timings x the first round's rough board/PC ratios; not measured on the board)
+
+| | features of 1 s (if on Linux) | learn 30 min | learn 60 min | judge 1 s | model file |
+|---|---|---|---|---|---|
+| lin50 (new final) | 1.4 ms PC, ~15 ms board | 1.3 s PC, ~22 s board | 1.3 s, ~22 s | 0.31 ms, ~5 ms | 1.1 MB JSON (5 block models) |
+| log64 (previous) | 1.2 ms, ~13 ms | 0.7 s, ~12 s | 1.2 s, ~21 s | 0.08 ms, ~1.3 ms | 133 kB |
+
+Learning times are for this model alone, on top of the device's own trainer (about 25 s with its fault-type
+classifier). `results\timing2.json`.
+
+### To run it on the device (nothing of this was changed: shared code needs the whole team)
+
+- `effente/features.py`: no change needed to the existing features. The model needs its own rows:
+  `band_model.window_row(accel_g, audio)`, i.e. per-axis vibration bands (today `_vibration` sums power over the
+  axes) and 159 linear sound bands (today 32 log bands, `SND_EDGES_HZ`). Add a call next to `extract`, do not change it.
+- Trainer (`effente/trainer.py`): after the existing model, build rows of the learning recording with `window_row`
+  and `BandModel().learn(rows)` (or `BandModes().learn(rows, rec)` with one rec number per learned speed), save as a
+  second file (`model.save("model_band.json")`).
+- Runtime (`effente/model_runtime.py`, `Watcher`): once a second `m.judge(row, margin)`; `level` = median of 3 / line,
+  `groups` says which sensor moved. `margin` is the sensitivity dial (1 = as tested).
+- ESP32 (`firmware/esp32_mic/sound_features.h`): the raw sound never reaches Linux by wire, so the 162 sound inputs
+  must come from the ESP32 (or from the raw WiFi stream, `audio_wifi.h`, if that is up). The 159 bands are sums over
+  the power spectrum it already computes (same adds as the 32 bands: every bin once), plus kurtosis and crest (one
+  pass over the samples): an estimated 1-3 % more work, not measured; the FFT is the cost and is unchanged, so the
+  267 ms against 256 ms problem stays as it is. Easiest: work out this set once a second (the model judges once a
+  second) instead of every 256 ms. The message grows from 45 to 162 floats (about 650 bytes): at today's pacing
+  (8 bytes per 4 ms) that takes about 330 ms, longer than the 256 ms step, so send it once a second, or use the
+  460800-baud Bridge line, or float16. Its window is 16,384 samples, not 16,000: the bands move by under 2 %; unverified.
+- Tests: `python -m pytest training/record/sscc_eval/tests -q` (6 tests; one replays the benchmark's line, scores and
+  alarms on a saved SSCC sample, `tests/data/sscc_light_vel100_clean_sample.npz`, 370 kB of feature rows).
+
+### What I would do with it
+
+1. For the demo: nothing changes (the device as it is). Learn in the demo's own conditions.
+2. Next model: either preset, chosen by the room. In a loud room (machines, fans, music) `lin50`; in a quiet room,
+   or with one model across several belt speeds, `log64` (the previous recommendation, normaliser fixed). Both run
+   in `effente/band_model.py`. Not confirmed, a hypothesis for the team's own recordings: both sound layouts as two
+   groups (`a64+alin@snd2` in `explore.py`; selection set: 99 % without screwdrop at 1/350, vibration left out). It
+   was chosen after seeing the confirmation result, was not run on it, and must not be quoted as a result.
+3. Screwdrop: show its alarms as "something in the chain path" rather than "wear"; this model cannot tell the two
+   apart without fault examples.
+
+### Unverified, or went wrong
+
+- The selection-set gain did not replicate on the confirmation set for real faults (94 % against 96 %); about 170
+  configurations were tried on the selection set, so its numbers are optimistic. The confirmation set has now been
+  used twice and seen by three agents: it is no longer a clean test.
+- Every result is one machine: 6 normal recordings per load, faults in separate sessions ("caught" includes session
+  differences).
+- The MPU noise floor is the datasheet figure through a simulation, not measured on our board; the vibration rule
+  depends on it.
+- Board costs are scaled PC timings. Nothing ran on the board or on the ESP32.
+- `explore.py`'s re-run of the previous model sets its line from blocks of rows, not clips: its numbers differ from the
+  reported ones by 1-2 points (selection 85 % vs 83 %; confirmation 92 % vs 94 %).
+- The new model alarms more on load changes (6 % vs 1 % of clips) and still alarms in the first minutes after a start
+  (24 % of clips when learned late and judged early).
+
 ## Round 2 (14 Nov, morning): final choice frozen BEFORE its confirmation run
 
 Written at 03:58 (machine clock) and committed before any round-2 model was run on the confirmation set (med loads).
@@ -16,7 +210,8 @@ default settings (explore.py name `v1+alin|fuse=mean,snr=6,q=0.995`):
 - line = 99.5th percentile of the median of 3 out-of-sample scores; alarm on the median of the last 3 seconds; no
   spike rule.
 Selection set: 0/350 normal clips alarmed; 96 % of fault clips caught (97 % without screwdrop, 93 % screwdrop).
-Confirmation run: see the round-2 section above this one once it is written.
+Its confirmation run: the round-2 section above. Everything below this line is the first round (night of 14 Nov),
+with the checker's corrections at the very end.
 
 ## Summary
 
