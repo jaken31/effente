@@ -411,8 +411,9 @@ void micPoll() {
       } else if (!strncmp(micLine, "LVL,", 4)) {
         const char *p = micLine + 4;
         float db = parseNum(p);
-        // half the new reading, half the old: quick, without every number flickering
-        micDb = (micFastAt && millis() - micFastAt < 500 && micDb == micDb) ? 0.5f * micDb + 0.5f * db : db;
+        // a quarter of the new reading, three quarters of the old (it was half and half; the user, 14 Nov: the
+        // decibels a little smoother). Only the screen: the sound readings sent on are untouched.
+        micDb = (micFastAt && millis() - micFastAt < 500 && micDb == micDb) ? 0.75f * micDb + 0.25f * db : db;
         micFastAt = millis();
       }
     } else if (c != '\r') {
