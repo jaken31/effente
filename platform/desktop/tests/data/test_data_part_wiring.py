@@ -54,15 +54,12 @@ def test_the_live_state_has_stubs_that_get_every_snapshot_and_event(make_host, m
     assert ("scans", "snapshot") in seen and ("scans", "settings") in seen
 
 
-def test_the_stubs_read_empty_and_say_not_built(make_host, make_state, qtbot):
+def test_with_nothing_stored_the_reads_are_empty(make_host, make_state, qtbot):
     state = make_state(make_host())
     assert type(state.scans) is Scans and type(state.log) is PartLog
     assert state.scans.current() is None and state.scans.all() == [] and state.scans.model_path("scan-1") is None
     assert state.log.parts() == [] and state.log.entries() == [] and state.log.selected_part() is None
     assert state.log.review("part-0001") is None and state.log.review_running("part-0001") is False
-    with qtbot.waitSignal(state.action_failed) as said:
-        state.scans.import_file("scan.usdz")
-    assert said.args == ["Scans are not built yet."]
 
 
 def test_the_general_api_calls(make_host, tmp_path, monkeypatch):
