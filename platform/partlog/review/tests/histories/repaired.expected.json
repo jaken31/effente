@@ -1,0 +1,14 @@
+{
+  "note": "The confirmed unbalance was repaired and the probe has reported since. Nothing points at the part now: the advice is no, citing the repair entry. No fault type, so how is empty.",
+  "part_id": "part-0007",
+  "state": "nothing_found",
+  "needs_repair": "no",
+  "cited_alarms": [],
+  "cited_entries": [
+    "entry-000131"
+  ],
+  "how": "",
+  "since": "2026-11-14T19:50:05Z",
+  "sheet_entries": 3,
+  "sheet_alarms": 1
+}

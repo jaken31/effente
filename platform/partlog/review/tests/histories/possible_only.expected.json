@@ -1,0 +1,14 @@
+{
+  "note": "An open, unanswered looseness alarm points at the motor mount through the part's fault_types. Possible, not confirmed: not_sure, citing the alarm.",
+  "part_id": "part-0002",
+  "state": "possible",
+  "needs_repair": "not_sure",
+  "cited_alarms": [
+    "alarm-2301"
+  ],
+  "cited_entries": [],
+  "how": "harmonics of the running speed grown (a loose mount, a rattling guard)",
+  "since": "2026-11-14T19:40:08Z",
+  "sheet_entries": 1,
+  "sheet_alarms": 1
+}
