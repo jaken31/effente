@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -25,7 +25,6 @@
 		64A07E142BFE9E0F00FDE113 /* HelpPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E042BFE9C7700FDE113 /* HelpPageView.swift */; };
 		64A07E152BFE9E0F00FDE113 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E022BFE9C7700FDE113 /* ContentView.swift */; };
 		64A07E162BFE9E0F00FDE113 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E092BFE9C7700FDE113 /* PlayerView.swift */; };
-		64A07E172BFE9E0F00FDE113 /* ModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E052BFE9C7700FDE113 /* ModelView.swift */; };
 		64A07E182BFE9E0F00FDE113 /* CaptureOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E002BFE9C7700FDE113 /* CaptureOverlayView.swift */; };
 		64A07E192BFE9E0F00FDE113 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E082BFE9C7700FDE113 /* OnboardingView.swift */; };
 		64A07E1A2BFE9E0F00FDE113 /* PrimaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A07E0A2BFE9C7700FDE113 /* PrimaryView.swift */; };
@@ -45,6 +44,7 @@
 		8DB8EB502C0A6023004F3E19 /* TutorialPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB8EB4F2C0A601C004F3E19 /* TutorialPageView.swift */; };
 		F9432A622C17AB7000D540FD /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = F9432A612C17AB6F00D540FD /* Settings.bundle */; };
 		F9432A642C17AC0500D540FD /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F9432A632C17AC0500D540FD /* PrivacyInfo.xcprivacy */; };
+		EF0000000000000000000004 /* ScanKit in Frameworks */ = {isa = PBXBuildFile; productRef = EF0000000000000000000003 /* ScanKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,7 +66,6 @@
 		64A07E022BFE9C7700FDE113 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		64A07E032BFE9C7700FDE113 /* FeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackView.swift; sourceTree = "<group>"; };
 		64A07E042BFE9C7700FDE113 /* HelpPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpPageView.swift; sourceTree = "<group>"; };
-		64A07E052BFE9C7700FDE113 /* ModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelView.swift; sourceTree = "<group>"; };
 		64A07E062BFE9C7700FDE113 /* OnboardingButtonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingButtonView.swift; sourceTree = "<group>"; };
 		64A07E072BFE9C7700FDE113 /* OnboardingTutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTutorialView.swift; sourceTree = "<group>"; };
 		64A07E082BFE9C7700FDE113 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -92,11 +91,20 @@
 		F9432A632C17AC0500D540FD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		EF0000000000000000000001 /* Effente */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Effente;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		64A07DB82BFE7CCA00FDE113 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EF0000000000000000000004 /* ScanKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -142,6 +150,7 @@
 				64C12FBF2BFEB1F2002D3E7E /* Resources */,
 				64A07DC42BFE7CCB00FDE113 /* Preview Content */,
 				F9432A632C17AC0500D540FD /* PrivacyInfo.xcprivacy */,
+				EF0000000000000000000001 /* Effente */,
 			);
 			path = EffenteScan;
 			sourceTree = "<group>";
@@ -165,7 +174,6 @@
 				64A07E032BFE9C7700FDE113 /* FeedbackView.swift */,
 				64A07E042BFE9C7700FDE113 /* HelpPageView.swift */,
 				8DB8EB4F2C0A601C004F3E19 /* TutorialPageView.swift */,
-				64A07E052BFE9C7700FDE113 /* ModelView.swift */,
 				64A07E062BFE9C7700FDE113 /* OnboardingButtonView.swift */,
 				64A07E072BFE9C7700FDE113 /* OnboardingTutorialView.swift */,
 				64A07E082BFE9C7700FDE113 /* OnboardingView.swift */,
@@ -223,6 +231,12 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				EF0000000000000000000001 /* Effente */,
+			);
+			packageProductDependencies = (
+				EF0000000000000000000003 /* ScanKit */,
+			);
 			name = EffenteScan;
 			productName = EffenteScan;
 			productReference = 64A07DBB2BFE7CCA00FDE113 /* EffenteScan.app */;
@@ -253,6 +267,9 @@
 				Base,
 			);
 			mainGroup = 64A07DB22BFE7CCA00FDE113;
+			packageReferences = (
+				EF0000000000000000000002 /* XCLocalSwiftPackageReference "../ScanKit" */,
+			);
 			productRefGroup = 64A07DBC2BFE7CCA00FDE113 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -303,7 +320,6 @@
 				8DB8EB4A2C095965004F3E19 /* AppDataModel+Orbit.swift in Sources */,
 				64A07E152BFE9E0F00FDE113 /* ContentView.swift in Sources */,
 				64A07E162BFE9E0F00FDE113 /* PlayerView.swift in Sources */,
-				64A07E172BFE9E0F00FDE113 /* ModelView.swift in Sources */,
 				8DB8EB4E2C0A5945004F3E19 /* TopOverlayButtons.swift in Sources */,
 				64A07E182BFE9E0F00FDE113 /* CaptureOverlayView.swift in Sources */,
 				64A07E192BFE9E0F00FDE113 /* OnboardingView.swift in Sources */,
@@ -458,7 +474,9 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = EffenteScan/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan objects.";
+				INFOPLIST_KEY_CFBundleDisplayName = "effente scan";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The camera reads the code on the laptop and scans the machine.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The scan is sent to the effente laptop on this network. It goes nowhere else.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -467,8 +485,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.example.apple-samplecode.guided-capture-sample${SAMPLE_CODE_DISAMBIGUATOR}";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.effente.scan${SAMPLE_CODE_DISAMBIGUATOR}";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -494,7 +512,9 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = EffenteScan/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan objects.";
+				INFOPLIST_KEY_CFBundleDisplayName = "effente scan";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The camera reads the code on the laptop and scans the machine.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The scan is sent to the effente laptop on this network. It goes nowhere else.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -503,8 +523,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.example.apple-samplecode.guided-capture-sample${SAMPLE_CODE_DISAMBIGUATOR}";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.effente.scan${SAMPLE_CODE_DISAMBIGUATOR}";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -538,6 +558,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		EF0000000000000000000002 /* XCLocalSwiftPackageReference "../ScanKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../ScanKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EF0000000000000000000003 /* ScanKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ScanKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 64A07DB32BFE7CCA00FDE113 /* Project object */;
 }

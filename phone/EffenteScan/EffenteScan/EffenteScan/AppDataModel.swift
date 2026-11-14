@@ -93,8 +93,9 @@ class AppDataModel: Identifiable {
     var tutorialPlayedOnce = false
 
     // Postpone creating ObjectCaptureSession and PhotogrammetrySession until necessary.
+    // effente: the capture does not start with the app. It starts when the person
+    // asks for it on the pairing screen, with beginCapture().
     private init() {
-        state = .ready
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(handleAppTermination(notification:)),
                                                name: UIApplication.willTerminateNotification,
@@ -114,6 +115,12 @@ class AppDataModel: Identifiable {
     /// This can also be called after a cancelled or error reconstruction to go back to the start screen.
     func endCapture() {
         state = .completed
+    }
+
+    /// effente: starts a capture from the pairing screen. Does nothing while one is under way.
+    func beginCapture() {
+        guard state == .notSet else { return }
+        state = .ready
     }
 
     func removeCaptureFolder() {
@@ -264,7 +271,8 @@ extension AppDataModel {
         currentFeedback = []
         messageList.removeAll()
         captureMode = .object
-        state = .ready
+        // effente: back to the pairing screen, not straight into a new capture.
+        state = .notSet
         isSaveDraftEnabled = false
         tutorialPlayedOnce = false
     }
@@ -323,6 +331,7 @@ extension AppDataModel {
                     try startNewCapture()
                 } catch {
                     logger.error("Starting new capture failed!")
+                    switchToErrorState(error: error)
                 }
             case .prepareToReconstruct:
                 // Clean up the session to free GPU and memory resources.

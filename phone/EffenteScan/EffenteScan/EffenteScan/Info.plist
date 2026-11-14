@@ -4,5 +4,23 @@
 <dict>
 	<key>UIApplicationSceneManifest</key>
 	<false/>
+	<!-- The laptop serves plain HTTP on an IP address on the local network. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- So an effente://scan?... QR code can open the app. Unverified: whether the system camera offers this. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>effente pairing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>effente</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

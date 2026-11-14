@@ -9,12 +9,13 @@ import SwiftUI
 
 @main
 struct EffenteScanApp: App {
-    static let subsystem: String = "com.example.apple-samplecode.guided-capture-sample"
+    static let subsystem: String = "com.effente.scan"
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(AppDataModel.instance)
+                .environment(ScanFlowModel.instance)
         }
     }
 }

@@ -20,12 +20,9 @@ struct ReconstructionPrimaryView: View {
 
     var body: some View {
         if completed && !cancelled {
-            ModelView(modelFile: outputFile, endCaptureCallback: { [weak appModel] in
-                appModel?.endCapture()
-            })
-            .onAppear(perform: {
-                UIApplication.shared.isIdleTimerDisabled = false
-            })
+            // effente: the model is handed to the Send screen when it is built
+            // (see .processingComplete below), so there is nothing to show here.
+            ProgressView()
         } else {
             ReconstructionProgressView(outputFile: outputFile,
                                        completed: $completed,
@@ -152,6 +149,13 @@ struct ReconstructionProgressView: View {
                         if !gotError {
                             completed = true
                             appModel.state = .viewing
+                            // effente: keep the file for the Send screen, then close the capture.
+                            if let folders = appModel.captureFolderManager {
+                                ScanFlowModel.instance.modelBuilt(file: outputFile,
+                                                                  captureFolder: folders.captureFolder,
+                                                                  imagesFolder: folders.imagesFolder)
+                            }
+                            appModel.endCapture()
                         }
                     case .processingCancelled:
                         cancelled = true
