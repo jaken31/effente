@@ -158,6 +158,31 @@ the highest `vib_peak_g` in two training weeks is 0.58 g, from a few unexplained
 line at sensitivity 0.5 is 1.16 g: 0 false alerts at 0.25, 0.5 and 0.75, and nothing caught. A high percentile as the level is
 being measured. more_impacts is unchanged by the whole-second fix: 0 false alerts; looseness and both splice damages caught.
 
+**The dials are built** (branch `claude/board-test-ce7d7f`, pushed as `track2/board-test` up to `3b85492`; `05f4556` and
+`84c9751` not pushed until the full suite passes):
+- **`spike_sensitivity`** (`05f4556`): the main dial no longer moves either spike path.
+  - Steady fake board, 30 healthy minutes: 0 spike alarms at 0.5 and 0.75, 3 at 1.
+  - Drifting machine (+15 % over 35 min): 0 at 0.5, 2 at 0.75, 408 at 1.
+  - So 0.75 is usable on a steady machine, and 1 is not. At 0.75 a 0.10 g knock alarms.
+- **Optional overrides** (`84c9751`): `model_sensitivity`; `vibration_`, `heat_` and `sound_sensitivity`;
+  `early_warning_sensitivity` and `early_warning: false`. One mechanism in `device_app.py`, plus
+  `Safety.set_group_sensitivity` in shared `effente/safety.py`; `margins()` is unchanged. Null or absent follows the main dial.
+
+**`sudden_impact` after a long recording: keep the training maximum as the level, 2× by default** (sound-fix, simulated
+conveyor, rot_heldout). It gives 0 false alerts a week at every multiplier from 1.25× to 5×.
+- **Every lower level** (p99.99, p99.999, the maximum without its top 5 or 10 seconds) gives 0.6–4.5 false alerts a week from
+  2× down.
+- **Why:** the highest healthy peaks are someone knocking the device (0.2–1.0 g, about 5 a fortnight, injected on purpose),
+  then the stop speed-up artefact (S5, 0.17–0.28 g) and door slams (about 0.11 g).
+- **What it catches at the maximum:** only the obvious jam's jolt (4.4 g, S5-inflated; realistic 1.3–1.6 g). The subtle jam's
+  shudder (0.33–0.39 g) is the size of a device knock, so a peak rule can't separate them.
+- **So after a long recording, the check only shows impacts bigger than the biggest knock taken while learning.** more_impacts
+  and the vibration check cover looseness, splice damage, misalignment and unbalance.
+
+**The deploy build is `07f9f56`** (pushed as `track2/board-test`; all 13 device test files pass on `84c9751`, and `07f9f56` adds
+only documentation). It holds the current model, both impact checks, the model's spike rule, `spike_sensitivity`, the optional
+per-group dials, the state names, `/view`, the 2-minute minimum and the short row floor. Not deployed: the board isn't connected.
+
 ## Resuming (written 13 Nov afternoon, before a usage pause)
 Each side session writes its state and next steps to a resume file. Background jobs (downloads, grids) keep running while
 the sessions are paused.
