@@ -37,9 +37,9 @@ from effente import features as F
 from effente import early_warning as EW
 from effente import safety as SF
 from effente.history import History
-from effente.model_input import load_columns
+from effente.model_input import load_columns, load_recording
 from effente.model_runtime import Model, Watcher
-from effente.trainer import load_for_training, train_model
+from effente.trainer import choose_period, load_for_training, train_model
 from device.intake import contract as C
 from device.intake.extract import feature_stream
 from device.intake.live import log_record
@@ -97,6 +97,37 @@ def _wrap(text: str, width: int = 21) -> list[str]:
     return lines + [cur] if cur else lines
 
 
+ADD_MIN_S = 30.0  # the least recording worth adding to earlier ones, in seconds
+JOIN_MAX_ROWS = 400_000  # rows of several recordings joined in memory: about 4 days at one a second
+
+
+def _join_recordings(folders):
+    """The rows of several recordings as one, for train_model: (t, X, names, period, the folders used). Each
+    later recording is moved up in time to follow the one before by a second, so the time between them (an hour,
+    a day) is not there to be split or summarised over; the rows themselves are unchanged. A recording made with
+    other features than the newest is left out."""
+    loaded = []
+    for f in folders:
+        X, t, names = load_recording(f)
+        if len(t):
+            loaded.append((f, np.asarray(t, float), X, list(names)))
+    if not loaded:
+        raise ValueError("no rows in the recordings")
+    names = loaded[-1][3]
+    loaded = [r for r in loaded if r[3] == names]
+    ts, Xs, end = [], [], None
+    for f, t, X, _ in loaded:
+        if end is not None:
+            t = t - round(t[0] - end - 1.0)
+        end = float(t[-1])
+        ts.append(t)
+        Xs.append(X)
+    t, X = np.concatenate(ts), np.concatenate(Xs)
+    if len(t) > JOIN_MAX_ROWS:
+        raise ValueError(f"too much to join ({len(t)} rows): record with keep false to start over")
+    return t, X, names, choose_period(float(t[-1] - t[0])), [r[0] for r in loaded]
+
+
 # Sensors this device will never have (the user, 13 Nov: there won't be a room sensor). Their readings stay
 # empty in every row, as before; they are only left out of the list of sensors that are "missing", which
 # is for sensors that should be there.
@@ -129,6 +160,10 @@ class DeviceApp:
         self.latest, self.latest_t = None, None
         self.last_press = -math.inf
         self.history = History.load(self.dir / "history.npz")
+        # The recordings the model is made from, oldest first: the button starts over with one; the "record"
+        # command can add to them (keep), so a model can be learned in several goes (see command()).
+        self.sessions: list[str] = []
+        self.fresh = False  # the recording in progress starts over: the model will be learned from it alone
         try:  # the ids of the platform's commands already done
             self._commands_done = [str(v) for v in json.loads((self.dir / "commands_done.json").read_text())][-200:]
         except (OSError, ValueError):
@@ -164,7 +199,8 @@ class DeviceApp:
     # ------------------------------------------------------------ state that survives a power cut
     def _save_state(self):
         state = {"mode": self.mode, "recording": str(self.recording) if self.recording else None,
-                 "record_started": self.record_started, "model": str(self.model_path) if self.model_path else None}
+                 "record_started": self.record_started, "model": str(self.model_path) if self.model_path else None,
+                 "sessions": list(self.sessions), "fresh": self.fresh}
         tmp = self.dir / "state.json.tmp"
         tmp.write_text(json.dumps(state))
         tmp.replace(self.dir / "state.json")
@@ -173,6 +209,8 @@ class DeviceApp:
         p = self.dir / "state.json"
         state = json.loads(p.read_text()) if p.exists() else {}
         mode = state.get("mode", "display")
+        self.sessions = [str(p) for p in state.get("sessions") or [] if Path(str(p)).exists()]
+        self.fresh = bool(state.get("fresh"))
         if state.get("model") and Path(state["model"]).exists():
             try:
                 self.model_path = Path(state["model"])
@@ -184,6 +222,8 @@ class DeviceApp:
                 self.early = None
         if mode == "watching" and self.watcher is not None:
             self.mode = self._idle_mode()
+        elif mode == "display" and self.watcher is not None:
+            pass  # put into idle on purpose (the "idle" command): stay there, with the model kept for "detect"
         elif mode == "training" and state.get("recording"):
             self.recording = Path(state["recording"])
             self.record_started = state.get("record_started") or self.clock()
@@ -213,6 +253,7 @@ class DeviceApp:
                 return
             self.last_press = now
             if self.mode in ("display", "watching"):
+                self.fresh = True  # the button relearns from nothing; the "record" command can add instead
                 self._start_recording()
             elif self.mode == "recording":
                 self._stop_recording_and_train()
@@ -238,8 +279,11 @@ class DeviceApp:
 
     def _stop_recording_and_train(self):
         took = self.clock() - (self.record_started or self.clock())
-        if took < self.min_record_s:
-            self.message = f"learn {int(self.min_record_s // 60)} min or more ({int(took // 60)} so far)"
+        adding = bool(self.sessions) and not self.fresh
+        need = ADD_MIN_S if adding else self.min_record_s  # adding to earlier recordings: a little is enough
+        if took < need:
+            self.message = (f"learn {int(need // 60)} min or more ({int(took // 60)} so far)" if need >= 60 else
+                            f"record {int(need)} s or more ({int(took)} so far)")
             self._event("stop_refused", {"reason": self.message, "learning_s": round(took, 1)})
             return
         self._close_recorder()
@@ -262,14 +306,25 @@ class DeviceApp:
 
     def _train(self):
         try:
-            t, X, names, period = load_for_training(self.recording)
+            folders = [] if self.fresh else [Path(p) for p in self.sessions
+                                             if Path(p).exists() and Path(p) != self.recording]
+            folders.append(self.recording)
+            if len(folders) == 1:
+                t, X, names, period = load_for_training(self.recording)
+            else:  # several recordings, joined end to end (the gaps between them taken out)
+                t, X, names, period, used = _join_recordings(folders)
+                folders = used
 
             def progress(stage, share):
                 self.train_stage, self.train_share = stage, share
 
-            d, report = train_model(t, X, names, period=period, source=str(self.recording), progress=progress)
-            try:  # the more_impacts check's levels, from the recording's one-a-second rows (an addition)
-                ts, cols = load_columns(self.recording, SF.SPIKE_FEATURES_SHORT + ("trend_running",))
+            d, report = train_model(t, X, names, period=period, source=" + ".join(f.name for f in folders),
+                                    progress=progress)
+            report["recordings"] = [f.name for f in folders]
+            try:  # the more_impacts check's levels, from the recordings' one-a-second rows (an addition)
+                parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + ("trend_running",)) for f in folders]
+                ts = np.concatenate([p[0] for p in parts])
+                cols = {c: np.concatenate([p[1][c] for p in parts]) for c in parts[0][1]}
                 spikes = SF.learn_spike_levels(ts, cols, ~(cols["trend_running"] < 0.5))
                 if spikes:
                     d["baseline"]["spikes"] = spikes
@@ -292,6 +347,7 @@ class DeviceApp:
             with self.lock:
                 self.model_path, self.watcher, self.mode = path, watcher, "watching"
                 self.model_version = version
+                self.sessions, self.fresh = [str(f) for f in folders], False  # what this model was learned from
                 self.safety.set_baseline(baseline)
                 self.message = ""
                 self.notes = list(baseline.get("warnings_screen", []))
@@ -459,10 +515,73 @@ class DeviceApp:
             before = self.mode
             self.on_button()
             return {"command": name, "mode_before": before, "mode": self.mode}
+        if name in ("record", "stop", "idle", "detect"):
+            with self.lock:
+                before = self.mode
+                if before == "training":
+                    raise ValueError("training: wait until it has finished (about half a minute)")
+                note = getattr(self, "_do_" + name)(body or {})
+                self._save_state()
+            self._event("command", {"command": name, "mode_before": before, "mode": self.mode})
+            return {"command": name, "mode_before": before, "mode": self.mode, "state": SCREEN_NAMES[self.mode],
+                    "recordings_in_model": [Path(p).name for p in self.sessions], **({"note": note} if note else {})}
         if name == "clear_history":
             self._clear_history = True  # done by the pipeline, between two rows, since it is the one using it
             return {"command": name, "note": "the history is cleared before the next row (within a second)"}
         raise ValueError(f"no such command {name!r}; there are {', '.join(COMMANDS)}")
+
+    # Each is called with the lock held, and never while training.
+    def _do_record(self, body) -> str | None:
+        """Start recording. keep true (the default): what is recorded is added to the recordings the model was
+        learned from; keep false: start over, as the button does (the machine is not what it was)."""
+        if self.mode == "recording":
+            return "already recording"
+        keep = body.get("keep", True)
+        if not isinstance(keep, bool):
+            raise ValueError("keep must be true or false")
+        self.fresh = not keep or not self.sessions
+        self._start_recording()
+        return ("a new start: the model will be learned from this recording alone" if self.fresh else
+                "added to " + str(len(self.sessions)) + " earlier recording(s) when stopped")
+
+    def _do_stop(self, body) -> str | None:
+        """Stop recording and train (TRAINING, then DETECTING), from this recording and the ones kept."""
+        if self.mode != "recording":
+            raise ValueError(f"not recording (the device is {SCREEN_NAMES[self.mode]})")
+        self._stop_recording_and_train()
+        return self.message or None if self.mode == "recording" else None
+
+    def _do_idle(self, body) -> str | None:
+        """Stop what the device is doing, without training: for while someone works on the machine. From
+        recording: the recording ends and is kept (for the next training, if it is ADD_MIN_S long). From
+        detecting: nothing is judged against the learned normal any more. The model stays for "detect"."""
+        note = None
+        if self.mode == "recording":
+            took = self.clock() - (self.record_started or self.clock())
+            self._close_recorder()
+            if took >= ADD_MIN_S and self.recording is not None:
+                self.sessions = ([] if self.fresh else self.sessions) + [str(self.recording)]
+                note = f"the recording ({int(took)} s) is kept for the next training"
+            else:
+                note = f"the recording was too short to keep ({int(took)} s; {int(ADD_MIN_S)} or more is kept)"
+        self.recording, self.record_started, self.fresh = None, None, False
+        self.safety.set_baseline(None)  # idle compares with nothing learned; the fixed limits still apply
+        self.result, self.message, self.mode = None, "", "display"
+        self._event("mode", {"mode": "display", "by": "command"})
+        return note
+
+    def _do_detect(self, body) -> str | None:
+        """Back to checking against the model there is (from idle)."""
+        if self.mode == "watching":
+            return "already detecting"
+        if self.mode == "recording":
+            raise ValueError('recording: send "stop" to train and detect, or "idle" to end it without training')
+        if self.watcher is None:
+            raise ValueError("no model yet: record, then stop")
+        self.safety.set_baseline(SF.baseline_of(self.watcher.m.d))
+        self.mode = "watching"
+        self._event("mode", {"mode": "watching", "by": "command"})
+        return None
 
     def controls(self) -> dict:
         """Everything a connected program (a dashboard, say) can tell the device: for GET /controls and GET /."""
@@ -496,7 +615,13 @@ class DeviceApp:
                                                    "done once. The device asks every few seconds, so this way is slower"},
                 "settings": {"send": 'POST /settings with a JSON object of the settings to change, e.g. {"sensitivity": 0.7}; '
                                      "GET /settings shows them and what they mean in numbers", **settings},
-                "commands": {"send": 'POST /command with {"command": "<name>"}', **COMMANDS}}
+                "commands": {"send": 'POST /command with {"command": "<name>"}', **COMMANDS},
+                "now": {"mode": self.mode, "state": SCREEN_NAMES[self.mode], "model": self.model_version,
+                        "recordings_in_model": [Path(p).name for p in self.sessions]},
+                "states": {"IDLE": "reading the sensors; nothing recorded, nothing compared with a learned normal",
+                           "RECORDING": "learning this machine's normal",
+                           "TRAINING": "making the model from what was recorded (about half a minute)",
+                           "DETECTING": "checking the machine against the model"}}
 
     def platform_settings(self, settings: dict) -> None:
         """Settings in a reply from the platform (CONTRACT.md section 7: sensitivity; the other settings are
@@ -697,8 +822,20 @@ OVERRIDES = ("model_sensitivity", "vibration_sensitivity", "heat_sensitivity", "
              "early_warning_sensitivity")
 # What can be sent to POST /command, and what each does (shown as it is to whoever asks: GET /command, /controls).
 COMMANDS = {
-    "press": "the same as pressing the button: starts a recording (from idle or detecting), or stops the recording "
-             "and trains (a recording under 2 minutes carries on); does nothing while training",
+    "record": "start recording (from IDLE or DETECTING). With \"keep\": true (the default) what is recorded is added to "
+              "the recordings the model was learned from, so a model can be learned in several goes; with "
+              "\"keep\": false it starts over, for a machine that is not what it was (after a repair, say). "
+              "Example: {\"command\": \"record\", \"keep\": false}",
+    "stop": "stop recording and train: TRAINING, then DETECTING. The model is made again from every recording kept "
+            "(not adjusted from the old model: training takes about half a minute, and starting from the rows "
+            "themselves leaves nothing of an old mistake behind). Refused if too little was recorded: 2 minutes "
+            "for a first recording, 30 seconds when adding",
+    "idle": "stop without training, for while someone works on the machine. A recording in progress ends and is "
+            "kept for the next training; in IDLE nothing is compared with the learned normal (the fixed limits "
+            "still apply). The model is kept",
+    "detect": "from IDLE, back to DETECTING with the model there is",
+    "press": "the same as pressing the button: starts a recording from nothing (as record with keep false), or "
+             "stops the recording and trains (a recording under 2 minutes carries on); does nothing while training",
     "clear_history": "forget what the device remembers of past vibration, sound and heat: the trends, and which "
                      "level counts as the machine running. Use it after the device was carried or handled and "
                      "before recording on a machine, or when it wrongly says the machine is stopped. Recordings, "
