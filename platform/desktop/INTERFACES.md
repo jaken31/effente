@@ -186,7 +186,7 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
    - **Wanted against in use.** After confirming, both entries are shown until they match. The page never shows the wanted entry as the one in use.
    - **The local profile.** Its name and role, and a "Change" form. The words on screen are "local profile". Never "log in", "account", "sign in" or "security".
    - **States to design, not leave blank:** no profile yet, a run running, a run failed with its reason, the stand-in's result with its label, every field empty, a profile confirmed with no device connected, wanted and in use differing, no local profile set.
-24. **`state.setup`** (`app/data/setup.py`, contract section 10). A stub until built, as `state.scans` was: reads are empty and actions report "not built yet" through `action_failed`. The state passes it every snapshot and every stream event, as it does the other two.
+24. **`state.setup`** (`app/data/setup.py`, contract section 10). Built on the routes of PR #76. The state passes it every snapshot and every stream event, as it does the other two.
 
    | Kind | Name | Meaning |
    |------|------|---------|
@@ -202,10 +202,16 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
    | read | `wanted_entry()` | The library entry wanted for the current machine, or `None` |
    | read | `device_entry()` | The entry the shown device reports, or `None` |
    | read | `local_profile()` | `{"name", "role"}`, or `None` if none is set |
+   | read | `profile_known()` | `True` once a snapshot has carried `profiles`. Until then `profile()` being `None` says nothing, so the window does not open the Setup page for it. |
+   | read | `lookup_problem()` | Why the lookup for the draft failed (HTTP 500 with a reason), or `""`. `choice()` stays `None` then. |
    | action | `start_run(answers, mode="standin")` | Run the setup agent on these answers. `mode` is `standin` or `local`, as for the report agent. A run that passes fills the draft. |
    | action | `set_draft(**fields)` | Change fields of the draft by hand. Asks the lookup again. |
    | action | `confirm()` | Store the draft as the machine profile. The only action that sends anything toward the device. |
    | action | `set_local_profile(name, role)` | Keep the local profile in the store from `app/settings.py`. No password. |
+
+   `start_run` runs `python3 platform/setup_run.py --machine <id> --answers - --port <port> --backend <mode>` as a local process, with the answers on its stdin as `[{"about", "question", "answer"}]` (platform/setup/agent/README.md). A run that passes fills the draft when it arrives on the stream. `wanted_entry()` is the confirmed profile's choice; `device_entry()` is the `library_entry` of the shown device's model announcement. The device does not act on the wanted entry yet (plan row D1), so the page says "chosen, not yet loaded on the device" until the device reports an entry, and never shows the wanted one as running.
+
+   The window opens the Setup page by itself, once a run, for the current machine when `profile_known()` and `profile()` is `None`.
 
    `answerer()` (addition 2) gives the local profile's name first, then what it gave before: `EFFENTE_ANSWERER`, else the laptop's login name. The role is not sent. The local profile is not security, and no code, comment, screen or doc may call it a login, an account or security.
 25. **Sample data in the setup fake.** `FakeState().setup` is a `FakeSetup` (`tests/fake_setup.py`). Written by hand, not by real code: a machine with no profile, a finished stand-in run that filled three fields and left two empty, a choice of `conveyor` with the lists of contract 10.2's example, a confirmed profile whose wanted entry differs from the one the device reports, and a local profile "Sam, technician". Actions change only the fake.
