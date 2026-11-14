@@ -488,8 +488,10 @@ class DashboardState(StateReads):
         shown = self.device_id()
         before = self._problem_key()
         logic.apply_event(self._s, name, data, self.now_ms(), slim=False)
-        logic.apply_laptop_event(self._s, name, data)
+        new_machine = logic.apply_laptop_event(self._s, name, data) and name in ("scan", "part")
         self._feed_event(name, data)
+        if new_machine:
+            self.snapshot_changed.emit()  # a machine that began with a scan or a part: refill the picker
         if self.current_machine() != self._loaded_machine:
             self._load_machine()
         if name == "record":

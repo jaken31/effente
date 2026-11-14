@@ -193,6 +193,20 @@ def test_state_waits_for_a_receiver_that_is_not_up_yet(qtbot, tmp_path, make_sta
         late.stop()
 
 
+def test_a_machine_that_begins_with_a_scan_reaches_the_picker(qtbot, host, client, make_state):
+    """A scan for a machine no probe has reported on, sent while the app is open: the
+    machine list gains it and snapshot_changed fires, which is what refills the picker."""
+    client.json("POST", "/api/records", normal())
+    state = make_state(host)
+    qtbot.waitUntil(lambda: state.machines() == [MACHINE], timeout=5000)  # the first snapshot is in
+    seen = []
+    state.snapshot_changed.connect(lambda: seen.append(list(state.machines())))
+    status, reply = client.json("POST", "/api/machines/k-526/scans?client_id=test-0001", raw=b"glTF" + bytes(64))
+    assert status == 200, reply
+    qtbot.waitUntil(lambda: any("k-526" in machines for machines in seen), timeout=5000)
+    assert state.machines() == sorted([MACHINE, "k-526"])
+
+
 def test_set_machine_switches_everything(qtbot, host, client, make_state):
     client.json("POST", "/api/records", normal())
     other = dict(MODEL, device_id="effente-02", machine_id="fan-02", model_version="fan-02-v1")
