@@ -26,9 +26,13 @@ MAX_DAYS = 365  # an end of `reaches` past this is null
 # Whether the app may show days and dates (contract 9.5, "The check on
 # run-to-failure data"). Fixed in code, never worked out from a part's readings.
 #
-# False until the check on run-to-failure data (platform/partlog/tests/
-# check_projection_ims.py) has run and come out well: the app then says
-# "Trend" and shows no days figure and no date.
+# False: the check on run-to-failure data (platform/partlog/tests/
+# check_projection_ims.py, four failed NASA IMS bearings) came out poorly on
+# 14 Nov 2026 against the bar set before it ran. Where the score did climb to
+# the line, it mostly jumped in the last day or two, and a straight line through
+# the flat days before said "no clear rise" or gave too many days. The app
+# says "Trend" and shows no days figure and no date. That data checks the
+# method, not our device.
 SHOW_DAYS = False
 
 OVER_LINE, RISING, NO_CLEAR_RISE, NOT_RISING = "over_line", "rising", "no_clear_rise", "not_rising"
