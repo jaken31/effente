@@ -598,3 +598,53 @@ def test_one_sudden_twist_or_jump_in_temperature_shows_too_and_a_missing_sensor_
     assert [(tt, name) for tt, name, _ in hot] == [(40.0, "sudden_heat")], hot
     assert run(0.5, 40, imu_temp_c=t_top + 3.0) == [] and [n for _, n, _ in run(0.75, 40, imu_temp_c=t_top + 3.0)] == ["sudden_heat"]
     assert run(0.5, 40, th_max_c=500.0) == []  # a camera reading with nothing learned for it: not checked
+
+
+def test_a_device_that_is_not_where_it_was_says_device_moved_first():
+    """Gravity's direction more than 10 degrees from the direction learned, held like the other lasting checks:
+    DEVICE MOVED, said before anything else that moving it set off; a few degrees is nothing; and with no
+    direction learned (an older model, or a sensor that shows no gravity) there is no such check."""
+    def tilted(deg):
+        x = row(gravity=1.0)
+        a = math.radians(deg)
+        x[F.INDEX["vib_gravity_x"]], x[F.INDEX["vib_gravity_z"]] = math.sin(a), math.cos(a)
+        return x
+
+    X = np.array([tilted(0.0) for _ in range(120)])
+    base = SF.learn_baseline(X, F.FEATURE_NAMES)
+    assert np.allclose(base["gravity"], [0.0, 0.0, 1.0], atol=1e-4)
+    for deg, want in ((0.0, []), (6.0, []), (18.0, ["device_moved"])):
+        s = SF.Safety(base)
+        started, _ = feed(s, 30, make=lambda tt, deg=deg: tilted(deg))
+        assert started == want, (deg, started)
+        if want:
+            p = s.problems()[0]
+            assert SF.screen_text(p) == "DEVICE MOVED" and abs(p["value"] - 18.0) < 0.5
+            v = SF.verdict({"diagnosis": "vibration_too_high", "symptoms": ["vibration_too_high"]}, s.problems())
+            assert v["what"][0] == "device_moved" and "vibration_too_high" in v["what"]
+    s = SF.Safety(base)
+    feed(s, 30, make=lambda tt: tilted(18.0))
+    assert feed(s, 30, start=30, make=lambda tt: tilted(1.0))[1] == ["device_moved"]  # put back: it clears
+    older = {k: v for k, v in base.items() if k != "gravity"}
+    assert feed(SF.Safety(older), 30, make=lambda tt: tilted(60.0))[0] == []
+
+
+def test_a_short_recordings_model_leaves_out_what_ten_minutes_cannot_learn():
+    """effente.trainer.SHORT_LEAVES_OUT: the time of day, the tilt and the temperature are not in a short
+    recording's model (they are in a long one's), and the baseline says which were left out."""
+    from effente import trainer as TR
+    from effente.model_runtime import Model
+    rng = np.random.default_rng(5)
+    n = 400
+    X = np.full((n, F.N_FEATURES), np.nan)
+    t = 1_700_000_000.0 + np.arange(n)
+    for name in F.FEATURE_NAMES:
+        if name.startswith(("vib_", "gyr_", "imu_temp", "time_hour")) and not name.startswith("vib_axis"):
+            X[:, F.INDEX[name]] = rng.normal(0.0, 1.0, n)
+    X[:, F.INDEX["vib_gravity_z"]] = 1.0 + rng.normal(0, 0.001, n)
+    d, rep = TR.train_model(t, X, F.FEATURE_NAMES, period=1)
+    kept = set(Model(d).prep.columns)
+    left = set(d["baseline"]["model_leaves_out"])
+    assert {"vib_gravity_z", "imu_temp_c", "time_hour_sin"} <= left and not kept & left
+    assert "vib_rms_x" in kept and "gyr_rms" in kept
+    assert "gravity" in d["baseline"] and "imu_temp_c" in d["baseline"]["levels"]  # the checks still have them

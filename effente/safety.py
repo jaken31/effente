@@ -176,14 +176,22 @@ MOMENT_COLUMNS = (SOUND_FEATURE,) + tuple(f for _, f, _, _ in MORE_MOMENTS)  # f
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
+# The device is not where it was while learning: gravity's direction more than MOVED_DEG from the direction learned
+# (the baseline's "gravity"), held like the other lasting checks. Its own plain message, DEVICE MOVED. Before
+# this (14 Nov, on the bench) a device turned on its side gave a constant VIBRATION TOO HIGH from the model. A
+# fixed angle, no dial: 10 degrees is well over what the sensor's noise or a vibrating mount gives, and under
+# a head put back visibly askew. Sensors that don't measure gravity (piezo) have no "gravity" learned: no check.
+MOVED_DEG = 10.0
+POSITION = ("device_moved",)
 RATES = ("more_impacts",)
 MOMENTS = ("sudden_impact", "sudden_sound", "sudden_twist", "sudden_heat")  # on with the moment itself, off when its own hold ends
-CHECKS = SENSOR + UNIVERSAL + RELATIVE + RATES + MOMENTS
+CHECKS = SENSOR + UNIVERSAL + RELATIVE + POSITION + RATES + MOMENTS
 # Old names of checks, as older saved models still list them in their baseline's "dropped".
 # "vibration_too_high" is now only a model fault type (effente.fault_types).
 RENAMED = {"vibration_too_high": "vibration_over_limit"}
 # Judged from the accelerometer, so set aside while the sensor's readings make no sense.
-FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal", "sudden_impact")
+FROM_VIBRATION = ("vibration_over_limit", "knocking", "repeated_jolts", "vibration_above_normal", "sudden_impact",
+                  "device_moved")
 
 WHAT = {  # what each problem is, for people: (sentence, the screen's short form after "! ", with its value)
     "sensor_problem": ("the sensor's readings make no sense: check its wires and that it is fixed down; "
@@ -197,6 +205,7 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "hotter_than_normal": ("hotter than its normal", "HOTTER THAN NORMAL", "{v:+.0f} C OVER NORMAL"),
     "louder_than_normal": ("louder than its normal", "LOUDER THAN NORMAL", "{v:+.0f} dB OVER NORMAL"),
     "more_impacts": ("more knocks or clicks than its normal", "MORE IMPACTS", None),
+    "device_moved": ("the device is not where it was while learning (its tilt changed)", "DEVICE MOVED", "MOVED {v:.0f} DEG"),
     "sudden_impact": ("a sudden impact, well beyond any while learning", "SUDDEN IMPACT", "IMPACT {v:.1f}x NORMAL"),
     "sudden_sound": ("a sudden loud sound, well beyond any while learning", "SUDDEN LOUD SOUND", "{v:+.0f} dB OVER LOUDEST"),
     "sudden_twist": ("a sudden twist or jolt, well beyond any while learning", "SUDDEN TWIST", "TWIST {v:.1f}x NORMAL"),
@@ -210,7 +219,8 @@ SYMPTOM = {"sensor_problem": "sensor_problem", "vibration_over_limit": "vibratio
            "repeated_jolts": "knocking_or_jolts", "vibration_above_normal": "vibration_too_high",
            "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal",
            "more_impacts": "knocking_or_jolts", "sudden_impact": "knocking_or_jolts",
-           "sudden_sound": "louder_than_normal", "sudden_twist": "knocking_or_jolts", "sudden_heat": "too_hot"}
+           "sudden_sound": "louder_than_normal", "sudden_twist": "knocking_or_jolts", "sudden_heat": "too_hot",
+           "device_moved": "device_moved"}
 
 _NAN = float("nan")
 
@@ -342,6 +352,9 @@ class Safety:
         self.period_s = float(p) if p and float(p) > 1.0 else None  # None: judged a row at a time
         self.recent: dict[str, deque] = {n: deque() for n in LEVELS}  # (t, value) over the last period
         self.spikes = (baseline or {}).get("spikes") or None
+        g = (baseline or {}).get("gravity")
+        self.gravity0 = [float(v) for v in g] if g and len(g) == 3 else None  # the direction learned (a unit vector)
+        self.hist["device_moved"].clear()
         self.spike_secs: dict[str, deque] = {n: deque() for n in SPIKE_FEATURES}  # whole seconds over the level
         self.impact_until, self.impact = -math.inf, (_NAN, _NAN)  # the hold's end; the biggest (ratio, peak in g) in it
         self.loud_until, self.loud = -math.inf, _NAN  # sudden_sound: the hold's end; the most dB over in it
@@ -459,6 +472,13 @@ class Safety:
         m.update({k: v for k, v in _universal(r, self._imu_rise(t0, r["imu_temp_c"])).items() if k not in self.dropped})
         if self.levels:
             m.update(_relative(self._medians(t0, r), self.levels, self.margins))
+        if self.gravity0 is not None:
+            g = [_f(x, f"vib_gravity_{a}") for a in "xyz"]
+            size = math.sqrt(sum(v * v for v in g)) if all(math.isfinite(v) for v in g) else 0.0
+            if size > 0.5:  # an accelerometer that shows gravity
+                cos = sum(a * b for a, b in zip(g, self.gravity0)) / size
+                angle = math.degrees(math.acos(max(-1.0, min(1.0, cos))))
+                m["device_moved"] = (angle > MOVED_DEG, angle)
         if self.spikes:
             m["more_impacts"] = self._impacts(t0, x)
             m["sudden_impact"] = self._sudden_impact(t0, x)
@@ -581,7 +601,14 @@ def learn_baseline(X, names, running=None, period_s=None) -> dict:
             if not 1 / 1.3 <= ratio <= 1.3:
                 warnings.append(f"vibration still changing at the end ({ratio:.2f}x): learning longer gives a better normal")
                 short.append("VIB STILL CHANGING")
-    return {"levels": levels, "dropped": dropped, "warnings": warnings, "warnings_screen": short,
+    grav = np.array([[_f(x, f"vib_gravity_{a}") for a in "xyz"] for x in X], float)
+    grav = grav[np.isfinite(grav).all(1)]
+    gravity = {}
+    if len(grav) >= max(10, len(X) // 2) and measures_gravity:
+        mean = grav.mean(0)
+        if np.linalg.norm(mean) > 0.5:
+            gravity = {"gravity": [round(float(v), 5) for v in mean / np.linalg.norm(mean)]}  # for device_moved
+    return {"levels": levels, "dropped": dropped, "warnings": warnings, "warnings_screen": short, **gravity,
             "period_s": int(period_s) if period_s else 1,
             "note": "levels are the 99th percentile while learning, of medians over period_s; readings are "
                     "judged on their median over the same period; how far outside counts as wrong is "
@@ -683,6 +710,8 @@ def verdict(model_state: dict | None, problems: list[dict]) -> dict:
             what.append(sym)
     covered = {c for s in what for c in FT.COVERS.get(s, ())}
     what = [s for s in what if s not in covered]
+    if any(p["name"] == "device_moved" for p in problems):  # said first: the rest may only be what moving it did
+        what = ["device_moved"] + [s for s in what if s != "device_moved"]
     if "sensor_problem" in what:
         what = ["sensor_problem"] + [s for s in what if s != "sensor_problem"]
     return {"wrong": bool(what), "what": what, "details": details}

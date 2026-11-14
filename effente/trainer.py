@@ -302,6 +302,16 @@ SMOOTH_LONG, SMOOTH_SHORT = 10, 5  # periods the Watcher takes the median of bef
 # like): with 1-minute periods the model sees minute medians, which a 1-second spike cannot move, and system C's
 # false-alert numbers were measured without a second alarm path. Unverified: not yet run for long on a machine.
 SPIKE_LINE_TIMES = 2.5
+# Readings a short recording (periods under a minute: under about a day) cannot learn the range of, so its model
+# leaves them out: the time of day, the device's tilt (gravity on x, y, z) and the temperature with its trends.
+# In 10 minutes each hardly moves, so its learned spread is tiny, and afterwards the clock moving on, the device
+# re-seated a little or the room a third of a degree warmer reads as many spreads from normal. Measured on the
+# device (14 Nov; 10 minutes recorded on a bench, then judged 3 hours later with the device 18 degrees off its
+# place and nothing else changed): the model alarmed 83 % of the time with them (score 1.03 of its line) and
+# never without (0.38); in place the score was 0.28 either way. They are still read, shown and recorded, and
+# the checks in effente.safety still watch them: hotter_than_normal, sudden_heat, heating_fast, and
+# device_moved for the tilt. Long recordings keep them: a week spans the day and the weather.
+SHORT_LEAVES_OUT = ("time_", "vib_gravity_", "imu_temp_c", "trend_heat_")
 
 
 def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
@@ -365,6 +375,10 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
         raise ValueError(f"too little recorded: {len(t)} rows of {period} s; record at least "
                          f"{math.ceil(need * period / 60)} minutes of the machine running")
     long = period >= LONG_PERIOD
+    left_out = [] if long else [str(n) for n in names if str(n).startswith(SHORT_LEAVES_OUT)]
+    if left_out:  # for the model only: the baseline above was learned with them
+        X = np.array(X, float)
+        X[:, [i for i, n in enumerate(names) if str(n) in set(left_out)]] = np.nan
     smooth = int(smooth or (SMOOTH_LONG if long else SMOOTH_SHORT))
     crossfit = normal_model == "pca" and long and len(t) >= 2 * MIN_ROWS
     if crossfit:  # the line from out-of-sample scores; the model itself learns on everything
@@ -455,6 +469,8 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
               "threshold": round(d["threshold"], 4), "fault_classes": len(classes),
               "classifier_exact_match": round(acc, 3), "dropped_limits": baseline["dropped"],
               "warnings": baseline["warnings"], "learned_from_all_rows": all_rows}
+    if left_out:
+        baseline["model_leaves_out"] = left_out  # in the baseline, which carries added keys; not a new model-file key
     d["training_report"] = report
     say("done", 1.0)
     return d, report

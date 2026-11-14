@@ -79,7 +79,12 @@ def test_every_symptom_has_a_short_form_that_fits_the_screen():
 def test_calibration_covers_every_series():
     m, calib = model()
     assert calib["series"] == list(EW.SERIES) and calib["blocks_learned"] == 30
-    assert all(v is not None and v > 0 for v in calib["spread"])
+    # A short recording's model leaves out the tilt, the temperature and its trends (effente.trainer
+    # SHORT_LEAVES_OUT: 10 minutes cannot learn their range), so the three series made only of those have no
+    # spread and are not watched; effente.safety watches them (device_moved, sudden_heat, heating_fast).
+    none = {n for n, v in zip(calib["series"], calib["spread"]) if v is None}
+    assert none == {"heating_up", "heating_fast", "device_moved"}, none
+    assert all(v > 0 for v in calib["spread"] if v is not None)
 
 
 def test_normal_says_nothing():
