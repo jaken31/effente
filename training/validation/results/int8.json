@@ -1,0 +1,144 @@
+{
+ "check": "int8",
+ "status": "ok",
+ "reason": "",
+ "command": "python3 -m training.validation.check_int8 --seeds 1,2,3,4,5",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "data_source": "training/library; effente.simulate_conveyor (realistic mode) + effente.site_noise (factory); effente.simulate_server + effente.site_noise (datacenter)",
+ "label": "simulated",
+ "notes": [],
+ "standin": null,
+ "library_code": null,
+ "features_version": "89613129193f",
+ "created": "2026-11-14T05:26:24+00:00",
+ "rows": [
+  {
+   "entry": "conveyor",
+   "metric": "int8 vs float score correlation, the entry's network",
+   "value": 0.99997,
+   "n": "1 model",
+   "range": "",
+   "data_source": "training/library"
+  },
+  {
+   "entry": "generic_rotating",
+   "metric": "int8 vs float score correlation, the entry's network",
+   "value": 0.99999,
+   "n": "1 model",
+   "range": "",
+   "data_source": "training/library"
+  },
+  {
+   "entry": "own model, conveyor",
+   "metric": "int8 vs float score correlation, lowest over machines",
+   "value": 0.99993,
+   "n": "5 models",
+   "range": "0.9999 to 1",
+   "data_source": "effente.simulate_conveyor (realistic mode) + effente.site_noise (factory)"
+  },
+  {
+   "entry": "own model, server",
+   "metric": "int8 vs float score correlation, lowest over machines",
+   "value": 0.99996,
+   "n": "5 models",
+   "range": "1 to 1",
+   "data_source": "effente.simulate_server + effente.site_noise (datacenter)"
+  }
+ ],
+ "detail": [
+  {
+   "entry": "conveyor",
+   "correlation": 0.99997
+  },
+  {
+   "entry": "generic_rotating",
+   "correlation": 0.99999
+  },
+  {
+   "entry": "own model, conveyor",
+   "machine": "conveyor",
+   "seed": 1,
+   "correlation": 0.99998,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, conveyor",
+   "machine": "conveyor",
+   "seed": 2,
+   "correlation": 0.99998,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, conveyor",
+   "machine": "conveyor",
+   "seed": 3,
+   "correlation": 0.99998,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, conveyor",
+   "machine": "conveyor",
+   "seed": 4,
+   "correlation": 0.99999,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, conveyor",
+   "machine": "conveyor",
+   "seed": 5,
+   "correlation": 0.99993,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, server",
+   "machine": "server",
+   "seed": 1,
+   "correlation": 0.99996,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, server",
+   "machine": "server",
+   "seed": 2,
+   "correlation": 1.0,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, server",
+   "machine": "server",
+   "seed": 3,
+   "correlation": 0.99998,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, server",
+   "machine": "server",
+   "seed": 4,
+   "correlation": 0.99996,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  },
+  {
+   "entry": "own model, server",
+   "machine": "server",
+   "seed": 5,
+   "correlation": 1.0,
+   "normal_model": "pca",
+   "rows_learned": 1785
+  }
+ ]
+}
