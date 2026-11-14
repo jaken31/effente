@@ -3,6 +3,50 @@
 Overnight benchmark, 14 Nov 2026. Data: the SSCC dataset (Zhang et al., arXiv 2603.07130, CC BY 4.0). Every number
 below was measured on that data with the scripts in `training/record/sscc_eval/`. Nothing here was run on the board.
 
+## Decision and headline results (14 Nov 2026)
+
+**The team is choosing `log64` as the next model.** `effente.band_model.make_model()` returns it. It is not on the device yet: the device still runs the PCA model of `effente/trainer.py`. To run it, the ESP32 firmware must send 64 sound bands and 2 extra values instead of 32 bands, and the trainer and runtime must learn, save and judge it (see "To run it on the device" below).
+
+Both presets live in `effente/band_model.py` (NumPy only). The figures below are for the presets as shipped, recomputed by an independent checker (`check2/recompute2.py`); where older sections of this file differ, these are right. Per condition, the normal clips in time order are split 60 % learn / 5 % gap / 35 % held out; "caught" is the share of fault clips that alarm. Dataset: SSCC (Zhang et al., arXiv 2603.07130, CC BY 4.0), 5 s clips of one chain conveyor.
+
+### All conditions of a load
+
+| load | model | normal clips alarmed | all faults | without screwdrop | dry | lean | loose | screwdrop |
+|---|---|---|---|---|---|---|---|---|
+| med (confirmation) | `log64` | 1/175 | 92 % | 95 % | 99 % | 99 % | 90 % | 81 % |
+| med (confirmation) | `lin50` | 1/175 | 95 % | 94 % | 87 % | 91 % | 100 % | 98 % |
+| light (selection) | `log64` | 0/174 | 89 % | 91 % | 100 % | 98 % | 80 % | 82 % |
+| light (selection) | `lin50` | 0/174 | 96 % | 96 % | 97 % | 92 % | 99 % | 94 % |
+| heavy (selection) | `log64` | 1/176 | 81 % | 83 % | 89 % | 90 % | 75 % | 75 % |
+| heavy (selection) | `lin50` | 0/176 | 96 % | 97 % | 99 % | 100 % | 94 % | 91 % |
+
+### Quiet against factory noise (all fault clips)
+
+| load | model | quiet: normal alarmed | quiet: caught | noise: normal alarmed | noise: caught | noise: loose |
+|---|---|---|---|---|---|---|
+| med (confirmation) | `log64` | 0/74 | 96 % | 1/101 | 87 % | 83 % |
+| med (confirmation) | `lin50` | 0/74 | 90 % | 1/101 | 100 % | 100 % |
+| light (selection) | `log64` | 0/72 | 99 % | 0/102 | 78 % | 61 % |
+| light (selection) | `lin50` | 0/72 | 92 % | 0/102 | 100 % | 100 % |
+| heavy (selection) | `log64` | 0/76 | 100 % | 1/100 | 62 % | 49 % |
+| heavy (selection) | `lin50` | 0/76 | 100 % | 0/100 | 92 % | 89 % |
+
+### Reading it
+
+- `log64`: nearly everything in quiet (96-100 %), 2 false alarms in 525 normal clips (both under noise). Its weakness is factory noise, mostly on loose chains, worst at heavy load.
+- `lin50`: 90-100 % everywhere, 1 false alarm in 525. Its weakness is the quiet room at med and light load (dry chain and rail misalignment).
+- Why `log64` all the same: one model covers several belt speeds (`lin50` needs one per speed), the ESP32 has to send 67 sound values instead of 162, the file is 133 kB instead of 1.1 MB, and its sensor groups are fused by maximum, which suits adding a thermal-camera group (untested: SSCC has no thermal data).
+- Cost measured on the UNO Q (random rows shaped like the features): `log64` 8.8 ms of feature work per second, 1.0 ms to judge, 2.5 s to learn 30 min; `lin50` 9.5 ms, 3.4 ms, 2.0 s.
+
+### Limits
+
+- Heavy and light loads were used to choose and tune (`lin50` was tuned there, so its figures there are optimistic); med load was held back but has now been used twice.
+- One machine. After the MPU-6500's simulated noise the vibration sits at the sensor's floor in every condition, so this is almost entirely a test of sound.
+- Screwdrop (a screw in the chain path, per the dataset's authors) is reported separately and was not used for choosing.
+- The device will often sit in a fairly loud place, which is where `log64` is weaker. Compare both presets on the team's own recordings once the ESP32 sends the finer bands.
+
+---
+
 ## Round 2 (14 Nov, 03:33-04:30 machine clock): a better model? Not on the held-back set, for real faults
 
 **Headline, plainly.** On the selection set (heavy + light loads) the new model looked clearly better (97 % of fault
