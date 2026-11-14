@@ -3,6 +3,33 @@
 Overnight benchmark, 14 Nov 2026. Data: the SSCC dataset (Zhang et al., arXiv 2603.07130, CC BY 4.0). Every number
 below was measured on that data with the scripts in `training/record/sscc_eval/`. Nothing here was run on the board.
 
+## Update, 14 Nov 2026, 12:30: the team is using `hyb60` (round 3)
+
+This replaces the `log64` decision in the next section, which is kept as the record of the two earlier presets.
+
+`hyb60` is the same kind of model (one PCA per sensor group) with a hybrid sound layout: 30 log bands from 50 to 600 Hz, then 148 linear 50 Hz bands from 600 to 8000 Hz, plus log rms, kurtosis and crest: 181 sound values a second. At most 60 patterns, groups fused by maximum, `lin50`'s line (99.5th percentile of the running median of 3 out-of-sample scores). Code: `training/record/sscc_eval/round3/round3_model.py` (NumPy only); report and freeze note beside it (`ROUND3.md`, `FREEZE.md`).
+
+Fault clips caught, same split and alarm rule for all three:
+
+| load | model | normal clips alarmed | all faults | without screwdrop | quiet | noise |
+|---|---|---|---|---|---|---|
+| med (held back; one run after the freeze) | `log64` | 1/175 | 91.9 % | 94.9 % | 96.3 % | 87.2 % |
+| med | `lin50` | 1/175 | 94.6 % | 93.7 % | 89.5 % | 100 % |
+| med | **`hyb60`** | 1/175 | **99.9 %** | 99.9 % | 99.9 % | 100 % |
+| light (selection) | `log64` | 0/174 | 88.7 % | 90.6 % | 99.4 % | 78.1 % |
+| light (selection) | `lin50` | 0/174 | 95.8 % | 96.2 % | 91.6 % | 100 % |
+| light (selection) | **`hyb60`** | 0/174 | **98.7 %** | 99.0 % | 97.5 % | 100 % |
+| heavy (selection) | `log64` | 1/176 | 81.1 % | 82.7 % | 100 % | 62.3 % |
+| heavy (selection) | `lin50` | 0/176 | 95.9 % | 97.2 % | 99.6 % | 92.2 % |
+| heavy (selection) | **`hyb60`** | 0/176 | **96.8 %** | 98.2 % | 99.9 % | 93.6 % |
+
+- Other model types on the selection set, without screwdrop: Gaussian mixture 97.0 % (2/350 false alarms), nearest neighbour 92.9 %, autoencoder 79.1 % at best, isolation forest 73.7 % at best (7/350), one-class SVM about 78 %. 149 configurations were tried.
+- Limits: not yet recomputed by an independent checker (rounds 1 and 2 were, and both needed corrections). The med load has now been used three times, and the hybrid layout came partly from weaknesses seen on it, so 99.9 % is optimistic. One machine; the med fault clips come from 24 recordings; a sound-only result. One model per belt speed.
+- On the UNO Q (in the app's container, `round3/board_check.py` on a raw SSCC sample): features, line, scores and alarms equal to the PC's (0/35 normal clips, 30/30 fault clips); 10.1 ms of feature work per second, 2.2 s to learn 30 minutes, 2.6 ms to judge, 221 kB file.
+- Not running live: the ESP32 must send the 181 sound values, and the trainer and runtime must learn and judge it.
+
+---
+
 ## Decision and headline results (14 Nov 2026)
 
 **The team is choosing `log64` as the next model.** `effente.band_model.make_model()` returns it. It is not on the device yet: the device still runs the PCA model of `effente/trainer.py`. To run it, the ESP32 firmware must send 64 sound bands and 2 extra values instead of 32 bands, and the trainer and runtime must learn, save and judge it (see "To run it on the device" below).
