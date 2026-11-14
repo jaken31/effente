@@ -141,6 +141,10 @@ SPIKE_SHORT_FLOOR = {"snd_kurt_hf": 1.0, "vib_kurtosis": 1.0, "vib_peak_g": 0.15
 # least IMPACT_MIN_G (the same least size as a jolt in effente.history, so a quiet machine isn't set off by a
 # footstep). It shows at once and stays for IMPACT_HOLD_S, so it can be seen. The peak, not the kurtosis: "times
 # the highest" means something for a size in g, and the kurtosis says how spiky a second is, not how big.
+# After a long recording the level is still the maximum: the check then only shows impacts bigger than the
+# biggest knock the device took while learning, and the spike sensitivity moves the multiple. On the simulated
+# conveyor (rot_heldout) lower levels (p99.99, p99.999, the max without its top seconds) gave 0.6-4.5 false
+# alerts a week from 2x down, from people knocking the device; the maximum gave none from 1.25x to 5x.
 # Simulated and test data only: unverified on a real machine.
 IMPACT_FEATURE, IMPACT_MIN_G, IMPACT_HOLD_S = "vib_peak_g", 0.05, 30.0
 
