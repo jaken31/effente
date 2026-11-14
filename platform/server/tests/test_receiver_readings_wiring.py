@@ -1,22 +1,8 @@
 """Row R0 of docs/scan-and-log-plan.md section 15.2: the routes and calls of contract
 sections 9 and 10 are wired in, with stubs behind them. Nothing that worked before may change."""
 
-import pytest
 from receiver_store import BadRequest
 from receiver_testkit import make_check_in, make_record
-
-NOT_BUILT = (400, {"ok": False, "error": "not built yet"})
-ROUTES = [
-    ("PUT", "/api/machines/conveyor-07/profile", {"machine_type": "conveyor", "by": "Sam"}),
-    ("GET", "/api/machines/conveyor-07/profile", None),
-    ("POST", "/api/library/lookup", {"machine_type": "conveyor"}),
-]
-
-
-@pytest.mark.parametrize("method,path,body", ROUTES)
-def test_every_new_route_answers_not_built_yet(client, method, path, body):
-    assert client.json(method, path, body) == NOT_BUILT
-    assert client.json("DELETE", path.split("?")[0])[0] == 405
 
 
 def test_until_built_the_state_and_the_replies_are_as_before(client):
@@ -24,9 +10,9 @@ def test_until_built_the_state_and_the_replies_are_as_before(client):
     assert (status, reply) == (200, {"ok": True, "stored": 1, "need_model": True})
     assert client.json("POST", "/api/devices/effente-01", make_check_in()) == (200, {"ok": True})
     _, state = client.json("GET", "/api/state")
-    assert state["probe"] == {} and "profiles" not in state
+    assert state["probe"] == {} and state["profiles"] == {}
     device = state["devices"]["effente-01"]
-    assert device["settings"] is None and "library_entry" not in device
+    assert device["settings"] is None and device["library_entry"] is None
     assert "part_id" not in client.json("GET", "/api/machines/conveyor-07/records")[1]["records"][0]
 
 

@@ -156,12 +156,12 @@ def test_sensitivity_round_trip(make_receiver, open_stream):
     receiver, client = make_receiver()
     stream = open_stream(receiver.port)
     post(client, abnormal(1, sensitivity=0.5, alarm_line=1.0))
-    assert stream.next("settings") == {"device_id": "effente-01", "sensitivity": 0.5, "settings": None}
+    assert stream.next("settings") == {"device_id": "effente-01", "sensitivity": 0.5, "settings": None, "library_entry": None}
     assert "settings" not in post(client, abnormal(2, sensitivity=0.5))
 
     status, reply = client.json("PUT", "/api/devices/effente-01/settings", {"sensitivity": 0.7})
     assert (status, reply) == (200, {"ok": True, "settings": {"sensitivity": 0.7}})
-    assert stream.next("settings") == {"device_id": "effente-01", "sensitivity": 0.5, "settings": {"sensitivity": 0.7}}
+    assert stream.next("settings") == {"device_id": "effente-01", "sensitivity": 0.5, "settings": {"sensitivity": 0.7}, "library_entry": None}
     assert post(client, abnormal(3, sensitivity=0.5))["settings"] == {"sensitivity": 0.7}
     _, reply = client.json("POST", "/api/devices/effente-01", make_check_in(sensitivity=0.7))
     assert reply == {"ok": True, "settings": {"sensitivity": 0.7}}
