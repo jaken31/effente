@@ -864,7 +864,10 @@ def _readings_or_none(value):
 
 def apply_laptop_event(state: dict, name: str, data) -> bool:
     """The events the JS does not read: `alarm`, `settings` and `readings`, and the
-    machine a `record` names. Returns True if it changed something."""
+    machine a `record`, a `scan` or a `part` names. Returns True if it changed something.
+
+    A machine can start with a phone scan or a part, before any probe has reported on
+    it. The receiver lists such a machine in its state, so the picker must too."""
     if not isinstance(data, dict):
         return False
     if name == "alarm":
@@ -885,7 +888,7 @@ def apply_laptop_event(state: dict, name: str, data) -> bool:
         ensure_device(state, data["device_id"])["readings"] = {
             k: v for k, v in data.items() if k not in ("device_id", "machine_id")}
         return True
-    if name == "record":
+    if name in ("record", "scan", "part"):
         machine = data.get("machine_id")
         machines = state.setdefault("machines", [])
         if isinstance(machine, str) and machine and machine not in machines:

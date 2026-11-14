@@ -558,6 +558,11 @@ def test_alarms_and_settings_from_snapshot_and_events():
     assert [a["alarm_id"] for a in L.alarms_for_machine(s, "m") if L.is_unanswered(a)] == ["alarm-7"]
     assert L.apply_laptop_event(s, "record", {"machine_id": "p"})
     assert L.known_machines(s) == ["m", "n", "p"]
+    # A machine that begins with a phone scan or a part, before any probe reported on it.
+    assert L.apply_laptop_event(s, "scan", {"scan_id": "scan-1", "machine_id": "q"})
+    assert L.apply_laptop_event(s, "part", {"part_id": "part-0001", "machine_id": "r"})
+    assert not L.apply_laptop_event(s, "scan", {"scan_id": "scan-1", "machine_id": "q"})  # its status moved: nothing new
+    assert L.known_machines(s) == ["m", "n", "p", "q", "r"]
     assert L.sensitivity_of(s, "missing") == {"reported": None, "wanted": None}
 
 
