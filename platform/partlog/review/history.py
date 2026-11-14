@@ -78,8 +78,10 @@ def fetch(platform_url: str, machine_id: str, part_id: str | None = None) -> dic
     if part_id is not None:
         part = urllib.parse.quote(part_id, safe="")
         entries = get_json(f"{base}/api/machines/{machine}/log?part={part}&limit={ENTRY_LIMIT}").get("entries")
+        known = isinstance(parts, list) and any(isinstance(p, dict) and p.get("part_id") == part_id for p in parts)
         try:
-            readings[part_id] = get_json(f"{base}/api/parts/{part}/readings")
+            if known:  # an unknown part is a 400 there; part_history says so in plain words
+                readings[part_id] = get_json(f"{base}/api/parts/{part}/readings")
         except HistoryUnavailable as error:
             if not str(error).endswith(NOT_BUILT):
                 raise
