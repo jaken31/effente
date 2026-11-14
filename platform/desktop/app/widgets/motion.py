@@ -11,7 +11,8 @@ With it off every helper here lands on its end value straight away.
 The moves: Glide (a number easing), fade_in and fade_out (a card coming or going),
 lift_in, cascade and swap (cards settling into place, words changing in place),
 set_shown (a card that comes and goes without moving its neighbours), Reveal (part of
-a card opening or closing) and Sweep (a busy line).
+a card opening or closing), RowTint (a row lighting under the pointer and taking the
+pick's tint) and Sweep (a busy line).
 """
 
 from __future__ import annotations
@@ -336,6 +337,67 @@ def set_shown(widget: QWidget, on: bool, drop: float = 8.0) -> None:
             widget.setGraphicsEffect(None)
 
     fade_out(widget, gone)
+
+
+# ---- row tint: a row that can be picked ---------------------------------------------
+
+
+class RowTint(QObject):
+    """The background of a row that can be picked: it lights under the pointer and takes
+    the pick's tint.
+
+    `hover` and `pick` return the two colours; they are asked at each paint, since a colour
+    scheme may replace them. The row calls `paint()` first thing in its paintEvent. A row
+    built already picked has its tint at once; `pick_in()` says it was picked just now, and
+    the tint comes up when the row is first shown.
+    """
+
+    def __init__(self, row: QWidget, chosen: bool, hover: Callable[[], QColor], pick: Callable[[], QColor]):
+        super().__init__(row)
+        self._row = row
+        self._colours = (hover, pick)
+        self._fresh = False
+        self.hover = Glide(row)  # 0 plain, 1 under the pointer
+        self.chosen = Glide(row, SLIDE, 1.0 if chosen else 0.0)
+        row.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        row.installEventFilter(self)
+
+    def pick_in(self) -> None:
+        self._fresh = True
+        self.chosen.jump(0.0)
+
+    def eventFilter(self, obj, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.Type.Enter:
+            self.hover.to(1.0)
+        elif kind == QEvent.Type.Leave:
+            self.hover.to(0.0)
+        elif kind == QEvent.Type.Show:
+            self.hover.jump(1.0 if self._row.underMouse() else 0.0)
+            if self._fresh:
+                self._fresh = False
+                self.chosen.to(1.0)
+        return False
+
+    def layers(self) -> list[QColor]:
+        """The background now, bottom layer first: the hover's tint while the row is not
+        picked, then the pick's."""
+        chosen = self.chosen.at
+        layers = []
+        for colour, amount in zip(self._colours, (self.hover.at * (1.0 - chosen), chosen), strict=True):
+            if amount > 0:
+                c = QColor(colour())
+                c.setAlphaF(c.alphaF() * amount)
+                layers.append(c)
+        return layers
+
+    def paint(self) -> None:
+        layers = self.layers()
+        if layers:
+            p = QPainter(self._row)
+            for colour in layers:
+                p.fillRect(self._row.rect(), colour)
+            p.end()
 
 
 # ---- reveal: a part that opens and closes ------------------------------------------

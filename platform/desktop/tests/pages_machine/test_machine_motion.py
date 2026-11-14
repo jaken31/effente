@@ -152,12 +152,12 @@ def test_a_picked_row_tints_in_and_a_hovered_row_lights(qtbot, moving, page, sta
     still(qtbot, page)
     state.log.select_part(MOTOR_MOUNT)
     row = next(r for r in page.parts_panel.rows if r.row["part_id"] == MOTOR_MOUNT)
-    assert row.row["selected"] and row._chosen.at < 1.0
-    qtbot.waitUntil(lambda: row._chosen.at == 1.0, timeout=SETTLED)
+    assert row.row["selected"] and row.tint.chosen.at < 1.0
+    qtbot.waitUntil(lambda: row.tint.chosen.at == 1.0, timeout=SETTLED)
     other = next(r for r in page.parts_panel.rows if r.row["part_id"] == DRIVE_ROLLER)
-    assert not other.tints()
-    other._hover.jump(1.0)
-    assert len(other.tints()) == 1 and not other.grab().isNull()
+    assert not other.tint.layers()
+    other.tint.hover.jump(1.0)
+    assert len(other.tint.layers()) == 1 and not other.grab().isNull()
 
 
 def test_with_motion_off_everything_is_there_at_once(qtbot, page, state):

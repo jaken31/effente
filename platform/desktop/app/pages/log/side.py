@@ -13,7 +13,7 @@ from app.data import logic
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
-from app.widgets import Button, Panel, Segmented
+from app.widgets import Button, Panel, Segmented, motion
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -70,8 +70,9 @@ class _PartRow(QFrame):
         self.row = row
         self.setObjectName("partRow")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        bg = css(t.ACCENT_BG) if row.selected else "transparent"
-        self.setStyleSheet(f"#partRow {{ background: {bg}; border: 0; border-bottom: 1px solid {css(t.GRID)}; }}")
+        self.setStyleSheet(f"#partRow {{ background: transparent; border: 0; "
+                           f"border-bottom: 1px solid {css(t.GRID)}; }}")
+        self.tint = motion.RowTint(self, row.selected, lambda: t.qcolor(t.HOVER), lambda: t.qcolor(t.ACCENT_BG))
         lay = QHBoxLayout(self)
         lay.setContentsMargins(PAD_H, t.CELL_PAD_V, PAD_H, t.CELL_PAD_V)
         lay.setSpacing(10)
@@ -85,6 +86,10 @@ class _PartRow(QFrame):
         text.addWidget(self.name)
         text.addWidget(self.line)
         lay.addLayout(text, 1)
+
+    def paintEvent(self, e) -> None:
+        self.tint.paint()
+        super().paintEvent(e)  # the hairline goes over
 
     def mouseReleaseEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.position().toPoint()):
@@ -140,7 +145,7 @@ class PartsPanel(Panel):
         fv.addWidget(self.submit_button)
         fv.addWidget(label("No pin yet. Place it on the scan from the Machine page.", "muted", fonts.small(),
                            wrap=True))
-        self.add(self.form)
+        self.form_reveal = self.add(motion.Reveal(self.form))
 
         self.area = _scroll()
         self.add(self.area, 1)
@@ -149,6 +154,7 @@ class PartsPanel(Panel):
     def set_rows(self, rows: list[view.PartRow], *, machine: bool) -> None:
         self._machine = machine
         if rows != self._rows:
+            was = {r.part_id: r.selected for r in self._rows or []}
             self._rows = list(rows)
             inner = QWidget()
             col = _column(inner)
@@ -158,6 +164,10 @@ class PartsPanel(Panel):
                 w.clicked.connect(self.selected)
                 col.addWidget(w)
                 self.rows.append(w)
+                if row.selected and was.get(row.part_id) is False and self.isVisible():
+                    w.tint.pick_in()  # picked just now: its tint comes up
+                elif was and row.part_id not in was and self.isVisible():
+                    motion.lift_in(w, ms=motion.REVEAL, drop=6.0)  # a part added just now
             col.addStretch(1)
             _swap(self.area, inner)
         self.empty_text.setText(view.NO_PARTS if machine else view.NO_MACHINE)
@@ -177,7 +187,7 @@ class PartsPanel(Panel):
         return self._machine and (self._wanted or not self._rows)
 
     def _draw_form(self, *_args) -> None:
-        self.form.setVisible(self.form_shown())
+        self.form_reveal.set_open(bool(self.form_shown()))
         self.submit_button.setEnabled(bool(self.name.text().strip()))
 
     def submit(self) -> None:
@@ -266,11 +276,12 @@ class AlarmsPanel(Panel):
         fv.addWidget(self.form_title)
         fv.addWidget(self.verdict)
         fv.addWidget(self.part)
+        self.problem_reveal = motion.Reveal(self.problem)
         fv.addWidget(self.finding)
-        fv.addWidget(self.problem)
+        fv.addWidget(self.problem_reveal)
         fv.addLayout(buttons)
-        self.add(self.form)
-        self.form.hide()
+        self.form_reveal = self.add(motion.Reveal(self.form))
+        self.form_reveal.set_open(False)
         self.set_rows([])
 
     def set_rows(self, rows: list[view.AlarmRow]) -> None:
@@ -301,7 +312,7 @@ class AlarmsPanel(Panel):
         self.alarm_id = None
         self.verdict.set_current(None)
         self.finding.clear()
-        self.form.hide()
+        self.form_reveal.set_open(False)
 
     def open_form(self, alarm_id: str) -> None:
         row = next((r for r in self._rows or [] if r.alarm_id == alarm_id), None)
@@ -313,7 +324,7 @@ class AlarmsPanel(Panel):
             self.part.clear()
         self.alarm_id = alarm_id
         self.form_title.setText(f"{row.title}, {row.when}")
-        self.form.show()
+        self.form_reveal.set_open(True)
         self.set_rows(self._rows)  # marks the row and fills the parts
         self.finding.setFocus()
 
@@ -341,8 +352,9 @@ class AlarmsPanel(Panel):
 
     def _draw_form(self, *_args) -> None:
         problem = self.problem_text()
-        self.problem.setText(problem)
-        self.problem.setVisible(bool(problem))
+        if problem:  # the old words stay while it closes
+            self.problem.setText(problem)
+        self.problem_reveal.set_open(bool(problem))
         self.save.setEnabled(not problem)
 
     def submit(self) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from app.pages.agents.kv import KeyValues
 from app.theme import fonts
 from app.theme import tokens as t
-from app.widgets import Button, Panel, Segmented, SimChip
+from app.widgets import Button, Panel, Segmented, SimChip, motion
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -72,7 +72,7 @@ class Compose(Strip):
 
     def _draw(self, *_args) -> None:
         kind = self.kind.current()
-        self.needs.setVisible(kind in view.NEEDS_ANSWER)
+        motion.set_shown(self.needs, kind in view.NEEDS_ANSWER, drop=0.0)
         self.text.setPlaceholderText(view.entry_placeholder(kind, self._part))
         problem = self.problem()
         self.add_button.setEnabled(self.isEnabled() and not problem)
@@ -148,6 +148,8 @@ class ReviewPanel(Panel):
         self.mode.setEnabled(can_run)
         if review == self.shown:
             return
+        if self.shown is not None and self.isVisible():
+            motion.swap(self.message.parentWidget())  # another review comes up in place
         self.shown = review
         self.message.setText(review.message)
         self.message.setProperty("role", "strong" if review.status in (view.FAILED, view.RUNNING) else "soft")

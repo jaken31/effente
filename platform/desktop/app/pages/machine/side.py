@@ -13,7 +13,7 @@ from app.theme import tokens as t
 from app.theme.qss import css
 from app.widgets import Button, Panel, Segmented, SimChip, motion
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QTextOption
+from PySide6.QtGui import QGuiApplication, QTextOption
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -119,12 +119,9 @@ class PartRow(QFrame):
         self.row = row
         self.setObjectName("machinePartRow")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.setStyleSheet(f"#machinePartRow {{ background: transparent; border: 0; "
                            f"border-top: 1px solid {css(t.GRID)}; }}")
-        self._hover = motion.Glide(self)  # 0 plain, 1 under the pointer
-        self._chosen = motion.Glide(self, motion.SLIDE, 1.0 if row["selected"] else 0.0)
-        self._fresh = False  # picked just now: the tint comes up when the row is first shown
+        self.tint = motion.RowTint(self, row["selected"], lambda: t.qcolor(t.HOVER), lambda: t.qcolor(t.ACCENT_BG))
         lay = QHBoxLayout(self)
         lay.setContentsMargins(PAD_H, 6, PAD_H - 4, 6)
         lay.setSpacing(10)
@@ -150,45 +147,8 @@ class PartRow(QFrame):
         self.number.setToolTip("The newest reading, in mm/s")
         lay.addWidget(self.number, 0, Qt.AlignmentFlag.AlignVCenter)
 
-    def pick_in(self) -> None:
-        """This row was picked just now: its tint comes up instead of being there at once."""
-        self._fresh = True
-        self._chosen.jump(0.0)
-
-    def tints(self) -> list[QColor]:
-        """The row's background now, bottom layer first: the hover's tint while it is not picked,
-        then the pick's."""
-        chosen = self._chosen.at
-        layers = []
-        for token, amount in ((t.HOVER, self._hover.at * (1.0 - chosen)), (t.ACCENT_BG, chosen)):
-            if amount > 0:
-                colour = QColor(t.qcolor(token))
-                colour.setAlphaF(colour.alphaF() * amount)
-                layers.append(colour)
-        return layers
-
-    def enterEvent(self, e) -> None:
-        super().enterEvent(e)
-        self._hover.to(1.0)
-
-    def leaveEvent(self, e) -> None:
-        super().leaveEvent(e)
-        self._hover.to(0.0)
-
-    def showEvent(self, e) -> None:
-        super().showEvent(e)
-        self._hover.jump(1.0 if self.underMouse() else 0.0)
-        if self._fresh:
-            self._fresh = False
-            self._chosen.to(1.0)
-
     def paintEvent(self, e) -> None:
-        layers = self.tints()
-        if layers:
-            p = QPainter(self)
-            for colour in layers:
-                p.fillRect(self.rect(), colour)
-            p.end()
+        self.tint.paint()
         super().paintEvent(e)  # the hairline goes over
 
     def mouseReleaseEvent(self, e) -> None:
@@ -233,7 +193,7 @@ class PartsPanel(Panel):
                 col.addWidget(w)
                 self.rows.append(w)
                 if row["selected"] and was.get(row["part_id"]) is False and self.isVisible():
-                    w.pick_in()
+                    w.tint.pick_in()
                 elif was and row["part_id"] not in was and self.isVisible():
                     motion.lift_in(w, ms=motion.REVEAL, drop=6.0)  # a part added just now
             col.addStretch(1)
