@@ -37,6 +37,7 @@ import numpy as np
 from effente import features as F
 from effente import early_warning as EW
 from effente import safety as SF
+from effente import history as HIST
 from effente.history import History
 from effente.model_input import load_columns, load_recording
 from effente.model_runtime import Model, Watcher
@@ -337,6 +338,12 @@ class DeviceApp:
                 t, X, names, period, used = _join_recordings(folders)
                 folders = used
 
+            if not HIST.DECIDE_STOPPED and "trend_running" in names:
+                # the device no longer decides running or stopped: rows recorded while it still did (a whole
+                # recording was marked stopped on the bench, 13 Nov) are learned from like any other
+                X = np.array(X, copy=True)
+                X[:, list(names).index("trend_running")] = 1.0
+
             def progress(stage, share):
                 self.train_stage, self.train_share = stage, share
 
@@ -347,7 +354,8 @@ class DeviceApp:
                 parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + SF.MOMENT_COLUMNS + ("trend_running",)) for f in folders]
                 ts = np.concatenate([p[0] for p in parts])
                 cols = {c: np.concatenate([p[1][c] for p in parts]) for c in parts[0][1]}
-                spikes = SF.learn_spike_levels(ts, cols, ~(cols["trend_running"] < 0.5))
+                running = ~(cols["trend_running"] < 0.5) if HIST.DECIDE_STOPPED else np.ones(len(ts), bool)
+                spikes = SF.learn_spike_levels(ts, cols, running)
                 if spikes:
                     d["baseline"]["spikes"] = spikes
             except Exception as e:  # noqa: BLE001  watching works without it
