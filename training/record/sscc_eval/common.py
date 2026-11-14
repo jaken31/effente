@@ -75,9 +75,13 @@ def time_order(data: Data, ids: np.ndarray) -> np.ndarray:
 def split_normal(data: Data, cond: str):
     """(learn ids, held-out ids) of a condition's normal clips, in time order (Protocol A)."""
     ids = time_order(data, data.idx(cond=cond, label="normal"))
+    if os.environ.get("SSCC_SPLIT") == "reverse":  # robustness check: learn on the LAST 60 %, hold out the first 35 %
+        ids = ids[::-1]
     n = len(ids)
     a = int(round(n * LEARN_SHARE))
     b = a + int(round(n * GAP_SHARE))
+    if os.environ.get("SSCC_SPLIT") == "reverse":  # each part back in time order
+        return time_order(data, ids[:a]), time_order(data, ids[b:])
     return ids[:a], ids[b:]
 
 

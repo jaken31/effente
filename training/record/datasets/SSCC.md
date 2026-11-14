@@ -89,15 +89,21 @@ nice -n 10 python3 -m training.record.datasets.sscc data/real/sscc/unpacked --ca
 
 Download: `sscc_download.sh` (resumable; Google Drive's per-file quota can block it for up to a day).
 
-## Unverified
+## Checked against the real files (14 Nov 2026, `training/record/sscc_eval/`, results in `SSCC_RESULTS.md`)
 
-The paper does not say these:
-1. **Column order.** Taken as: time, motor single-axis, tri-axis x, y, z (`--axes 1,2,3`).
-2. **Axis directions.** Which tri-axis direction is vertical, along the chain or across it is unknown. Our z gets gravity, so on the device z would be the axis facing the floor.
-3. **Unit.** Taken as g (`--vib-unit g`).
+The paper does not say these; what the files show:
+1. **Column order.** The CSV header is `timestamp_s,ch0,ch1,ch2,ch3` (100 kHz, 500,000 rows a clip, no comment
+   lines). ch0 is uncorrelated with ch1-ch3 and has most of its energy at 600-700 Hz (motor-like); ch1 and ch3
+   correlate (r = -0.31). Consistent with "time, motor single-axis, tri-axis x, y, z" (`--axes 1,2,3`), not proven.
+2. **Gravity / axis directions.** No channel has a gravity offset (means about 0.001, spreads 0.004-0.015): the
+   sensors are AC-coupled (piezo/IEPE-like). Which axis is vertical cannot be told from the data; the loader's
+   added 1 g on z is a simulation choice.
+3. **Unit.** Still unknown; taken as g. Then the tri-axis vibration is about the size of the MPU-6500's noise in
+   its band, and the device-style vibration carries little: see SSCC_RESULTS.md, "Sensors" (a x10 what-if is there).
+4. **Audio.** The Zoom WAVs are 32-bit float stereo at 44.1 kHz, 5.000 s; `read_audio` handles float WAVs correctly.
+5. **Layout.** 97 folders (24 normal, 73 fault; screwdrop light_vel100_clean is split into `_1` and `_2`), 6,724
+   clips (normal 1,926, dry 1,040, lean 1,035, loose 1,715, screwdrop 1,008). A folder is one continuous recording:
+   clip NNNN starts at t = 5 x NNNN s. Normal noise folders are named `..._noise` (no noiseA/noiseB).
 
-`vib_raw_mean` / `vib_raw_std` are there to check these once real files are in:
-- A MEMS sensor shows gravity as a steady offset on its vertical axis: about 1 (g) or 9.8 (m/s²).
-- A piezo sensor shows none.
-
-Status of these checks: not yet done; the data has not downloaded yet.
+`sscc.py` itself was not run; the benchmark uses `training/record/sscc_eval/build_cache.py` (unpack one folder at a
+time, cache audio and vibration at 16 kHz) and `make_features.py` (the same device-style processing, from the cache).
