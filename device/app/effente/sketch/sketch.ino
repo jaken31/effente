@@ -281,9 +281,76 @@ float parseNum(const char *&p) {  // a number, then past the comma after it (by 
   return neg ? -v : v;
 }
 
+// The ESP32's full firmware also sends the sound readings the model uses, as a binary frame before each text
+// line: 0xEF 0x53 | sequence (u16) | age in ms (u16) | count (u8) = 45 | 45 float32 | CRC-16/CCITT-FALSE of
+// everything after the two start bytes (u16), little-endian, 189 bytes, sent 8 bytes every 4 ms so the serial
+// buffer never has to hold much. A whole frame with a good CRC goes to the Linux side as a notification
+// "snd": (micros() when its last byte came, age, sequence, the 180 bytes of readings); device/intake/source.py
+// on_sound takes it from there. 0xEF never occurs in a text line, so the two share the wire. With the test
+// firmware (text lines only) nothing here ever fires. Added 13 Nov; not yet run with the full firmware.
+const uint8_t SND_COUNT = 45;
+const uint16_t SND_PAYLOAD = 4 * SND_COUNT, SND_FRAME = 7 + SND_PAYLOAD + 2;
+uint8_t sndBuf[SND_FRAME], sndOut[SND_PAYLOAD];
+uint16_t sndLen = 0, sndSeq = 0, sndAge = 0;  // sndLen 0: not inside a frame
+uint32_t sndAtUs = 0, sndStartMs = 0, sndFrames = 0, sndBad = 0;
+bool sndReady = false;
+
+uint16_t sndCrc(const uint8_t *p, uint16_t n) {
+  uint16_t crc = 0xFFFF;
+  while (n--) {
+    crc ^= (uint16_t)(*p++) << 8;
+    for (uint8_t b = 0; b < 8; b++) crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+  }
+  return crc;
+}
+
+bool sndByte(uint8_t b) {  // true: the byte belonged to a binary frame
+  if (sndLen && millis() - sndStartMs > 500) sndLen = 0;  // a frame that stopped half way: back to text
+  if (!sndLen) {
+    if (b != 0xEF) return false;
+    sndBuf[0] = b;
+    sndLen = 1;
+    sndStartMs = millis();
+    return true;
+  }
+  sndBuf[sndLen++] = b;
+  if ((sndLen == 2 && b != 0x53) || (sndLen == 7 && b != SND_COUNT)) {  // not a frame after all
+    sndLen = 0;
+    sndBad++;
+    return true;
+  }
+  if (sndLen < SND_FRAME) return true;
+  sndLen = 0;
+  uint16_t crc = (uint16_t)sndBuf[SND_FRAME - 2] | ((uint16_t)sndBuf[SND_FRAME - 1] << 8);
+  if (sndCrc(sndBuf + 2, 5 + SND_PAYLOAD) != crc) {
+    sndBad++;
+    return true;
+  }
+  sndAtUs = micros();
+  sndSeq = (uint16_t)sndBuf[2] | ((uint16_t)sndBuf[3] << 8);
+  sndAge = (uint16_t)sndBuf[4] | ((uint16_t)sndBuf[5] << 8);
+  memcpy(sndOut, sndBuf + 7, SND_PAYLOAD);
+  sndReady = true;  // a newer frame replaces one not sent on yet
+  sndFrames++;
+  return true;
+}
+
+void sndSend() {  // from loop() only: a Bridge call takes a while, and must not sit between two sensor reads
+  if (!sndReady) return;
+  sndReady = false;
+  MsgPack::bin_t<uint8_t> v;
+  v.reserve(SND_PAYLOAD);
+  for (uint16_t i = 0; i < SND_PAYLOAD; i++) v.push_back(sndOut[i]);
+  Bridge.notify("snd", sndAtUs, (uint32_t)sndAge, (uint32_t)sndSeq, v);  // 180 + about 25 bytes: inside the RPC buffer
+}
+
 void micPoll() {
   while (Serial1.available()) {
     char c = Serial1.read();
+    if (sndByte((uint8_t)c)) {
+      micLen = 0;
+      continue;
+    }
     if (c == '\n') {
       micLine[micLen] = 0;
       micLen = 0;
@@ -400,6 +467,26 @@ void outline(int x, int y, int w, int h) {  // a box with its corner pixels left
   for (int j = y + 1; j < y + h - 1; j++) { px(x, j, true); px(x + w - 1, j, true); }
 }
 
+// The strongest tone as a wave, in place of its number (the user, 13 Nov): a sine across the tile, more
+// cycles for a higher tone, on a log scale (1 cycle at 100 Hz or under, 7 at 8 kHz or over; in half-cycle
+// steps, so a tone that wobbles a little doesn't redraw the tile each time). It is drawn from the tone's
+// frequency: the sound's own waveform never reaches this board. Not animated: a moving wave would redraw
+// two screen pages every frame, on the bus the sensor shares.
+void toneWave(int bx, int by, float hz) {
+  float c = 1.0f + 6.0f * (logf(hz < 100.0f ? 100.0f : hz) - logf(100.0f)) / (logf(8000.0f) - logf(100.0f));
+  if (c > 7.0f) c = 7.0f;
+  c = floorf(c * 2.0f + 0.5f) / 2.0f;
+  const int x0 = bx + 2, w = 38, mid = by + 18, amp = 6;  // inside the outline, under the label
+  int prev = mid;
+  for (int i = 0; i < w; i++) {
+    int y = mid - (int)lroundf(amp * sinf(6.2831853f * c * i / (w - 1)));
+    int a = i ? prev : y, b = y;  // join each point to the one before, so steep parts stay a line
+    if (a > b) { int t = a; a = b; b = t; }
+    for (int j = a; j <= b; j++) px(x0 + i, j, true);
+    prev = y;
+  }
+}
+
 void composeTiles() {
   memset(fb, 0, sizeof fb);
   char left[24], val[6][12];
@@ -441,9 +528,11 @@ void composeTiles() {
   // negative, and nearer 0 when louder. Shown instead as a positive number that goes up with loudness:
   // dBFS + 120, the INMP441 datasheet's figure (94 dB SPL reads -26 dBFS). An estimate, not checked
   // against a sound meter (unverified).
+  bool wave = false;  // the tone tile shows a wave when there is a tone to show
   if (!micLines || millis() - micAt > 2000 || !micOk) {
     strcpy(val[4], "--"); strcpy(val[5], "--");
   } else {
+    wave = micToneHz > 0;
     float db = micDb + 120.0f;
     fnum(val[4], db < 0 ? 0 : db, 0);
     if (micToneHz >= 999.5f) { fnum(val[5], micToneHz / 1000, micToneHz < 9950 ? 1 : 0); units[5] = "k"; }
@@ -454,8 +543,9 @@ void composeTiles() {
     int bx = (i % 3) * 43, by = 8 + (i / 3) * 28;  // 42 wide, 28 high: y 8..35 and 36..63
     outline(bx, by, 42, 28);
     drawText(bx + 3, by + 2, labels[i], 1, true);
-    if (units[i][0]) drawText(bx + 40 - textWidth(units[i], 1), by + 2, units[i], 1, true);
-    drawText(bx + 21 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
+    if (units[i][0] && !(i == 5 && wave)) drawText(bx + 40 - textWidth(units[i], 1), by + 2, units[i], 1, true);
+    if (i == 5 && wave) toneWave(bx, by, micToneHz);
+    else drawText(bx + 21 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
   }
 }
 
@@ -579,6 +669,7 @@ void readFifo() {
       // FIFO_R_W: one sample (accel xyz, gyro xyz). A short or failed read has still moved the FIFO on,
       // so every later sample would be assembled from the wrong bytes: reset it and start clean instead.
       if (mpuRead(0x74, s, 12) != 12) { failed = true; break; }
+      micPoll();  // the ESP32's bytes, taken as they come (a batch of reads takes about 10 ms)
       for (int k = 0; k < 6; k++) acc.push_back(s[k]);
       onSample(s);
       if ((seq + got) % GYRO_EVERY == 0) for (int k = 6; k < 12; k++) gyr.push_back(s[k]);
@@ -608,6 +699,7 @@ void readFifo() {
 
 void loop() {
   micPoll();
+  sndSend();
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
   // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
   // its power-on state (asleep, FIFO off) and reports an empty FIFO for ever (13 Nov, on the board: the

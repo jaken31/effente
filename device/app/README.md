@@ -99,6 +99,26 @@ It never counts as wrong: `wrong` stays false. While something is wrong it is se
 | Microphone INMP441, through an ESP32-S3-N16R8 (screen only so far) | Mic to ESP32: VDD 3V3, GND, L/R to GND, SCK GPIO 5, WS GPIO 4, SD GPIO 6. ESP32 to UNO Q: GPIO 17 (TX) to D0, GPIO 18 (RX) to D1 (optional), GND to GND | The ESP32 ([firmware/esp32_mic](../../firmware/esp32_mic/esp32_mic.ino), a test version) sends a text line 4 times a second at 115200 baud: level, peak and a rough strongest tone. On the UNO Q, D0/D1 are `Serial1` (`Serial` is the Bridge's monitor). Measured 13 Nov: 4 lines a second arrive, none missing. The screen shows the level as dBFS + 120 (the datasheet's conversion; not checked against a sound meter, unverified) and the tone. Nothing of it reaches the Linux side as a feature yet: `sound_db` stays empty, and what is sent for sound is still to be agreed by the team. The raw-audio slot is unchanged: the Linux side takes an `audio` notification, but no sketch sends one. Off unless `EFFENTE_MIC=1`. Raw 16 kHz audio won't fit on the Bridge line (see below) |
 | Thermal camera MLX90640-D55 (not fitted yet) | I2C, address 0x33, bus not chosen | Slot only: the Linux side takes a `thermal` notification (24 × 32, hundredths of a °C) and the status has `thermal_max_c`, but no sketch reads the camera yet. Off unless `EFFENTE_THERMAL=1` |
 
+## Sound readings for the model (13 Nov, not yet run with the ESP32's full firmware)
+
+The screen-only test version is described in the wiring table above. The full version of [firmware/esp32_mic](../../firmware/esp32_mic/esp32_mic.ino) does the sound maths on the ESP32 and sends the readings the model uses.
+
+```
+INMP441 ──I2S──> ESP32-S3 ──UART, 115200──> UNO Q D0 ──sketch──> "snd" over the Bridge ──> each row's sound readings
+                 45 readings of the last      frames passed on,                           (snd_env_order added here)
+                 1.024 s, about 4 a second    text line to the screen
+```
+
+- **It starts by itself.** From power-on the ESP32 samples and sends; the first set goes out about 1.2 s after power.
+- **Two things on the wire, one after the other:** a 189-byte binary frame with the 45 readings (start bytes 0xEF 0x53, a CRC at the end, sent 8 bytes every 4 ms), then the same `MIC,...` text line as the test version, so the screen works with either sketch. The sketch here accepts both firmwares: with the test version it just never sees a frame.
+- **Without the full firmware, nothing changes:** rows come as before, with sound missing. If the ESP32 stops, sound goes missing within a second (old readings are never reused). `/latest` status has `sound_frames`, `sound_lost` and `sound_age_s` under `sensors`.
+- **A model learns the sound it was recorded with.** Record with the full firmware running for sound to count.
+- **The sound maths now exists twice:** in [effente/features.py](../../effente/features.py) (`_sound`, the reference) and in [firmware/esp32_mic/sound_features.h](../../firmware/esp32_mic/sound_features.h). [test_mic_features.py](../intake/tests/test_mic_features.py) compiles the C++ on a computer and compares the two on the same samples (7 test signals: every dB reading within 0.002 dB, every frequency on the same bin). Change one, change the other, and run it. AGENTS.md asks for one implementation of the signal pipeline, so this copy needs the team's agreement.
+- **What differs from a mic on the Linux side:** the window is 1.024 s (16,384 samples), not 1 s; samples are kept at 16 of the mic's 24 bits; a row usually gets the sound from 0.25 to 0.5 s before its vibration; no raw sound is recorded.
+- **Checked so far:** the maths against Python; the UNO Q's frame parser against a frame built the ESP32's way, on a computer; the firmware compiles for the ESP32-S3 (arduino-esp32 3.3.12); the sketch here runs on the board with the test firmware (text lines still arrive, the sensor still reads at about 992 a second).
+- **Unverified:** the full firmware on the ESP32 itself: the time one set takes (it must stay under 256 ms; its USB line prints it), and that the paced frames arrive whole.
+- **The tone tile is a wave** (the user, 13 Nov): a sine with more cycles for a higher tone, on a log scale from 100 Hz to 8 kHz, drawn from the tone's frequency (not the sound's own waveform), in place of the number.
+
 ## Deploy, and connect to the stream
 
 **Starting at power-up:** on 13 Nov effente was set as the board's default app, so it starts by itself when the board is plugged in:

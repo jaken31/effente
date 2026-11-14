@@ -38,6 +38,9 @@ THERMAL = os.environ.get("EFFENTE_THERMAL") == "1"
 source = UnoQSource(audio=MIC, thermal=THERMAL)
 Bridge.provide("imu", source.on_imu)
 Bridge.provide("audio", source.on_audio)  # ignored unless EFFENTE_MIC=1
+# The microphone as fitted: its ESP32 works the sound readings out and the sketch passes them on. Nothing
+# comes without the ESP32's full firmware (firmware/esp32_mic); rows then simply have no sound.
+Bridge.provide("snd", source.on_sound)
 Bridge.provide("thermal", source.on_thermal)  # ignored unless EFFENTE_THERMAL=1
 
 mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and screen found, bus state

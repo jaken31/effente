@@ -89,6 +89,7 @@ def feature_stream(source, window_s: float = WINDOW_S, hop_s: float = HOP_S, str
     """
     wd = Windower(window_s=window_s, hop_s=hop_s, sensors=source.sensors)
     engine = FeatureEngine(history)
+    sound_at = getattr(source, "sound_features_at", None)  # UnoQSource: the ESP32 microphone's readings
     k = 0
 
     def drain():
@@ -98,7 +99,10 @@ def feature_stream(source, window_s: float = WINDOW_S, hop_s: float = HOP_S, str
             if (k - 1) % stride:
                 continue
             t = time.perf_counter()
-            x = engine.update(to_window(t0, parts, source.info))
+            w = to_window(t0, parts, source.info)
+            if w.audio is None and sound_at is not None:  # sound readings worked out elsewhere (the mic's ESP32)
+                w.sound_features = sound_at(t0 + window_s)
+            x = engine.update(w)
             if timing is not None:
                 timing["seconds"] = timing.get("seconds", 0.0) + time.perf_counter() - t
                 timing["windows"] = timing.get("windows", 0) + 1

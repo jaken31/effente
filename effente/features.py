@@ -80,6 +80,10 @@ class Window:
     audio_full_scale: float = 32767.0  # largest count: 32767 for 16-bit samples, 8388607 for 24-bit
     audio_rate_hz: float = 16000.0
     audio_gain_db: float = 0.0  # firmware gain, for dB SPL
+    # The sound readings already worked out (the "snd_" entries of FEATURE_NAMES, in order; snd_env_order may be
+    # NaN), for a microphone whose raw samples can't reach this code: the ESP32's (firmware/esp32_mic). Used only
+    # when `audio` is None. Added 13 Nov; nothing changes for a window without it.
+    sound_features: np.ndarray | None = None
     thermal_c: np.ndarray | None = None  # (f, 24, 32) frames in deg C
     room: np.ndarray | None = None  # (k, 2) readings of [temperature deg C, humidity %]
     week_t: float | None = None  # local seconds since a Monday 00:00, if the clock is known
@@ -552,6 +556,8 @@ def extract(win: Window) -> np.ndarray:
         out[SLICES["rotation"]] = _gyro(np.asarray(win.gyro_dps, float))
     if win.audio is not None and len(win.audio) >= MIN_AUDIO_SAMPLES:
         out[SLICES["sound"]] = _sound(win.audio, win.audio_rate_hz, win.audio_gain_db, win.audio_full_scale)
+    elif win.sound_features is not None and len(win.sound_features) == SLICES["sound"].stop - SLICES["sound"].start:
+        out[SLICES["sound"]] = np.asarray(win.sound_features, float)
     if win.thermal_c is not None and len(win.thermal_c) > 0:
         out[SLICES["heat"]] = _heat(np.asarray(win.thermal_c, float))
     if win.imu_temp_c is not None and np.isfinite(win.imu_temp_c):

@@ -33,6 +33,8 @@ from typing import Iterator
 
 import numpy as np
 
+from effente import features as F
+
 
 @dataclass
 class Packet:
@@ -185,6 +187,11 @@ class UnoQSource:
     two drift more than a second apart (for example when NTP corrects the board's clock). Lost
     samples are counted from the sample numbers; the timestamps simply skip them.
 
+    The microphone as fitted (13 Nov): an INMP441 on an ESP32 (firmware/esp32_mic), wired to the header's
+    UART. Raw sound can't pass the Bridge, so the ESP32 works the sound readings out itself and the sketch
+    passes each set on as a notification "snd" (on_sound). They are not packets and nothing waits for
+    them: feature_stream asks sound_features_at() for each row.
+
     Slots for sensors not fitted yet (unverified: no sketch sends these yet). Each is off unless
     switched on, because the pipeline waits for every sensor it is told about:
       audio=True    INMP441 microphone, notification "audio": (micros() at the last sample, samples as
@@ -225,6 +232,60 @@ class UnoQSource:
         self.stats = {"batches": 0, "samples": 0, "lost": 0, "gaps": 0, "overflows": 0, "dropped_packets": 0,
                       "reanchors": 0, "rate_hz": rate_hz, "imu_temp_c": None, "audio_blocks": 0, "thermal_frames": 0}
         self._closed = False
+        # the microphone's readings (an ESP32 on the header's UART): the last few sets, as (window end, readings)
+        self._sound: list[tuple[float, np.ndarray]] = []
+        self._sound_seq: int | None = None
+        self.stats.update(sound_frames=0, sound_lost=0, sound_bad=0, sound_age_s=None)
+
+    # ------------------------------------------------------------ the microphone's readings (an ESP32, by UART)
+    SOUND_NAMES = tuple(n for n in F.FEATURE_NAMES if n.startswith("snd_"))
+    SOUND_SENT = tuple(n for n in SOUND_NAMES if n != "snd_env_order")  # what the ESP32 sends, in order
+    SOUND_FRAME_S = 0.095  # the frame's time on the UART line (sent 8 bytes every 4 ms): stamped at its last byte
+    SOUND_EARLY_S, SOUND_LATE_S = 0.75, 0.25  # how far a set's window may end before or after the row's
+
+    def on_sound(self, t_us, age_ms, seq, payload) -> None:
+        """One set of sound readings (the sketch's "snd" notification): `t_us` is the microcontroller's micros()
+        when the frame's last byte arrived from the ESP32, `age_ms` how long before the ESP32 started sending
+        the window ended, `payload` the 45 float32 readings (SOUND_SENT). The ESP32 worked them out from its
+        own 1.024 s window (firmware/esp32_mic); here they only get a time on our clock."""
+        v = np.frombuffer(bytes(payload), "<f4")
+        if len(v) != len(self.SOUND_SENT):
+            self.stats["sound_bad"] += 1
+            return
+        t_us, seq = int(t_us), int(seq) & 0xFFFF
+        if self.offset is None or self.last_us is None:
+            arrived = self.clock()  # no IMU batch yet to map the microcontroller's clock: now is close enough
+        else:
+            wraps = self.wraps  # the same micros() as the IMU's batches, so the same wraps, give or take one
+            if t_us < self.last_us and self.last_us - t_us > 2 ** 31:
+                wraps += 1
+            elif t_us > self.last_us and t_us - self.last_us > 2 ** 31:
+                wraps -= 1
+            arrived = self.offset + (t_us + wraps * 2 ** 32) / 1e6
+        end = arrived - self.SOUND_FRAME_S - min(int(age_ms), 60000) / 1000.0
+        if self._sound_seq is not None:
+            missed = (seq - self._sound_seq - 1) & 0xFFFF
+            if missed < 1000:  # more than that is the ESP32 starting again from 0, not a loss
+                self.stats["sound_lost"] += missed
+        self._sound_seq = seq
+        row = np.full(len(self.SOUND_NAMES), np.nan)
+        row[[self.SOUND_NAMES.index(n) for n in self.SOUND_SENT]] = v
+        self._sound = (self._sound + [(end, row)])[-8:]  # replaced, not changed: the pipeline thread reads it
+        self.stats["sound_frames"] += 1
+        self.stats["sound_age_s"] = round(self.clock() - end, 3)
+
+    def sound_features_at(self, window_end: float):
+        """The sound readings for a row whose window ends at `window_end`: the set whose own window ends nearest,
+        if within SOUND_EARLY_S before to SOUND_LATE_S after; else None (sound is then missing from the row).
+        A row is made as soon as its vibration is in, and the set for the same moment is still on its way
+        (the ESP32's maths, then 0.1 s on the UART line), so a row usually gets the set from 0.25 to 0.5 s
+        before it. Never waits: without the ESP32 the rows come just as fast, with no sound."""
+        best = None
+        for end, row in self._sound:
+            d = end - window_end
+            if -self.SOUND_EARLY_S <= d <= self.SOUND_LATE_S and (best is None or abs(d) < abs(best[0])):
+                best = (d, row)
+        return None if best is None else best[1]
 
     # ------------------------------------------------------------ from the Bridge thread
     def on_imu(self, first, t_us, n, acc, gyr, overflows=0, temp_raw=None) -> None:
