@@ -36,7 +36,7 @@ def alt_stats(path: Path, which: str, rule: str, line_mode: str = "max"):
     d = np.load(path)
     conds = sorted({k.split("|")[0] for k in d.files if "|" in k})
     ns, fs, lab = {}, {}, {}
-    k = 3 if rule == "med3" else 1
+    k = 3 if rule.startswith("med3") else 1
     for c in conds:
         if not in_set(c, which):
             continue
@@ -52,6 +52,10 @@ def alt_stats(path: Path, which: str, rule: str, line_mode: str = "max"):
         line = line if line > 0 else 1e-12
         r = "any" if k == 1 else "med"
         ns[c], fs[c] = C.clip_stats(hold / line, fault / line, r, k)
+        if "spike" in rule:  # also one second over <x> times the highest single out-of-sample learning score
+            sl = float(cal.max()) * float(rule.split("spike")[1])
+            na, fa = C.clip_stats(hold / sl, fault / sl, "any")
+            ns[c], fs[c] = np.maximum(ns[c], na), np.maximum(fs[c], fa)
         lab[c] = d[f"{c}|labels"]
     return ns, fs, lab
 
@@ -127,7 +131,7 @@ def main(argv=None) -> int:
             s = summarise(*device_stats(dev, args.set, part))
             out[f"device_as_is[{part}]"] = s
             rows.append(fmt_row(f"device as is ({part})", s, args.group))
-    for p in sorted((C.RESULTS / "A").glob("*.npz")):
+    for p in sorted(C.A_DIR.glob("*.npz")):
         if args.only and args.only not in p.stem:
             continue
         for rule in args.rules.split(","):

@@ -12,14 +12,16 @@ CONFIRMATION set (fixed before any result was seen): every condition with load "
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
 BASE = Path(r"C:\Users\finnf\effente-sscc")
-FEAT = BASE / "features"
+FEAT = Path(os.environ.get("SSCC_FEATURES", str(BASE / "features")))  # what-if feature sets live elsewhere
 RESULTS = BASE / "results"
+A_DIR = RESULTS / os.environ.get("SSCC_A_SUBDIR", "A")  # where eval_methods writes and report reads
 FAULTS = ("dry", "lean", "loose", "screwdrop")
 LEARN_SHARE, GAP_SHARE = 0.60, 0.05
 CONFIRM_LOAD = "med"
@@ -96,7 +98,8 @@ def clip_stats(norm_stream: np.ndarray, fault: np.ndarray, rule: str = "any", k:
 
     norm_stream: (n_norm, 5) held-out normal clips, consecutive in time (the stream is run through as one).
     fault: (n_fault, 5) fault clips, each judged as if the fault started at its first second, preceded by
-           the last k-1 seconds of the normal stream (so a median rule starts from normal history).
+           k-1 seconds at the normal stream's median score (typical normal history for a median rule; taking the
+           stream's actual last seconds made one condition's pre-roll, itself over the line, count as catches).
     Returns (normal stats (n_norm, 5), fault stats (n_fault, 5)): stat[:, j] = the highest value of the rule's
     statistic over the clip's first j+1 seconds (so the clip alarms by second j+1 iff stat[:, j] > 1)."""
     if rule == "any":
@@ -104,7 +107,7 @@ def clip_stats(norm_stream: np.ndarray, fault: np.ndarray, rule: str = "any", k:
     elif rule.startswith("med"):
         flat = running_median(norm_stream.ravel(), k)
         ns = flat.reshape(norm_stream.shape)
-        pre = norm_stream.ravel()[-(k - 1):] if k > 1 else np.zeros(0)
+        pre = np.full(k - 1, float(np.median(norm_stream))) if k > 1 else np.zeros(0)  # typical normal history
         fs = np.array([running_median(np.r_[pre, f], k)[len(pre):] for f in fault]) if len(fault) else fault
     else:
         raise ValueError(rule)

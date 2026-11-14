@@ -93,6 +93,11 @@ class Prepared:
                 keep = grp == "vib"
             elif self.fs == "dev_snd":
                 keep = grp == "snd"
+            elif self.fs == "dev_bands":  # only the band levels (and per-axis rms / overall sound level)
+                keep = np.array([("_band_" in n) or n in ("vib_rms_x", "vib_rms_y", "vib_rms_z", "snd_level_db")
+                                 for n in names])
+            elif self.fs == "dev_nobands":
+                keep = np.array([("_band_" not in n) and g != "other" for n, g in zip(names, grp)])
             self.keep = np.nonzero(keep)[0]
             self.groups_ = grp[self.keep]
             self.names_ = [names[i] for i in self.keep]
@@ -154,7 +159,7 @@ def make_model(spec: str, prep: Prepared):
         cols = [i for i, n in enumerate(prep.names_) if n in HAND]
         return M.MaxZ(cols)
     if spec.startswith("fused_"):  # fused_<base>_<combine>
-        _, base, comb = spec.split("_", 2)
+        base, comb = spec[len("fused_"):].rsplit("_", 1)
         return M.Fused(lambda: make_model(base, prep), g, comb)
     raise ValueError(spec)
 
@@ -189,7 +194,7 @@ def run_config(cfg: str) -> str:
         out[f"{cond}|fault"] = sf.reshape(len(fids), 5)
         out[f"{cond}|labels"] = d.meta["label"][fids]
     out["fit_and_score_seconds_mean"] = np.array(np.mean(fit_times))
-    path = C.RESULTS / "A" / (cfg.replace("|", "__").replace("+", "-") + ".npz")
+    path = C.A_DIR / (cfg.replace("|", "__").replace("+", "-") + ".npz")
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, **out)
     return f"{cfg}: {time.perf_counter() - t0:.0f} s"

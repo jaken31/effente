@@ -38,10 +38,10 @@ V1_EDGES = np.geomspace(5.0, 500.0, 21)
 A_EDGES = np.geomspace(50.0, 8000.0, 65)
 
 
-def device_vib(v16: np.ndarray, seed: int, noise: bool = True) -> np.ndarray:
+def device_vib(v16: np.ndarray, seed: int, noise: bool = True, unit_to_g: float = UNIT_TO_G) -> np.ndarray:
     """(80000, 3) tri-axis at 16 kHz (unit as the CSV) -> (5000, 3) at 1 kHz in g as the MPU-6500 would give."""
     from scipy import signal
-    y = signal.resample_poly(v16 * UNIT_TO_G, 1, 16, axis=0)
+    y = signal.resample_poly(v16 * unit_to_g, 1, 16, axis=0)
     lead = int(SETTLE_S * RATE1)
     y = np.concatenate([y[lead:0:-1], y])
     y = signal.sosfilt(signal.butter(2, 2.0, "highpass", fs=RATE1, output="sos"), y, axis=0)
@@ -72,9 +72,10 @@ def generic(x: np.ndarray, rate: float, edges: np.ndarray) -> np.ndarray:
     return np.vstack([bands, np.log10(rms), kurt, crest]).T
 
 
-def do_folder(path: Path) -> str:
+def do_folder(job) -> str:
+    path, out_dir, unit = job
     from effente import features as F
-    out = OUT / path.name
+    out = out_dir / path.name
     if out.exists():
         try:
             with np.load(out) as d:
@@ -93,8 +94,8 @@ def do_folder(path: Path) -> str:
         vib = d["vib"][i].astype(np.float64) * d["vib_scale"][i][None, :]
         aud = d["audio"][i].astype(np.float64)
         seed = zlib.crc32(f"{d['folder']}/{d['clip_id'][i]}".encode())
-        a1 = device_vib(vib[:, list(TRI)], seed)
-        a1c = device_vib(vib[:, list(TRI)], seed, noise=False)
+        a1 = device_vib(vib[:, list(TRI)], seed, unit_to_g=unit)
+        a1c = device_vib(vib[:, list(TRI)], seed, noise=False, unit_to_g=unit)
         for k in range(5):
             acc = a1[k * RATE1:(k + 1) * RATE1]
             snd = aud[k * RATE16:(k + 1) * RATE16]
@@ -117,11 +118,14 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=14)
     ap.add_argument("--only", default="")
+    ap.add_argument("--unit-to-g", type=float, default=UNIT_TO_G, help="what-if: the CSV unit times this is g")
+    ap.add_argument("--out", default=str(OUT))
     args = ap.parse_args(argv)
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
     files = [p for p in sorted(CACHE.glob("*.npz")) if not p.name.endswith(".part.npz") and args.only in p.name]
     with Pool(args.workers) as pool:
-        for k, msg in enumerate(pool.imap_unordered(do_folder, files), 1):
+        for k, msg in enumerate(pool.imap_unordered(do_folder, [(f, out_dir, args.unit_to_g) for f in files]), 1):
             print(f"[{k}/{len(files)}] {msg}", flush=True)
     return 0
 
