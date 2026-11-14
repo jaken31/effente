@@ -95,6 +95,19 @@ The simulated device and a real one can run at the same time. The dashboard show
 | [sim/](sim/README.md) | Simulated device, and the reference for the real device's side |
 | `server/data/` | Stored records, agent runs, the simulator's device log. Not committed. |
 | [../device/agent/](../device/agent/README.md) | The maintenance agent |
+| `scan/` | Phone scans ([the plan](../docs/scan-and-log-plan.md), stretch work): the scan store's logic, and the conversion of a USDZ scan to the GLB the 3D view reads. Not wired to any route yet. |
+
+### Scans need Blender
+
+A phone sends a scan as a USDZ file, and the Machine page reads GLB. Blender converts one to the other, with no window. So the laptop that runs the demo needs Blender installed (the plan was checked with 5.2.2). It is looked for in this order: the environment variable `EFFENTE_BLENDER`, `blender` on the PATH, the usual place on macOS, the usual place on Windows. Without it a scan is still kept, its model shows as failed with a sentence saying so, and "convert again" works once Blender is there. A GLB file needs no Blender.
+
+Try one conversion by hand:
+
+```
+python3 platform/scan/scan_convert.py scan.usdz model.glb
+```
+
+Not checked yet: the conversion has only run against a stand-in for Blender in the tests, never against a real Blender or a real phone scan.
 
 ## Tests
 
