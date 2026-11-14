@@ -95,6 +95,9 @@ static const float AW[3][5] = {  // b0, b1, b2, a1, a2
   {1.0f, -2.0f, 1.0f, -1.98388676f, 0.983951666f},
 };
 static float awState[3][2] = {{0, 0}, {0, 0}, {0, 0}};
+// Added to the screen's level. -5 dB: the A-weighted number read about 5 dB over the user's own reading of the
+// room (13 Nov). One comparison by ear of two numbers, not a calibration against a sound level meter (unverified).
+const double LEVEL_TRIM_DB = -5.0;
 
 static inline float aWeight(float x) {
   for (int i = 0; i < 3; i++) {
@@ -173,7 +176,7 @@ static void sendLevel() {
   if (cnt == 0) return;
   double rms = sqrt(sq / cnt);  // A-weighted, of full scale
   char line[40];
-  snprintf(line, sizeof line, "LVL,%.1f,%.1f", rms > 1e-10 ? 20 * log10(rms) : -200.0,
+  snprintf(line, sizeof line, "LVL,%.1f,%.1f", rms > 1e-10 ? 20 * log10(rms) + LEVEL_TRIM_DB : -200.0,
            pk > 0 ? 20 * log10(pk / 8388608.0) : -200.0);
   Serial1.println(line);
 }
@@ -272,7 +275,7 @@ void loop() {
   double peakDb = p > 0 ? 20 * log10(p / 8388608.0) : -200;
   memcpy(o.frame + 7, readings, 4 * SND_SENT);
   snprintf(o.line, sizeof o.line, "MIC,%lu,%d,%.1f,%.1f,%.0f,%u", (unsigned long)n++, alive ? 1 : 0,
-           wrms > 1e-10 ? 20 * log10(wrms) : -200.0, peakDb, readings[SND_TONE_HZ], (unsigned)SND_N);
+           wrms > 1e-10 ? 20 * log10(wrms) + LEVEL_TRIM_DB : -200.0, peakDb, readings[SND_TONE_HZ], (unsigned)SND_N);
   o.windowEndUs = atUs;
   // The frame about once a second (every 4th set): the UNO Q's sketch passes one set a second on, and every
   // byte it has to take in is time it is not reading its sensor (measured on the board, 13 Nov).
