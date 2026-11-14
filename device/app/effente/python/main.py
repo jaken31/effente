@@ -23,6 +23,7 @@ from arduino.app_utils import App, Bridge  # noqa: E402
 
 from effente import history as _history  # noqa: E402
 from device.intake.device_app import DeviceApp  # noqa: E402
+from device.intake.mlx90640 import Camera  # noqa: E402
 from device.intake.source import UnoQSource  # noqa: E402
 from device.intake.stream import Stream  # noqa: E402
 from device.intake.thermal_link import ThermalLink  # noqa: E402
@@ -62,11 +63,30 @@ Bridge.provide("esp", on_esp)
 thermal = ThermalLink(source.on_thermal_frame, host=lambda: esp["ip"]).start()
 Bridge.provide("thermal", source.on_thermal)  # ignored unless EFFENTE_THERMAL=1
 
+# The thermal camera as fitted (14 Nov): on the sketch's own bus. The sketch sends its calibration memory and
+# every half-frame as read ("mlx_ee", "mlx"); the degrees are worked out here (device/intake/mlx90640.py)
+# and each image goes where the ESP32's would.
+camera = Camera(source.on_thermal_frame)
+
+
+def _camera(take):
+    def on(*args):
+        try:
+            take(*args)
+        except Exception as e:  # noqa: BLE001  one odd notification must not end the Bridge's thread
+            camera.stats["error"] = f"{type(e).__name__}: {e}"
+    return on
+
+
+Bridge.provide("mlx_ee", _camera(camera.on_ee))
+Bridge.provide("mlx", _camera(camera.on_part))
+
 mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and screen found, bus state
 
 
 def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors,
-                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None, out_of_step=None, odd_counts=None):
+                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None, out_of_step=None, odd_counts=None,
+                 heat_frames=None, heat_errors=None, heat_range=None, *more):  # the thermal camera on the sketch own bus (screen only)
     # The last four only from sketches that send them. mic_lines: lines received from the ESP32 microphone
     # front end; mic_db10: its last level in tenths of a dB below full scale (screen only, not a feature yet).
     if mpu_ok:
@@ -77,7 +97,9 @@ def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high,
                          mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10,
                          # out_of_step: times the sketch found the samples out of step and restarted the FIFO;
                          # odd_counts: reads where the FIFO did not hold a whole number of samples
-                         out_of_step=out_of_step, odd_counts=odd_counts), at=time.time())
+                         out_of_step=out_of_step, odd_counts=odd_counts,
+                         heat_frames=heat_frames, heat_errors=heat_errors, heat_range=heat_range,
+                         heat_debug=list(more)), at=time.time())
 
 
 Bridge.provide("hb", on_heartbeat)
@@ -119,6 +141,7 @@ def loop():
           + (f" | {s['message']}" if s.get("message") else "") + (f" | {s['diagnosis']}" if s.get("diagnosis") else ""),
           flush=True)
     b = mcu["beat"]
+    print(f"thermal camera: {camera.stats}", flush=True)
     print("microcontroller: no heartbeat yet (the sketch isn't running)" if b is None else
           f"microcontroller: last heartbeat {time.time() - mcu['at']:.0f} s ago: {b}", flush=True)
 
