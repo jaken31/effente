@@ -258,6 +258,52 @@ void updateLive(float dt) {
   peakNow = 0;
 }
 
+// ---- microphone: an ESP32-S3 reads the INMP441 and sends a text line 4 times a second on its UART
+// (firmware/esp32_mic): "MIC,<n>,<ok>,<level dBFS>,<peak dBFS>,<tone Hz>,<samples>". It arrives on D0, which
+// on this core (0.55.2) is Serial1 (usart1); Serial is the Bridge's monitor and Serial2 the Bridge line.
+// Screen only for now: nothing of it goes to the Linux side as a feature (still to be agreed by the team).
+char micLine[64];
+uint8_t micLen = 0;
+bool micOk = false;
+float micDb = NAN, micToneHz = NAN;
+uint32_t micLines = 0, micAt = 0;
+
+float parseNum(const char *&p) {  // a number, then past the comma after it (by hand: no strtod on this core)
+  bool neg = *p == '-';
+  if (neg) p++;
+  float v = 0;
+  while (*p >= '0' && *p <= '9') v = v * 10 + (*p++ - '0');
+  if (*p == '.') {
+    p++;
+    for (float s = 0.1f; *p >= '0' && *p <= '9'; s *= 0.1f) v += (*p++ - '0') * s;
+  }
+  if (*p == ',') p++;
+  return neg ? -v : v;
+}
+
+void micPoll() {
+  while (Serial1.available()) {
+    char c = Serial1.read();
+    if (c == '\n') {
+      micLine[micLen] = 0;
+      micLen = 0;
+      if (!strncmp(micLine, "MIC,", 4)) {
+        const char *p = micLine + 4;
+        parseNum(p);                 // the line's number
+        micOk = parseNum(p) > 0.5f;  // the ESP32 saw a real microphone
+        micDb = parseNum(p);
+        parseNum(p);                 // peak
+        micToneHz = parseNum(p);
+        micLines++;
+        micAt = millis();
+      }
+    } else if (c != '\r') {
+      if (micLen < 63) micLine[micLen++] = c;
+      else micLen = 0;  // too long to be ours: drop it
+    }
+  }
+}
+
 // ---- the Linux side's layout: up to 8 lines; {vib} {peak} {temp} are filled in live, {bar} is a level bar
 char tmpl[8][48];
 uint32_t screenUpdates = 0;
@@ -316,7 +362,8 @@ void bigLine(uint8_t line, const char *s, uint8_t len) {
   }
 }
 
-// ---- design B ("tiles", the user's pick, 13 Nov): a header, then four boxed readings drawn large.
+// ---- design B ("tiles", the user's pick, 13 Nov): a header, then boxed readings (four large ones at first;
+// six smaller ones since the microphone was added, see composeTiles).
 // The Linux side sends 4 lines: "@<header left>" ('!' first: something is wrong; the '!' isn't drawn),
 // the header's right side (the time), the tile that goes with what is wrong ("vib", "peak", "temp", "hz" or
 // empty; no longer drawn differently, as the user asked on 13 Nov: no inverted, white backgrounds), and the
@@ -355,7 +402,7 @@ void outline(int x, int y, int w, int h) {  // a box with its corner pixels left
 
 void composeTiles() {
   memset(fb, 0, sizeof fb);
-  char left[24], val[4][12];
+  char left[24], val[6][12];
   const char *l = tmpl[0] + 1;
   bool alert = l[0] == '!';
   if (alert) l++;
@@ -368,26 +415,47 @@ void composeTiles() {
   // Nothing is drawn inverted (the user, 13 Nov: no white backgrounds); the header's words say what is wrong.
   drawText(1, 0, left, 1, true);
   drawText(127 - textWidth(right, 1), 0, right, 1, true);
-  for (int x = 0; x < 128; x++) px(x, 8, true);
-  float mg = 1000 * sqrtf(shownRms2);
+  // Six tiles, three across and two down, all the same size (the user, 13 Nov: the IMU's readings smaller,
+  // the microphone's about the same size). Top row: vibration, peak, temperature. Bottom row: running
+  // speed, sound level, strongest tone. A tile's number is at most 3 characters at double size, so big
+  // values change unit: 1000 mg and over is shown in g, 1000 Hz and over in kHz ("k").
+  const char *units[6] = {"mg", "mg", "F", "", "dB", "Hz"};
+  float mg = 1000 * sqrtf(shownRms2), pk = 1000 * shownPeak;
   if (mpuOk) {
-    fnum(val[0], mg > 9999 ? 9999 : mg, 0);
-    fnum(val[1], 1000 * shownPeak > 9999 ? 9999 : 1000 * shownPeak, 0);
+    if (mg >= 999.5f) { fnum(val[0], mg / 1000, mg < 9950 ? 1 : 0); units[0] = "g"; }
+    else fnum(val[0], mg, 0);
+    if (pk >= 999.5f) { fnum(val[1], pk / 1000, pk < 9950 ? 1 : 0); units[1] = "g"; }
+    else fnum(val[1], pk, 0);
     fnum(val[2], imuTempC * 9.0f / 5.0f + 32.0f, 0);  // the screen shows Fahrenheit (the user); the data stays in C
   } else {
     strcpy(val[0], "--"); strcpy(val[1], "--"); strcpy(val[2], "--");
   }
-  strncpy(val[3], tmpl[3][0] ? tmpl[3] : "--", 11);
+  strncpy(val[3], tmpl[3][0] ? tmpl[3] : "--", 11);  // the running speed, as the Linux side wrote it
   val[3][11] = 0;
-  static const char *labels[4] = {"VIB", "PEAK", "TEMP", "HZ"};
-  static const char *units[4] = {"mg", "mg", "F", ""};
-  static const char *keys[4] = {"vib", "peak", "temp", "hz"};
-  for (uint8_t i = 0; i < 4; i++) {
-    int bx = (i % 2) * 64, by = 10 + (i / 2) * 27;
-    outline(bx, by, 63, 26);
+  if (strlen(val[3]) > 3) {  // too wide for a tile: drop the decimals ("29.8" -> "29")
+    char *dot = strchr(val[3], '.');
+    if (dot) *dot = 0;
+    val[3][3] = 0;
+  }
+  // The microphone. The ESP32 sends dBFS: decibels below the loudest the microphone can give, so always
+  // negative, and nearer 0 when louder. Shown instead as a positive number that goes up with loudness:
+  // dBFS + 120, the INMP441 datasheet's figure (94 dB SPL reads -26 dBFS). An estimate, not checked
+  // against a sound meter (unverified).
+  if (!micLines || millis() - micAt > 2000 || !micOk) {
+    strcpy(val[4], "--"); strcpy(val[5], "--");
+  } else {
+    float db = micDb + 120.0f;
+    fnum(val[4], db < 0 ? 0 : db, 0);
+    if (micToneHz >= 999.5f) { fnum(val[5], micToneHz / 1000, micToneHz < 9950 ? 1 : 0); units[5] = "k"; }
+    else fnum(val[5], micToneHz, 0);
+  }
+  static const char *labels[6] = {"VIB", "PEAK", "TEMP", "HZ", "SND", "TONE"};
+  for (uint8_t i = 0; i < 6; i++) {
+    int bx = (i % 3) * 43, by = 8 + (i / 3) * 28;  // 42 wide, 28 high: y 8..35 and 36..63
+    outline(bx, by, 42, 28);
     drawText(bx + 3, by + 2, labels[i], 1, true);
-    if (units[i][0]) drawText(bx + 60 - textWidth(units[i], 1), by + 2, units[i], 1, true);
-    drawText(bx + 32 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
+    if (units[i][0]) drawText(bx + 40 - textWidth(units[i], 1), by + 2, units[i], 1, true);
+    drawText(bx + 21 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
   }
 }
 
@@ -472,6 +540,7 @@ uint32_t sensorRestarts = 0;
 void setup() {
   Bridge.begin();
   Monitor.begin();
+  Serial1.begin(115200);  // D0 (RX): the ESP32 microphone front end
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   delay(300);  // let the sensor and the screen power up before the first look (12 Nov: with both on the bus,
                // the sensor's single check at power-up failed and the sketch never read it again)
@@ -538,6 +607,7 @@ void readFifo() {
 }
 
 void loop() {
+  micPoll();
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
   // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
   // its power-on state (asleep, FIFO off) and reports an empty FIFO for ever (13 Nov, on the board: the
@@ -602,7 +672,7 @@ void loop() {
     lastBeat = millis();
     Bridge.notify("hb", (uint32_t)millis(), mpuOk, oledOk, (uint32_t)whoAmI, (uint32_t)lastBusClocks,
                   (uint32_t)busTries, sdaWasHigh, sclWasHigh, (uint32_t)readErrors, (uint32_t)oledErrors,
-                  (uint32_t)frames);
+                  (uint32_t)frames, (uint32_t)micLines, (int32_t)(micDb == micDb ? micDb * 10 : 0));
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
   if (down != buttonDown && millis() - buttonChange > 30) {  // 30 ms debounce
