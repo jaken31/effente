@@ -55,6 +55,22 @@ def test_fixing_a_machine_idle_then_more_recording_and_the_model_is_made_again()
         k = 4 ** (2 * 0.5 - 1)  # a dashboard's own sum for sudden_impact at the default, against the device's
         mine = max((1 + 1 / k) * 10 ** info["learned"]["highest_while_learning"]["vib_peak_g_log10"], 0.05)
         assert abs(mine - app.fires_at()["one_moment"]["sudden_impact"]["fires_at"]) < 1e-3
+        # what was recorded and learned can be read, and only read
+        listing = app.data_listing()
+        assert [r["name"] for r in listing["recordings"] if r["in_the_model"]] == rep["recordings"]
+        assert any(m["in_use"] and m["file"] == app.model_path.name for m in listing["models"])
+        files = app.recording_files(rep["recordings"][0])["files"]
+        assert any(f["path"].startswith("features/") for f in files) and any(f["path"] == "events.jsonl" for f in files)
+        rows = app.recording_rows(rep["recordings"][0], start=10, limit=5, every=2)
+        assert rows["returned"] == 5 and len(rows["rows"][0]) == len(rows["names"]) and rows["t"][1] - rows["t"][0] == 2.0
+        assert app.data_file("models", app.model_path.name) == app.model_path.resolve()
+        for kind, bad in (("models", "../state.json"), ("recordings", "../../secrets"), ("data", "state.json"), ("models", "nothing.json")):
+            try:
+                app.data_file(kind, bad)
+                raise AssertionError((kind, bad))
+            except ValueError:
+                pass
+        assert not hasattr(app, "set_model") and not hasattr(app, "patch_model")  # a model is never changed from outside
         c = app.controls()
         assert {"record", "stop", "idle", "detect", "press", "clear_history"} <= set(c["commands"])
         assert c["now"]["state"] == "DETECTING" and len(c["now"]["recordings_in_model"]) == 2 and "TRAINING" in c["states"]

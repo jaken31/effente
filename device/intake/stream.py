@@ -19,6 +19,10 @@ platform or curl connects. No UI here, only the data.
                   command the device takes, what each does, the values it takes and what it is now
   GET /features   name, text, unit and sensor of every feature, in row order
   GET /health     the server is up; how old the last result is
+  GET /recordings     every recording; /recordings/<name> its files; /recordings/<name>/<file> a file as it is;
+                      /recordings/<name>/rows the one-a-second rows as JSON (?start=0&limit=600&every=1)
+  GET /models         every model file; /models/<file> the file, weights and all. All of these only read:
+                      nothing here changes a model or a recording
   GET /model/summary  the model in use and how to compute with it (the model_trained event carries the same);
   GET /model          the same with the whole model file, weights and all
   GET /fires_at   the value each check fires at now (also "fires_at" in GET /latest): fixed limits, the lasting
@@ -169,6 +173,7 @@ class Stream:
         self.controls = None  # () -> everything a connected program can tell the device, for GET / and /controls
         self.fires_at = None  # () -> the value each check fires at now, for GET /latest and /fires_at
         self.model_info = None  # (full) -> the model in use and how to compute with it, for GET /model
+        self.data = None  # the device app, for reading what was recorded and learned: GET /recordings, /models
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -384,6 +389,9 @@ _INDEX = {"endpoints": {
     "/view": "a page for a browser: the state, the readings and what is wrong, refreshed every second",
     "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}",
     "/command": "GET the commands the device takes; POST one as JSON, e.g. {\"command\": \"clear_history\"}",
+    "/recordings": "every recording on the device; /recordings/<name> lists its files, /recordings/<name>/<file> is a "
+                   "file as it is, /recordings/<name>/rows the one-a-second rows as JSON (?start=&limit=&every=)",
+    "/models": "every model file on the device; /models/<file> is the file, weights and all",
     "/model/summary": "the model in use: what it learned (levels, highest values, its lines), the readings in it, "
                       "its training report, and how to work out from a sensitivity what each check fires at. "
                       "The same goes out as \"model\" in the model_trained event when a training ends",
@@ -410,6 +418,41 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(b)
+
+    def _data(self, path: str, q) -> None:
+        """Recordings and model files, to read: lists as JSON, files as they are."""
+        d = self.stream.data
+        if d is None:
+            return self._json(404, dumps({"ok": False, "error": "this device keeps no recordings"}))
+        parts = [p for p in path.split("/") if p]
+        try:
+            if len(parts) == 1:
+                listing = d.data_listing()
+                return self._json(200, dumps({"ok": True, parts[0]: listing[parts[0]], "note": listing["note"],
+                                              "model_in_use": listing["model_in_use"]}))
+            if parts[0] == "recordings" and len(parts) == 2:
+                return self._json(200, dumps({"ok": True, **d.recording_files(parts[1])}))
+            if parts[0] == "recordings" and len(parts) == 3 and parts[2] == "rows":
+                one = lambda k, default: int(q.get(k, [default])[0])  # noqa: E731
+                return self._json(200, dumps({"ok": True, **d.recording_rows(parts[1], one("start", 0), one("limit", 600),
+                                                                             one("every", 1))}))
+            f = d.data_file(parts[0], "/".join(parts[1:]))
+        except (ValueError, OSError) as e:
+            return self._json(404, dumps({"ok": False, "error": str(e)}))
+        kind = "application/json" if f.suffix in (".json", ".jsonl") else "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(f.stat().st_size))
+        self.send_header("Content-Disposition", f'attachment; filename="{f.name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        with open(f, "rb") as fh:
+            while True:
+                chunk = fh.read(65536)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
 
     def do_OPTIONS(self):  # CORS preflight, for browser clients that send custom headers
         self.send_response(204)
@@ -439,6 +482,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._settings(None)
             elif path == "/command":
                 self._command(None)
+            elif path in ("/recordings", "/models") or path.startswith(("/recordings/", "/models/")):
+                self._data(path, parse_qs(url.query))
             elif path in ("/model", "/model/summary"):
                 self._json(200, dumps({"ok": True, **(s.model_info(path == "/model") if s.model_info else {})}))
             elif path == "/fires_at":

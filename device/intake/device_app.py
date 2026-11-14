@@ -200,6 +200,7 @@ class DeviceApp:
             self.stream.controls = self.controls
             self.stream.fires_at = self.fires_at
             self.stream.model_info = self.model_info
+            self.stream.data = self  # data_listing, data_file, recording_files, recording_rows: read only
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -639,6 +640,62 @@ class DeviceApp:
         if full:
             info["model_file"] = d
         return info
+
+    # ------------------------------------------------------------ what was recorded and learned, to read (never to change)
+    def data_listing(self) -> dict:
+        """Every recording and every model file on the device, for GET /recordings and /models."""
+        used = {Path(p).name for p in self.sessions}
+        recs = []
+        root = self.dir / "recordings"
+        for f in sorted(root.glob("rec-*")) if root.exists() else []:
+            files = [p for p in f.rglob("*") if p.is_file()]
+            recs.append({"name": f.name, "files": len(files), "bytes": sum(p.stat().st_size for p in files),
+                         "in_the_model": f.name in used,
+                         "recording_now": self.mode == "recording" and self.recording is not None and f.name == self.recording.name,
+                         "rows": f"/recordings/{f.name}/rows", "list": f"/recordings/{f.name}"})
+        mroot = self.dir / "models"
+        models = [{"file": p.name, "bytes": p.stat().st_size, "in_use": self.model_path is not None and p == self.model_path,
+                   "get": f"/models/{p.name}"} for p in sorted(mroot.glob("*.json"))] if mroot.exists() else []
+        return {"recordings": recs, "models": models, "model_in_use": self.model_version,
+                "note": "read only. /recordings/<name> lists a recording's files; /recordings/<name>/<file> is the "
+                        "file itself (the .npz files are NumPy archives); /recordings/<name>/rows gives the "
+                        "one-a-second rows as JSON (?start=0&limit=600&every=1); /models/<file> is a model file, "
+                        "weights and all; /model/summary describes the one in use"}
+
+    def data_file(self, kind: str, rel: str) -> Path:
+        """The file `rel` under recordings/ or models/, for sending as it is. Raises ValueError for anything
+        outside those two folders or not there."""
+        root = (self.dir / kind).resolve()
+        p = (root / rel).resolve()
+        if kind not in ("recordings", "models") or root not in p.parents or not p.is_file():
+            raise ValueError(f"no such file: {kind}/{rel}")
+        return p
+
+    def recording_files(self, name: str) -> dict:
+        folder = (self.dir / "recordings" / name).resolve()
+        if (self.dir / "recordings").resolve() not in folder.parents or not folder.is_dir():
+            raise ValueError(f"no such recording: {name}")
+        files = sorted(p for p in folder.rglob("*") if p.is_file())
+        return {"name": name, "files": [{"path": p.relative_to(folder).as_posix(), "bytes": p.stat().st_size,
+                                         "get": f"/recordings/{name}/{p.relative_to(folder).as_posix()}"} for p in files],
+                "what": {"features/": "one row a second of every reading (NumPy .npz: X, t0, feature_names)",
+                         "raw/": "short clips of the raw sensor samples", "events.jsonl": "what happened, a line each",
+                         "history.npz": "the device's memory of past levels at the end of the recording"},
+                "rows": f"/recordings/{name}/rows"}
+
+    def recording_rows(self, name: str, start: int = 0, limit: int = 600, every: int = 1) -> dict:
+        """A recording's one-a-second rows as JSON: {"names": [...], "t": [...], "rows": [[...], ...]}, from row
+        `start`, at most `limit` (5,000 at the most), every `every`-th."""
+        folder = (self.dir / "recordings" / name).resolve()
+        if (self.dir / "recordings").resolve() not in folder.parents or not folder.is_dir():
+            raise ValueError(f"no such recording: {name}")
+        X, t, names = load_recording(folder)
+        start, every, limit = max(0, int(start)), max(1, int(every)), min(max(1, int(limit)), 5000)
+        idx = np.arange(start, len(t), every)[:limit]
+        return {"name": name, "total_rows": int(len(t)), "start": start, "every": every, "returned": int(len(idx)),
+                "next_start": int(idx[-1] + every) if len(idx) and idx[-1] + every < len(t) else None,
+                "names": [str(n) for n in names], "t": [float(v) for v in np.asarray(t, float)[idx]],
+                "rows": np.asarray(X, float)[idx].tolist()}
 
     def fires_at(self) -> dict:
         """For whoever reads the JSON: the value each check fires at, in the reading's own unit, with the
