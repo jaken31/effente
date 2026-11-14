@@ -728,7 +728,8 @@ What each piece of the page needs, and where it comes from:
 | The number beside each part, and the "Now" tile | The part's `reading` (9.3) | Yes |
 | "Average", "Highest" and the count | `summary` in the part's readings route (9.3) | Yes |
 | The chart, and its 7 d, 30 d, 60 d, All buttons | `readings` in the same route, with `since` (9.3) | Yes |
-| "Change", the dotted line and the fan, the sentence under the chart | `projection` (9.5) | Yes |
+| "Change", and the sentence under the chart | `projection` (9.5), which fits the model's score, not velocity | Yes |
+| The dotted line and the fan through the velocity points | Not built: the projection is not in mm/s (9.5) | |
 | Repair marks on the chart | Log entries of kind `repair` (8.6) | No |
 | "What moved" | `features` of the visit's newest record (message 2) | No |
 | Spectrum bars and the "normal" line | The record's `spectrum`, and the normal spectrum (9.4) | The line is |
@@ -737,7 +738,7 @@ What each piece of the page needs, and where it comes from:
 
 Four things in the drawing are not to be built as drawn:
 
-- **"Alarm threshold 4.5 mm/s".** The alarm is on the model's score, not on velocity. The line is the 11 mm/s limit, labelled "limit for any machine" (contract 9.5).
+- **"Alarm threshold 4.5 mm/s".** The alarm is on the model's score, not on velocity. The line on the chart is the 11 mm/s limit, labelled "limit for any machine, 11 mm/s". The projection is worked out against the model's alarm line and shown as a sentence (contract 9.5).
 - **No way to say where the probe is.** The drawing has none, and the page needs one. Selecting a part to look at it must not move the probe: a person browsing would stamp records with the wrong part. Add a "Probe is here" button on the selected part, and show "Probe on: Drive roller, since 16:01" with a clear button in the top bar while a pick is set.
 - **"Counts as evidence" at 4 spreads**, and the "running speed" label on a spectrum bar. No such threshold or label was found in the contract. Leave both out unless their source is found. Unverified.
 - **The spectrum in mm/s.** The record's spectrum is log10 band levels. Draw it in that unit.
@@ -750,7 +751,7 @@ Owners follow the folders in section 2. The simulator and the device link have n
 |-------|------|-------|-----|
 | R0. Wiring | The new routes in the route table, one call that lets the log store stamp a record before it is stored, `probe` in the state reply, stubs that answer "not built yet". Merged first, as step 0 was. | `platform/server/receiver_server.py`, `receiver_store.py` | Jake |
 | R1. Receiver: the probe's part | Contract 9.1: the route, the stamp, the 60 second and 5 minute rules, the file that keeps the pick across a restart, the `probe` event. | `platform/server/log_store.py`, `log_api.py` | Jake |
-| R2. Receiver: readings | Contract 9.3: visits and readings as plain functions, the route, the part's `reading`, the `reading` event at most every 10 seconds. | `platform/partlog/readings.py` (new), `log_store.py`, `log_api.py` | Jake |
+| R2. Receiver: readings | Contract 9.3: visits and readings as plain functions, each reading's median velocity and median `unknown_score`, the route, the part's `reading`, the `reading` event at most every 10 seconds. | `platform/partlog/readings.py` (new), `log_store.py`, `log_api.py` | Jake |
 | R3. Receiver: normal spectrum | Contract 9.4. | `platform/partlog/normal_spectrum.py` (new), `log_api.py` | Jake |
 | V1. Velocity, device link | Contract 9.2 for the link. | `platform/link/device_link.py` | Jake |
 | V2. Velocity, device | Contract 9.2 for the uploader. The one change asked of track 1. | `device/intake/uploader.py` | Track 1 |
@@ -758,7 +759,7 @@ Owners follow the folders in section 2. The simulator and the device link have n
 | S2. Simulator: history | Contract 9.6: a command that writes weeks of visits, past findings and a repair, through the routes, and refuses on a live machine. | `platform/sim/` | Jake |
 | M1. The Machine page | The one-screen layout of the drawing, on top of the page in PR #63: the probe control, tiles, chart, evidence panel, the review and log columns, and every "simulated" mark in contract 9.6. | `platform/desktop/app/pages/machine/` | Cameron |
 | M2. `state.log` additions | 15.3, and the fakes. | `platform/desktop/app/data/partlog.py`, `tests/fake_partlog.py` | Jake |
-| P1. The projection | Contract 9.5 as one plain function: readings and the newest repair in, the projection out. No model call anywhere near it. | `platform/partlog/projection.py` (new) | Jake |
+| P1. The projection | Contract 9.5 as one plain function: readings and the newest repair in, the projection out. It fits the readings' `unknown_score` against the alarm line. No model call anywhere near it. Also the check of that function on run-to-failure bearing data, which decides `show_days`. | `platform/partlog/projection.py` (new) | Jake |
 | P2. The part review agent | Contract 9.7: the summary and the projection in the fact sheet, `trend` copied by code, the two checks. The stand-in first. | `platform/partlog/review/`, `platform/part_review.py` | Jake |
 
 That is a lot on Jake. If the team wants it faster, S1 and S2 are the cleanest pieces to hand to someone else: they touch only `platform/sim/` and need only the contract.
@@ -781,7 +782,8 @@ If it is not working, cut in this order, and the page falls back to what PR #63 
 |------------------------|------|
 | The part review's `trend` | The review as in 8.8 |
 | The normal spectrum | The bars alone, with "normal not known yet" |
-| The projection | The chart with no line and no sentence |
+| The check on run-to-failure data comes out poorly, or is not run in time to trust the days | `show_days` is `false`: the app says "Trend" and shows no days figure (contract 9.5) |
+| The projection | The chart with its points and the limit line, and no sentence |
 | Velocity from the real device (V1, V2) | Readings from the simulator only, every one marked simulated |
 | Readings at all | The Machine page of section 9, C5 |
 
@@ -803,12 +805,12 @@ Sample data in the fakes, so the page can be built before the receiver works: th
 ### 15.4 Tests
 
 - **R1.** A record stored with a pick is stamped, and one stored without is not. A late record from before the pick is not stamped. The pick clears itself after 5 minutes with no records, and survives a restart inside them. A part from another machine, a removed part and an unknown part are each a 400. An already stamped record keeps its part.
-- **R2.** One visit, two visits split by a gap, a visit too short to count, `stopped` records left out, a record with no velocity left out, the median, `open` turning `false`, a restart giving the same readings, and the `summary` following `since`. Fewer `reading` events than records.
+- **R2.** One visit, two visits split by a gap, a visit too short to count, `stopped` records left out, a record with no velocity left out, the median velocity, the median `unknown_score` with `warming_up` records left out and `null` when none has one, `open` turning `false`, a restart giving the same readings, and the `summary` following `since`. Fewer `reading` events than records.
 - **R3.** 299 records is not ready and 300 is. A new `model_version` starts again. A record with a problem on is left out. Real records push simulated ones out.
-- **P1.** Fixed readings with known answers for all five statuses. A repair inside the window cuts it. Two days is not enough and three is. The range from a hand-worked example. The same input always gives the same output.
+- **P1.** Fixed readings with known answers for all five statuses, fitted on `unknown_score`. A repair inside the window cuts it, and so does a new `model_version`. A reading with no score is left out. The line is the newest reading's `alarm_line`, so a changed sensitivity moves it. Two days is not enough and three is. The range from a hand-worked example. With `show_days` off, no status carries `reaches`. The same input always gives the same output.
 - **P2.** `trend` equals the projection's sentence, word for word. A review that changes a number from the history is rejected. A rising projection with no alarm and no entry never gives `needs_repair: yes`.
 - **S2.** After a run, every record, reading, summary, projection and entry it made says `simulated: true`. It refuses on a machine with an open alarm or a connected device. A second run does not double the history.
-- **M1.** Each state of the drawing: weeks of history, a first day, a part the probe has never been on. Every "simulated" mark in contract 9.6, with simulated and real readings on one chart. No normal line while the normal is not ready.
+- **M1.** The chart is in mm/s with the limit line labelled, and nothing from the projection is drawn on it. With `show_days` off the page says "Trend" and shows no days and no date. Each state of the drawing: weeks of history, a first day, a part the probe has never been on. Every "simulated" mark in contract 9.6, with simulated and real readings on one chart. No normal line while the normal is not ready.
 
 ### 15.5 Checked, and not checked
 
@@ -824,7 +826,8 @@ Not checked:
 
 | Open question | Who | Why it matters |
 |---------------|-----|----------------|
-| Is the 11 mm/s limit the right line to project to, or should the device send its learned levels so the "above normal" line can be drawn? | All five | It decides what the projection says, and whether track 1 has a second change |
+| Does a straight line through the model's score say anything about when an alarm comes? The check on run-to-failure bearing data. Not run. What counts as poorly is not set. | Jake | It decides whether the app shows days or only "Trend" (contract 9.5) |
+| Does the median `unknown_score` of a short visit hold steady from one visit to the next, and does it differ between parts of one machine? | Whoever has the probe and the conveyor | The projection now fits it |
 | Do readings taken at different spots on one machine differ enough to be worth telling apart? | Whoever has the probe and the conveyor | The whole idea rests on it |
 | Is the median of a short visit steady from one visit to the next on a machine that has not changed? | Same | If not, every projection is noise |
 | Is five minutes of normal records enough for a steady normal spectrum? | Jake | The 300 in contract 9.4 |
@@ -839,7 +842,7 @@ Not checked:
 On top of the list in section 14:
 
 - That the history is real. It is written by the simulator, and the screen says so.
-- That the projection is a prediction of failure, or a remaining life. It is a straight line through past readings and the date it would cross a fixed limit.
+- That the projection is a prediction of failure, or a remaining life. It is a straight line through the model's past scores and the date it would cross the model's alarm line. If the app says "Trend", say trend, and give no days.
 - That 11 mm/s is the alarm. The alarm is the model's, and it may come sooner.
 - That the velocity is an ISO 10816 value. It covers part of that band.
 - That a reading on a part shows the fault is in that part. It shows what the probe measured where a person said it was.

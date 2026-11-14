@@ -10,9 +10,9 @@ Additions only. A version 3.4 device, dashboard or phone app keeps working. All 
 
 - A person says which part the probe is on, and the platform stamps that machine's records with the `part_id` (section 9.1). The handheld changes nothing for this.
 - Every record carries the vibration velocity in mm/s, in `readings.vib_velocity_mm_s` (section 9.2). This is the one change on the sending side.
-- Readings: the platform sums up each visit of the probe to a part, and a route returns one part's readings over time with their average, highest and count (section 9.3).
+- Readings: the platform sums up each visit of the probe to a part, and a route returns one part's readings over time with their average, highest and count (section 9.3). A reading also keeps the median `unknown_score` of its records.
 - A normal spectrum, worked out by the platform from stored records judged normal (section 9.4).
-- A projection: a straight line through a part's recent readings and when it meets the 11 mm/s limit, as a range. Worked out by code (section 9.5).
+- A projection: a straight line through the model's score in a part's recent readings, and when it meets the model's alarm line, as a range. Worked out by code. The chart beside it still plots velocity in mm/s, with the 11 mm/s limit as a labelled line (section 9.5).
 - Simulated history: the simulator writes weeks of readings through the same routes, and the `simulated` mark follows them into everything worked out from them (section 9.6).
 - A part review may carry `trend`, copied by code from the projection (section 9.7).
 - `GET /api/state` gains `probe`, and each part gains `reading`. The stream gains the events `probe` and `reading`.
@@ -786,7 +786,7 @@ The rule-based stand-in writes a review with no model, labelled as a stand-in an
 
 Added in version 3.5. **Agreed by the whole team on Sat 14 Nov 2026. Not built yet.** Device authors need 9.2 only. The work plan, and who builds which piece, is in section 15 of [docs/scan-and-log-plan.md](../docs/scan-and-log-plan.md).
 
-The page this section serves is drawn in [docs/design/machine-onepage.html](../docs/design/machine-onepage.html). The machine in that file is a drawing, not a scan, and every number in it is sample data, not a measurement. Its "alarm threshold 4.5 mm/s" is one of those: see 9.5 for the line that is really used. Where the drawing and this section differ, this section wins.
+The page this section serves is drawn in [docs/design/machine-onepage.html](../docs/design/machine-onepage.html). The machine in that file is a drawing, not a scan, and every number in it is sample data, not a measurement. Its "alarm threshold 4.5 mm/s" is one of those: see 9.5 for the lines that are really used. Where the drawing and this section differ, this section wins.
 
 Until a piece is built, its routes answer HTTP 400 with `{"ok": false, "error": "not built yet"}`, `GET /api/state` has no `probe`, parts have no `reading`, the stream sends neither new event, and `GET /api/hello` still says `"contract": "3.4"`.
 
@@ -796,10 +796,11 @@ Every number called a starting value below was picked by reasoning, not checked 
 |------|---------|
 | Probe part | The part a person says the probe is on now. One per machine, or none. |
 | Visit | One stay of the probe on one part: that part's stamped records, with no gap longer than 10 minutes between them. |
-| Reading | What the platform works out from one visit: one velocity in mm/s, with when and how many records. One point on a part's chart. |
+| Reading | What the platform works out from one visit: one velocity in mm/s and one model score, with when and how many records. One point on a part's chart. |
 | Normal spectrum | The usual level of each of the 20 vibration bands, worked out from stored records judged normal. |
-| Projection | A straight line through a part's recent readings, and when it would meet the limit line. |
-| Limit line | 11 mm/s, the `vibration_over_limit` limit in the problems table. |
+| Projection | A straight line through the model's score in a part's recent readings, and when it would meet the alarm line. |
+| Alarm line | The record's `alarm_line` (message 2): the `unknown_score` above which the model counts a record as abnormal. This is what raises an alarm. |
+| Limit line | 11 mm/s, the `vibration_over_limit` limit in the problems table. Drawn on the chart and labelled. The projection is not drawn against it. |
 
 ### 9.1 Which part the probe is on
 
@@ -870,6 +871,7 @@ The device sends one record a second. A part's chart needs one point per visit. 
 - Records with `diagnosis` `stopped`, or with no velocity, are left out: a machine that is not running would pull the number down.
 - A visit with at least 10 records left makes a reading (starting value). A shorter one makes none.
 - The reading's velocity is the median of those records' `readings.vib_velocity_mm_s`. A median, so a knock while the probe is being placed does not move it.
+- The reading's score is the median of the same records' `unknown_score`, leaving out the records where it is `null` (the model is still `warming_up`). This is the number the projection fits (9.5).
 - Readings are worked out, never stored, and worked out again from the stored records when the platform starts. This is how alarms already work.
 
 ```json
@@ -880,6 +882,9 @@ The device sends one record a second. A part's chart needs one point per visit. 
   "end": "2026-11-14T16:09:40Z",
   "records": 466,
   "velocity_mm_s": 3.1,
+  "unknown_score": 2.4,
+  "alarm_line": 1.0,
+  "model_version": "conveyor-07-20261114",
   "abnormal": true,
   "alarm_ids": ["alarm-1234"],
   "open": false,
@@ -892,6 +897,8 @@ The device sends one record a second. A part's chart needs one point per visit. 
 | `start`, `end` | `at` of the visit's first and last record. A reading is named by its `part_id` and `start`; it has no id of its own. |
 | `records` | How many records the velocity was taken from. |
 | `velocity_mm_s` | The median, rounded to 2 places. |
+| `unknown_score` | The median of the records' `unknown_score`, rounded to 2 places. `null` if no record of the visit had one. It has no unit: it is the model's score divided by its threshold (message 2). |
+| `alarm_line`, `model_version` | From the visit's newest record. `alarm_line` is `null` if that record reported none. The projection needs both: the line to project to, and which model the score belongs to. |
 | `abnormal` | `true` if any record of the visit was abnormal, as section 6 defines it. |
 | `alarm_ids` | The alarms those abnormal records belong to. |
 | `open` | `true` while the visit's newest record is less than 10 minutes old, so the reading can still move. |
@@ -967,14 +974,18 @@ The app asks for the selected part's normal first. If that is not ready it may s
 
 Worked out by code, in the receiver, from readings alone. A language model never produces, rounds or rewords any number in it.
 
+The projection is drawn against the model's score reaching its alarm line, because that is what raises an alarm (section 6). It fits each reading's `unknown_score` (9.3), not its velocity.
+
 ```json
 {
   "status": "rising",
-  "line": {"name": "vibration_over_limit", "velocity_mm_s": 11.0},
+  "fits": "unknown_score",
+  "line": {"name": "alarm_line", "unknown_score": 1.0},
   "window": {"from": "2026-11-02T09:10:00Z", "to": "2026-11-14T16:01:41Z", "readings": 12, "days": 12},
-  "now_mm_s": 3.06,
-  "slope_mm_s_per_day": 0.10,
-  "slope_range": [0.075, 0.155],
+  "now_score": 0.62,
+  "slope_per_day": 0.005,
+  "slope_range": [0.0036, 0.0075],
+  "show_days": true,
   "reaches": {"days": [51, 106], "earliest": "2027-01-04", "latest": "2027-02-28"},
   "simulated": true
 }
@@ -984,33 +995,46 @@ Worked out by code, in the receiver, from readings alone. A language model never
 
 The rule, in order:
 
-1. **Window.** The part's readings from the last 14 days, and none from before the part's newest `repair` entry: a repair starts the trend again. 14 days is a starting value. `window.days` is how many different days (UTC) have a reading.
-2. **Not enough history.** If the window holds readings on fewer than 3 different days, `status` is `not_enough_history` and every field after `window` except `simulated` is `null`. The app says "Not enough history to say where this is heading: a trend needs readings on at least 3 different days." 3 days is a starting value: it is the fewest points for which a range can be worked out at all, and the range it gives is very wide.
-3. **The line.** Least squares through the readings: time in days against `velocity_mm_s`. `slope_mm_s_per_day` is its slope and `now_mm_s` its value at the newest reading's time.
-4. **The range.** `slope_range` is the slope plus and minus its standard error times Student's t for an 80% range with n minus 2 degrees of freedom. 80% is a starting value.
-5. **The status.** First row that fits wins.
+1. **Window.** The part's readings from the last 14 days that have an `unknown_score`. None from before the part's newest `repair` entry: a repair starts the trend again. None with a `model_version` other than the newest reading's: a recalibration or a retrained model changes what the score means, so it starts the trend again too, as it does for the normal spectrum (9.4). 14 days is a starting value. `window.days` is how many different days (UTC) have a reading.
+2. **The alarm line.** `line.unknown_score` is the `alarm_line` of the newest reading in the window. A change of sensitivity moves the line, not the scores, so the newest line is the one a future record will be judged at. If that reading has no `alarm_line` (a device older than version 3.1), `status` is `not_enough_history`.
+3. **Not enough history.** If the window holds readings on fewer than 3 different days, `status` is `not_enough_history` and every field after `window` except `show_days` and `simulated` is `null`. The app says "Not enough history to say where this is heading: a trend needs readings on at least 3 different days." 3 days is a starting value: it is the fewest points for which a range can be worked out at all, and the range it gives is very wide.
+4. **The fitted line.** Least squares through the readings: time in days against `unknown_score`. `slope_per_day` is its slope and `now_score` its value at the newest reading's time.
+5. **The range.** `slope_range` is the slope plus and minus its standard error times Student's t for an 80% range with n minus 2 degrees of freedom. 80% is a starting value.
+6. **The status.** First row that fits wins.
 
 | `status` | When | `reaches` | The app says |
 |----------|------|-----------|--------------|
-| `over_line` | The newest reading is at or above the line. | `null` | "At or above the limit now" |
-| `rising` | Both ends of `slope_range` are above 0. | From `now_mm_s` to the line, at the steepest and the gentlest slope. Whole days and dates (UTC). Past 365 days, that end is `null`. | "Reaches the 11 mm/s limit in 51 to 106 days (4 Jan to 28 Feb)", or "in more than a year" |
+| `over_line` | The newest reading's `unknown_score` is at or above the alarm line. | `null` | "At or above the model's alarm line now" |
+| `rising` | Both ends of `slope_range` are above 0. | From `now_score` to the alarm line, at the steepest and the gentlest slope. Whole days and dates (UTC). Past 365 days, that end is `null`. | "On this trend the model's score reaches its alarm line in 51 to 106 days (4 Jan to 28 Feb)", or "in more than a year" |
 | `no_clear_rise` | `slope_range` holds 0. | `null` | "No clear rise yet: the change is inside the day-to-day spread" |
 | `not_rising` | Both ends are at or below 0. | `null` | "Level or falling over the last 12 days" |
 
 `simulated` is `true` if any reading in the window is.
 
-**Which line, and why.** The projection is drawn against the limit line, 11 mm/s, the `vibration_over_limit` limit. Not against the alarm.
+**The check on run-to-failure data, and "trend".** A straight line through a score has not been checked against any real fault. The team agreed one check: fit this same rule to run-to-failure bearing data and see how well the days it gives match what happened. The check has not been run (unverified), and what counts as coming out poorly is not written down yet. Write that down before running it, not after.
 
-- The alarm (section 6) opens on the model's `unknown_score` crossing `alarm_line`. That score has no unit, changes with every `model_version`, is `null` while stopped, and describes the whole machine as the model learned it at one probe position. A straight line through it per part would mean nothing a planner can check.
-- The chart is in mm/s, and 11 mm/s is the one velocity line that already exists: the device raises a problem at it, it never moves with sensitivity or with the model, and the platform knows it without any change on the device.
-- So the app must label the line "limit for any machine, 11 mm/s", never "alarm threshold", and must say next to the projection that the model may alarm sooner. The drawing's "alarm threshold 4.5 mm/s" is wrong on both counts and is not to be built.
+`show_days` is a fixed value in the receiver's code, not something worked out from a part's readings:
+
+- `true`: the app calls it a projection and shows the days and dates, as in the table.
+- `false`, set if the check comes out poorly: the app calls it "Trend", never "Projection". `reaches` is `null` for every status, and no days figure and no date is shown anywhere. For `rising` the app says "Rising toward the model's alarm line". The other three sentences stay as they are.
+
+Either way the app says under it: "a straight line through the model's score over the last N days, worked out by code, not checked on real faults". Those last five words go only when the check has been run and has come out well.
+
+**What the chart shows.** The projection does not change the chart.
+
+- The chart still plots each reading's `velocity_mm_s`, in mm/s.
+- It still shows the limit line, 11 mm/s, labelled "limit for any machine, 11 mm/s". Never "alarm threshold": the drawing's "alarm threshold 4.5 mm/s" is wrong and is not to be built.
+- The projection's own numbers are scores with no unit. They are never drawn on the mm/s axis: no dotted line and no fan through the velocity points. The projection is shown as its sentence under the chart. Whether the page also draws the score over time on a strip of its own is the Machine page's to settle (M1). Not decided here.
+
+**Why the alarm line.** An alarm (section 6) opens when the model's `unknown_score` crosses `alarm_line`. A planner asks "when will this alarm", and only the score can answer that. The 11 mm/s limit raises a problem, not an alarm, and the model may alarm long before it.
 
 What this leaves open, all unverified:
 
-- 11 mm/s is itself a starting value (`effente/safety.py`), and the velocity is a partial band.
-- A machine that passed the limit while learning has that limit dropped on the device. The platform is not told, so it would still draw the line.
-- A straight line is the simplest honest model, not a model of how faults grow. It has not been checked against any real fault. The app must say "a straight line through the last N days, worked out by code, not checked on real faults" under every projection.
-- A closer, machine-specific line exists on the device: `vibration_above_normal`, at twice the highest velocity seen while learning (at the default sensitivity). The platform cannot draw it today, because that level is not in message 1, it moves with sensitivity, and it was learned at one probe position. See "Not in version 3.5".
+- The score has no unit, and it describes the whole machine as the model learned it at one probe position. Whether its median differs from part to part in a way that means anything is not checked.
+- A record counts as abnormal only after several periods over the line (section 6). So the day the fitted line crosses is not exactly the day an alarm would open.
+- `unknown_score` is `null` while the machine is `stopped` or the model is `warming_up`. A visit made only of such records gives a reading with no score, and that reading is left out of the window.
+- A straight line is the simplest honest model, not a model of how faults grow.
+- 11 mm/s is itself a starting value (`effente/safety.py`), and the velocity is a partial band. A machine that passed the limit while learning has that limit dropped on the device. The platform is not told, so the chart would still draw the line.
 
 ### 9.6 Simulated history
 
@@ -1068,7 +1092,7 @@ The checks in 8.8 hold, with `trend` allowed in the shape. Two of them now reach
 - Giving a part to records after they are stored, or correcting a wrong pick. A wrong pick stays in that part's history.
 - The device knowing its part, or clearing the pick when it feels itself moved (its `device_moved` fault type). Open for tracks 1 and 5.
 - A projection against the device's own `vibration_above_normal` line. It needs the learned levels in message 1, which is a device change. Open for all five.
-- A projection of anything but velocity: temperature, sound, the model's score.
+- A projection of anything but the model's score: velocity, temperature, sound.
 - A normal spectrum in mm/s, and any use of records from alarms answered as false alarms to widen the normal.
 - Part state (8.7) using a part's own readings. `nothing_found` still means the probe was on the machine, not on the part. Open for track 5.
 - Deleting records, simulated or real.
