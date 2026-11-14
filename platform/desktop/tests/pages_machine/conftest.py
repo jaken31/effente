@@ -19,5 +19,11 @@ else:
     @pytest.fixture(autouse=True)
     def _theme(qapp):
         from app.theme import apply_theme
+        from PySide6.QtCore import QCoreApplication, QEvent
 
         apply_theme(qapp)
+        yield
+        # pytest-qt closes a test's widgets and asks for them to be deleted later, but no event loop runs
+        # between tests to do it. Left alive, every page of every test is restyled by the next apply_theme,
+        # and the tests get slower one by one.
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
