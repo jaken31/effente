@@ -15,17 +15,20 @@ and calibration"; docs/model-lifecycle.md, "Calibration" and "Fit check"):
                            full training)
   with the entry as guard  - spreads: never below the entry's own spreads (refit_prep)
                            - readings this machine did not give while calibrating are not judged
+                             (if it gave none at all, calibration is refused)
 
 The alarm threshold is this machine's own:
 
     threshold = threshold_median_multiple x median(held-out smoothed scores)
 
-The held-out scores are the last 15 % of the calibration by time, scored with the calibrated model
+The held-out scores are the last 15 % of the running rows, scored with the calibrated model
 and smoothed as the runtime smooths before it compares with the threshold (the median of the last
 smooth_minutes scores). There is no gamma fit and no floor or ceiling from the entry: the entry's
-own threshold plays no part. The multiple (THRESHOLD_MEDIAN_MULTIPLE = 5.0) is PROVISIONAL and
-simulated only; the measurements behind it are in training/calibration/README.md. Unlike the
-trainer's rule, the threshold can be below the highest held-out score; the report says when.
+own threshold plays no part. The multiple (THRESHOLD_MEDIAN_MULTIPLE = 5.0) is a starting value,
+simulated only: it was picked from a sweep of 2 to 10 on the simulators, and no value in that sweep
+both kept a day free of false alarms and caught most simulated faults (training/calibration/README.md,
+"Choosing the multiple"). Unlike the trainer's rule, the threshold can be below the highest
+held-out score; the report says when.
 
 Only the model file is read, never the manifest. The library's entries (training/library) keep
 their calibration.widen factors and calibration.hold list in manifest.json, so neither is applied
@@ -37,8 +40,9 @@ Calibration needs 5 minutes of running at the least (min_running_s). Ask for 10.
 
 It follows effente.trainer.train_model's steps and reuses its parts, so a calibrated model
 and one trained on the machine alone differ in where the network came from and in the threshold
-rule: running rows only, per-period medians, the last 15 % of the time held out for the threshold
-(never a random split).
+rule: running rows only, per-period medians, the last 15 % held out for the threshold (never a
+random split; counted in running rows, which without a stop in between is the trainer's split by
+time).
 
     model, report = calibrate(entry_model, t, X, names)
     verdict = fit_check(report, manifest)   # a gross mismatch with the entry, or not
@@ -49,7 +53,8 @@ report (with "calibrated": true and the entry's own report under "entry_training
 other key the entry carries is kept ("source", if the entry has it, becomes "calibrated").
 
 Starting values throughout. Nothing here has been checked on a real machine (unverified): the
-numbers behind FIT_MAX_RATIO come from the simulators only (training/calibration/README.md).
+numbers behind THRESHOLD_MEDIAN_MULTIPLE and FIT_MAX_RATIO come from the simulators only
+(training/calibration/README.md).
 """
 
 from __future__ import annotations
@@ -71,8 +76,15 @@ from effente.model_input import MAX_NAN_FRAC, Prep, _transform_raw
 MIN_RUNNING_S = 300  # the hard minimum (the trainer's 5 minutes). Ask people for 10 minutes: RECOMMENDED_S
 RECOMMENDED_S = 600
 MIN_ROWS = 60  # below this there are too few held-out rows to set a threshold at all, whatever min_running_s says
+# Calibration is refused when fewer of the entry's readings than this were measured (a dead or
+# unplugged sensor): the model would judge nothing and could never alarm. One is the least that
+# means anything; how many readings an entry needs to be useful is not known (unverified).
+MIN_READINGS = 1
 # The alarm threshold is this many times the median of this machine's own held-out smoothed scores.
-# PROVISIONAL, simulated only: 5.0 is a placeholder until it is set from measurements.
+# STARTING VALUE, SIMULATED ONLY, unverified. From a sweep of 2, 3, 4, 5, 7 and 10 on the simulators
+# (training/calibration/README.md, "Choosing the multiple"): below 5 the false alarms over a day
+# multiply, above 5 the generic_rotating entry starts to miss faults it catches at 5. No value did
+# both well: at 5 fewer than half of the simulated sudden faults alarm.
 THRESHOLD_MEDIAN_MULTIPLE = 5.0
 CALIB_SHARE = 0.15  # the last part of the calibration, held out for the threshold (as the trainer)
 
@@ -101,22 +113,37 @@ def _quantiles(s) -> dict:
 NOT_JUDGED = 1e12  # a spread this large makes a reading always read as usual: it is not judged
 
 
+def _number(v) -> bool:
+    """A real number (Python's or NumPy's), not a bool; it may still be NaN or infinite."""
+    return isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, (bool, np.bool_))
+
+
 def _entry_settings(entry_model: dict, columns: list[str]):
     """What the entry itself says about calibrating it: (widen factors or None, held mask).
 
-    A model file may carry "calibration": {"widen": one factor per reading, "hold": names or prefixes
-    ending in "_"}. widen multiplies the spread fitted here; hold names readings that are not judged.
-    The library's entries on master do not carry it (theirs is in manifest.json, which calibrate
+    A model file may carry "calibration": {"widen": {reading name: factor}, "hold": [names, or
+    prefixes ending in "_"]}, the shapes training/library writes in its manifests. widen multiplies
+    the spread fitted here and must name every reading the entry uses (names it does not use are
+    ignored); hold names readings that are not judged. Any other shape raises ValueError.
+    The library's entries on master do not carry the key (theirs is in manifest.json, which calibrate
     never reads), so for them this returns no widening and nothing held, and the entry's own spreads
     are then the floor (refit_prep)."""
     cal = entry_model.get("calibration")
     cal = cal if isinstance(cal, dict) else {}
     widen = cal.get("widen")
     if widen is not None:
-        widen = np.asarray(widen, float)
-        if widen.shape != (len(columns),) or not (np.isfinite(widen).all() and (widen > 0).all()):
-            raise ValueError(f"the entry's widen factors must be {len(columns)} numbers above 0")
-    hold = [str(h) for h in (cal.get("hold") or ())]
+        if not isinstance(widen, dict):
+            raise ValueError("the entry's widen factors must be given by reading name: {name: factor}")
+        factors = [widen.get(c) for c in columns]
+        bad = [c for c, f in zip(columns, factors) if not (_number(f) and math.isfinite(f) and f > 0)]
+        if bad:
+            raise ValueError(f"the entry's widen factors must be numbers above 0 for every reading it uses; "
+                             f"not so for {len(bad)} of {len(columns)}, the first {bad[0]}")
+        widen = np.asarray(factors, float)
+    hold = cal.get("hold")
+    hold = [] if hold is None else hold
+    if not isinstance(hold, (list, tuple)) or not all(isinstance(h, str) and h for h in hold):
+        raise ValueError("the entry's hold must be a list of reading names or prefixes")
     prefixes = tuple(h for h in hold if h.endswith("_"))
     whole = {h for h in hold if not h.endswith("_")}
     held = np.array([c in whole or (bool(prefixes) and c.startswith(prefixes)) for c in columns], bool)
@@ -168,21 +195,32 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
 
     entry_model: the entry's effente-model-1 dict (not changed). t, X, names: one-a-second feature
     rows with their times and feature names, as for effente.trainer.train_model. Returns
-    (model file dict, report). Raises ValueError if the entry is not a model this device can run,
-    the machine ran for less than min_running_s seconds in the rows given, or no threshold can be
+    (model file dict, report). Raises ValueError if the entry is not a model this device can run or
+    is itself a calibrated model, a time is not a finite number,
+    the machine ran for less than min_running_s seconds in the rows given, no reading the entry
+    uses was measured, or no threshold can be
     set from the held-out rows (fewer of them than the entry's smoothing window, or a median score
     that is zero or not a number).
     threshold_median_multiple: the alarm threshold is this many times the median of the held-out
-    smoothed scores (THRESHOLD_MEDIAN_MULTIPLE, provisional)."""
-    if not (isinstance(threshold_median_multiple, (int, float)) and not isinstance(threshold_median_multiple, bool)
-            and math.isfinite(threshold_median_multiple) and threshold_median_multiple > 0):
+    smoothed scores (THRESHOLD_MEDIAN_MULTIPLE, a starting value, simulated only)."""
+    if not (_number(threshold_median_multiple) and math.isfinite(threshold_median_multiple)
+            and threshold_median_multiple > 0):
         raise ValueError("threshold_median_multiple must be a number above 0")
+    if not (_number(min_running_s) and math.isfinite(min_running_s) and min_running_s >= 0):
+        raise ValueError("min_running_s must be a number of seconds, 0 or more")
+    report_in = entry_model.get("training_report") if isinstance(entry_model, dict) else None
+    if isinstance(report_in, dict) and report_in.get("calibrated"):
+        # Its "not judged" readings carry a huge spread as if it were the entry's, so a second
+        # calibration would keep them unjudged for good and report nothing missing.
+        raise ValueError("this model is already calibrated to a machine; calibrate the library entry it came from")
     entry = RT.Model(entry_model)  # refuses another format or another feature list
     X = TR.to_current(X, names)
     names = list(F.FEATURE_NAMES)
     t = np.asarray(t, float)
     if len(t) != len(X):
         raise ValueError(f"{len(t)} times for {len(X)} rows")
+    if not np.isfinite(t).all():
+        raise ValueError(f"{int((~np.isfinite(t)).sum())} of the {len(t)} times are not finite numbers")
     run = TR.running_rows(X, names)
     ran = run.copy()
     t, X = t[run], X[run]
@@ -198,12 +236,20 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
         raise ValueError(f"too little recorded: {running_s} s of the machine running; "
                          f"calibration needs at least {math.ceil(need)} s, and 10 minutes is asked for")
     baseline = SF.learn_baseline(X, names, running=ran)
-    cut = t[0] + (t[-1] - t[0]) * (1 - CALIB_SHARE)
-    fit, held = t < cut, t >= cut
+    # The last 15 % of the running rows are held out, counted in rows and not in clock time: a stop
+    # in the middle of the calibration must not leave a handful of rows to fit on. Without a gap in
+    # the running this is the trainer's split by time. MIN_ROWS keeps at least 51 rows on the fit side.
+    n_fit = math.ceil((len(t) - 1) * (1 - CALIB_SHARE))
+    fit = np.arange(len(t)) < n_fit
+    held = ~fit
 
     s_before = entry.score(X)[0]  # this machine through the entry as shipped, for the report only
     widen, held_cols = _entry_settings(entry_model, entry.prep.columns)
     prep, fell_back = refit_prep(entry.prep, X[fit], widen, held_cols)
+    judged = len(prep.columns) - len(fell_back["missing"]) - len(fell_back["held"])
+    if judged < MIN_READINGS:
+        raise ValueError(f"no reading the entry uses was measured while calibrating ({len(fell_back['missing'])} of "
+                         f"{len(prep.columns)} missing, {len(fell_back['held'])} held): nothing could alarm; check the sensor")
     d = copy.deepcopy(entry_model)
     d.update(created=datetime.now(timezone.utc).isoformat(timespec="seconds"), prep=prep.to_dict(),
              period_s=int(period), baseline=baseline)
@@ -273,12 +319,8 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
 
 
 def _manifest_median(manifest: dict):
-    """The entry's held-out median score from its manifest, or None. The manifest's exact key names
-    are the library's; the usual spellings are accepted."""
-    fc = manifest.get("fit_check")  # training/library's manifests: {"entry_heldout_score_median": ...}
-    v = fc.get("entry_heldout_score_median") if isinstance(fc, dict) else None
-    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0:
-        return float(v)
+    """The entry's held-out median score from its manifest, or None. training/library's manifests
+    carry it as heldout_score_quantiles.p50; the other usual spellings are accepted."""
     for key in _MANIFEST_QUANTILE_KEYS:
         q = manifest.get(key)
         if isinstance(q, dict):
@@ -310,8 +352,8 @@ def fit_check(report: dict, manifest: dict) -> dict:
     if ref is None:
         return no("not checked: the entry's manifest has no held-out median score")
     mine = (report.get("score_quantiles_held_out") or {}).get("p50")
-    if not isinstance(mine, (int, float)) or isinstance(mine, bool) or not math.isfinite(mine):
-        return no("not checked: the calibration report has no held-out median score")
+    if not isinstance(mine, (int, float)) or isinstance(mine, bool) or not math.isfinite(mine) or mine <= 0:
+        return no("not checked: the calibration report has no held-out median score above 0")
     ratio = float(mine) / ref
     limit = f"limit {FIT_MAX_RATIO:g}, a starting value, simulated only"
     if ratio > FIT_MAX_RATIO:

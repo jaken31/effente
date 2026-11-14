@@ -171,7 +171,7 @@ Length is not what decides the result, though. The entry's threshold swings from
 
 ## After calibration
 
-The committed entries through `effente.calibration.calibrate` (branch `track3/calibration` at 1290273, `threshold_floor_share=0.25`, the plain `model.json` as shipped) on the same four unseen simulated conveyors and the simulated server rack. Simulated data only.
+The committed entries through `effente.calibration.calibrate` (branch `track3/calibration` at 1290273, the plain `model.json` as shipped) on the same four unseen simulated conveyors and the simulated server rack. Simulated data only. That commit set the threshold with a floor of 0.25 of the entry's threshold. `calibrate` no longer does: the threshold is now a multiple of the machine's own held-out median score, and the numbers for that rule are in [training/calibration/README.md](../calibration/README.md). This section has not been rerun with it.
 
 | | `conveyor` | `generic_rotating` |
 |---|---|---|

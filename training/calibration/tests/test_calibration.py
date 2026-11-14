@@ -156,6 +156,23 @@ def test_levels_come_from_the_first_part_and_the_threshold_from_the_held_out_par
     assert report["score_quantiles_held_out"]["p50"] > report["score_quantiles_fit"]["p50"]  # the louder part shows
 
 
+def test_a_stop_in_the_middle_does_not_shrink_the_rows_fitted_on():
+    d, _ = entry()
+    t, X = seconds(600, seed=30, start=10_000)
+    _, whole = C.calibrate(d, t, X, NAMES)
+    assert (whole["rows_fit"], whole["rows_held_out"]) == (510, 90)  # no gap: the split by time, as before
+    for ran_first in (20, 1):  # the machine ran this long, stood still for two hours, then ran the rest
+        gap = t.copy()
+        gap[ran_first:] += 7200
+        cal, report = C.calibrate(d, gap, X, NAMES)
+        assert (report["rows_fit"], report["rows_held_out"]) == (510, 90)
+        j = cal["prep"]["columns"].index("vib_1x")  # the levels come from the first 510 running rows
+        assert math.isclose(cal["prep"]["centre"][j], float(np.median(X[:510, F.INDEX["vib_1x"]])), rel_tol=1e-9)
+    X[20:300, F.INDEX["trend_running"]] = 0.0  # the same with the stop recorded as rows: 320 s of running
+    _, report = C.calibrate(d, t, X, NAMES)
+    assert report["running_s"] == 320 and (report["rows_fit"], report["rows_held_out"]) == (272, 48)
+
+
 def test_the_same_rows_and_seed_give_the_same_model():
     d, _ = entry()
     t, X = seconds(300, seed=5, start=20_000)
@@ -180,6 +197,33 @@ def test_it_refuses_too_little_running():
     raises(lambda: C.calibrate(d, t[:10], X, NAMES), "10 times for 600 rows")
 
 
+def test_it_refuses_a_sensor_that_gave_no_reading():
+    d, _ = entry()
+    t, X = seconds(600, seed=31)
+    dead = np.full_like(X, np.nan)  # every reading missing: a model from this could never alarm
+    raises(lambda: C.calibrate(d, t, dead, NAMES), "no reading the entry uses was measured")
+    one = dead.copy()
+    one[:, F.INDEX["vib_1x"]] = X[:, F.INDEX["vib_1x"]]  # one reading is enough to go on (MIN_READINGS)
+    _, report = C.calibrate(d, t, one, NAMES)
+    assert C.MIN_READINGS == 1 and len(report["readings_missing"]) == report["readings"] - 1
+
+
+def test_it_refuses_times_and_settings_that_are_not_numbers():
+    d, _ = entry()
+    t, X = seconds(600, seed=33)
+    for bad in (float("nan"), float("inf")):
+        broken = t.copy()
+        broken[5] = bad
+        raises(lambda: C.calibrate(d, broken, X, NAMES), "1 of the 600 times are not finite")
+        raises(lambda: C.calibrate(dict(d, period_s=10), broken, X, NAMES), "1 of the 600 times are not finite")
+    for bad in (float("nan"), float("inf"), -1, "300", True):  # a NaN used to switch the length check off
+        raises(lambda: C.calibrate(d, t[:100], X[:100], NAMES, min_running_s=bad), "min_running_s")
+    a = C.calibrate(d, t, X, NAMES, threshold_median_multiple=np.float32(4), min_running_s=np.int64(300))
+    b = C.calibrate(d, t, X, NAMES, threshold_median_multiple=4.0)
+    assert a[0]["threshold"] == b[0]["threshold"] and a[1]["threshold_median_multiple"] == 4.0
+    raises(lambda: C.calibrate(d, t, X, NAMES, threshold_median_multiple=np.bool_(True)), "threshold_median_multiple")
+
+
 def test_min_running_s_can_be_lowered_but_not_below_the_floor():
     d, _ = entry()
     t, X = seconds(120, seed=7)
@@ -194,6 +238,12 @@ def test_it_refuses_an_entry_this_device_cannot_run():
     t, X = seconds(300, seed=8)
     raises(lambda: C.calibrate(dict(d, features_version="0123456789ab"), t, X, NAMES), "0123456789ab")
     raises(lambda: C.calibrate(dict(d, format="effente-model-0"), t, X, NAMES), "not an effente-model-1")
+
+
+def test_it_refuses_a_model_that_is_already_calibrated():
+    cal, _ = calibrated()
+    t, X = seconds(300, seed=32, start=50_300, vib=0.5, heat=8.0)
+    raises(lambda: C.calibrate(cal, t, X, NAMES), "already calibrated")
 
 
 # ----------------------------------------------------------------- what calibration is for
@@ -222,7 +272,7 @@ def test_a_fault_after_calibration_alarms_and_is_named():
     assert res[-1]["unknown_score"] > 1 and "vib_1x" in res[-1]["features"]
 
 
-def test_a_reading_this_machine_lacks_or_never_changes_keeps_the_entrys_spread():
+def test_a_reading_this_machine_lacks_is_not_judged_and_one_that_never_changes_keeps_the_entrys_spread():
     d, _ = entry()
     t, X = seconds(300, seed=11, start=30_000, vib=0.2)
     for n in ("snd_level_db", "snd_tone_mod_db", "snd_kurt_hf"):
@@ -275,7 +325,7 @@ def test_the_threshold_is_a_multiple_of_this_machines_held_out_median():
         assert math.isclose(out[m][0]["threshold"], m * out[1.0][0]["threshold"], rel_tol=1e-9)
         assert math.isclose(out[m][0]["threshold"], m * median, rel_tol=1e-5)
         assert out[m][1]["threshold_median_multiple"] == m and out[m][1]["threshold"] == round(out[m][0]["threshold"], 4)
-    default = C.calibrate(d, t, X, NAMES)  # the agreed signature, and the provisional default
+    default = C.calibrate(d, t, X, NAMES)  # the agreed signature, and the default (a starting value, simulated only)
     assert C.THRESHOLD_MEDIAN_MULTIPLE == 5.0 and default[0]["threshold"] == out[5.0][0]["threshold"]
     assert default[1]["threshold_median_multiple"] == 5.0
     for entry_threshold in (1e-3, 1e3):  # the entry's own threshold plays no part: no floor, no ceiling
@@ -322,14 +372,16 @@ def library_style_entry():
     held readings under "calibration", no fault classifier and no baseline, and its own extra keys."""
     d, manifest = entry()
     lib = copy.deepcopy(d)
-    n = len(lib["prep"]["columns"])
+    cols = lib["prep"]["columns"]
+    n = len(cols)
     lib["prep"]["centre"], lib["prep"]["scale"] = [0.0] * n, [1.0] * n
     lib.pop("fault_classifier"), lib.pop("baseline")
     lib.update(library_entry="fixture_conveyor", entry_version="0.1.0", source="entry",
-               calibration={"widen": [2.0] * n, "hold": ["trend_", "env_room_c"], "min_s": 300})
+               calibration={"widen": dict({c: 2.0 for c in cols}, a_reading_the_entry_does_not_use=3.0),
+                            "hold": ["trend_", "env_room_c"], "min_s": 300})  # by name, as the manifests have it
     man = {"manifest": "effente-entry-1", "entry": "fixture_conveyor", "version": "0.1.0", "status": "unverified",
            "features_version": d["features_version"],
-           "fit_check": {"entry_heldout_score_median": manifest["held_out_score_quantiles"]["p50"], "rule": "open"}}
+           "heldout_score_quantiles": {"p50": manifest["held_out_score_quantiles"]["p50"]}}
     return lib, man
 
 
@@ -358,11 +410,30 @@ def test_a_library_entrys_widen_factors_and_held_readings_are_used():
     held[:, F.INDEX["env_room_c"]] += 30.0
     res = watch(cal, t[:200] + 300, held)
     assert all(r["diagnosis"] in ("normal", "warming_up") for r in res), {r["diagnosis"] for r in res}
-    bad = copy.deepcopy(lib)
-    bad["calibration"]["widen"] = bad["calibration"]["widen"][:-1]
-    raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
-    bad["calibration"]["widen"] = [0.0] * len(cols)
-    raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
+    good = lib["calibration"]["widen"]
+    for widen in ({c: f for c, f in good.items() if c != "vib_1x"},  # a reading the entry uses is not named
+                  dict(good, vib_1x=0.0), dict(good, vib_1x=float("nan")), dict(good, vib_1x="2"),
+                  [2.0] * len(cols), 2.0):  # one factor per column in a list is not the library's shape
+        bad = dict(lib, calibration=dict(lib["calibration"], widen=widen))
+        raises(lambda: C.calibrate(bad, t, X, NAMES), "widen factors")
+    for hold in ("trend_", ["trend_", 3], {"trend_": True}):  # a bare string used to hold nothing, silently
+        bad = dict(lib, calibration=dict(lib["calibration"], hold=hold))
+        raises(lambda: C.calibrate(bad, t, X, NAMES), "hold must be a list")
+
+
+def test_the_committed_manifests_widen_and_hold_are_accepted_when_copied_into_the_model():
+    """The shape on master (training/library/entries/conveyor/manifest.json), copied into the model
+    file: calibrate reads it. As shipped the model file has no such key, so this is not what runs."""
+    from training.library.load import load_entry
+    manifest, model = load_entry(Path(__file__).resolve().parents[2] / "library" / "entries", "conveyor")
+    t, X = seconds(300, seed=21, start=85_000, vib=0.3)
+    cal, report = C.calibrate(dict(model, calibration=manifest["calibration"]), t, X, NAMES)
+    assert report["spreads"] == "widened by the entry's factors"
+    cols = model["prep"]["columns"]
+    j = cols.index("vib_1x")
+    q1, q3 = np.percentile(X[:255, F.INDEX["vib_1x"]], [25, 75])
+    assert math.isclose(cal["prep"]["scale"][j], manifest["calibration"]["widen"]["vib_1x"] * (q3 - q1) / 1.349, rel_tol=1e-9)
+    assert report["readings_held"] and all(c.startswith(("time_", "trend_")) or c == "imu_temp_c" for c in report["readings_held"])
 
 
 def test_the_committed_conveyor_entry_calibrates_with_its_own_spreads_as_the_floor():
@@ -407,7 +478,7 @@ def test_the_laptop_command_runs_on_the_committed_entry_folder():
         out = Path(tmp) / "model.json"
         code = main(["--entry", str(entry_folder), "--rows", str(Path(tmp) / "rows.npz"), "--seconds", "300",
                      "--out", str(out)])
-        assert code in (0, 2) and RT.Model.load(out).d["training_report"]["calibrated"] is True
+        assert code == 0 and RT.Model.load(out).d["training_report"]["calibrated"] is True  # 0: the fit check passed
 
 
 def test_the_measurements_hold_variant_copies_the_manifests_list_into_a_copy():
@@ -495,6 +566,9 @@ def test_a_fit_that_cannot_be_checked_is_not_a_fit():
              (report, dict(manifest, features_version="other"), "features_version"),
              (report, dict(manifest, normal_model="autoencoder"), "normal_model"),
              (dict(report, score_quantiles_held_out={}), manifest, "calibration report"),
+             (dict(report, score_quantiles_held_out={"p50": 0.0}), manifest, "calibration report"),
+             (dict(report, score_quantiles_held_out={"p50": -1.0}), manifest, "calibration report"),
+             (report, {"fit_check": {"entry_heldout_score_median": 2.0}}, "no held-out median"),  # on no manifest
              ({}, manifest, "calibration report")]
     for rep, man, text in cases:
         v = C.fit_check(rep, man)

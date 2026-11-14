@@ -27,6 +27,10 @@ What it does:
               300 s calibration: alarm or not, seconds to the alarm, what it was called. With
               --classifier, also what it is called when a fault classifier is fitted during
               calibration (calibrate does that only for an entry that carries one).
+              --all-faults runs every sudden fault of both simulators on every machine above
+              instead (conveyor: 11 kinds, obvious and subtle; server rack: 4 kinds) and counts
+              how many alarm. Sections 1 and 3 end with one summary line per entry, which is what
+              a sweep of --threshold-median-multiple compares.
   section 4   with --watch-hours only: a 300 s calibration at --start-hour, then a long watch of
               simulated conveyors: alarm seconds by clock hour and the reading that moved most in
               each. --hold-from-manifest adds the variant with the manifest's hold list in force.
@@ -70,12 +74,27 @@ MACHINES = {
 FAULT_RUNS = (("unbalance", 1.0), ("unbalance", 0.3), ("looseness", 1.0), ("looseness", 0.3))
 FAULT_MACHINE = ("conveyor", 2, 10 * H, dict(load_scale=1.2, ambient_offset_c=5.0))
 FAULT_ONSET_S, FAULT_SESSION_S = 900, 1800
+JAM_S = 180  # a jam stops the belt; it is cleared after this long, so there are running seconds to judge
+SERVER_FAULTS = (("ups_alarm", 300), ("rack_bump", 2), ("hdd_clicking", None), ("fan5_failure", None))  # seconds on
+
+
+def all_fault_runs(kind):
+    """--all-faults: every sudden fault the simulator of this kind of machine has, as (fault,
+    severity, seconds it lasts or None for "to the end"). The wear kinds that grow over days do not
+    fit a 30-minute session and are left out."""
+    if kind == "conveyor":
+        from effente.simulate_conveyor import FAULT_KINDS, OBVIOUS, SLOW, SUBTLE
+        return [(k, sev, JAM_S if k == "jam" else None) for k in FAULT_KINDS if k not in SLOW for sev in (OBVIOUS, SUBTLE)]
+    return [(k, 1.0, lasts) for k, lasts in SERVER_FAULTS]
 
 
 def session(kind, seed, start, seconds, settings, faults=(), cache=None, sensors="device"):
-    """One-a-second feature rows of a simulated session with a fresh history: (t, X)."""
+    """One-a-second feature rows of a simulated session with a fresh history: (t, X).
+    faults: (kind, seconds into the session it starts, severity[, seconds it lasts]); without the
+    last, the fault stays on to the end."""
+    faults = [tuple(f) + (None,) * (4 - len(f)) for f in faults]
     key = f"{kind}-{seed}-{start}-{seconds}-" + "-".join(f"{k}{v}" for k, v in sorted(settings.items())) + \
-          "".join(f"-{k}{a}{s}" for k, a, s in faults)
+          "".join(f"-{k}{a}{s}" + (f"for{n}" if n else "") for k, a, s, n in faults)
     path = Path(cache) / f"{key}.npz" if cache else None
     if path and path.exists():
         with np.load(path) as d:
@@ -87,7 +106,8 @@ def session(kind, seed, start, seconds, settings, faults=(), cache=None, sensors
         from effente.simulate_server import ServerRackSim
         from effente.site_noise import SiteNoise
         days = int((start + seconds) // DAY) + 1  # a session may run past midnight
-        fl = [Fault(k, start + a, days * DAY + DAY, f"{k} (simulated)", s) for k, a, s in faults]
+        fl = [Fault(k, start + a, start + a + n if n else days * DAY + DAY, f"{k} (simulated)", s)
+              for k, a, s, n in faults]
         if kind == "conveyor":
             sim = ConveyorSim(days=days, seed=seed, faults=fl, start_s=start, end_s=start + seconds, realistic=True,
                               **settings)
@@ -212,6 +232,8 @@ def main(argv=None) -> int:
     ap.add_argument("--calibration-s", type=int, default=300,
                     help="sections 1 and 3: seconds of calibration (default 300, the minimum; 600 is what people are asked for)")
     ap.add_argument("--faults-only", action="store_true", help="section 3 only")
+    ap.add_argument("--all-faults", action="store_true",
+                    help="section 3: every sudden fault of both simulators on every machine, counted per entry")
     ap.add_argument("--watch-hours", type=float,
                     help="section 4 only: calibrate on 300 s from --start-hour, then watch this many hours")
     ap.add_argument("--start-hour", type=float, default=8.0, help="section 4: clock hour (Monday) the session starts")
@@ -274,6 +296,17 @@ def main(argv=None) -> int:
         below = sum(bool(r["threshold_below_highest_held_out"]) for r in rows)
         print(f"   the threshold was below the highest held-out smoothed score in {below} of {len(rows)} calibrations")
         out["threshold_below_highest_held_out"] = {"below": below, "of": len(rows)}
+        out["normal_summary"] = []
+        for ename in entries:
+            mine = [r["all_2400s"] for r in out["calibrated_300s"] if r["entry"] == ename]
+            row = {"entry": ename, "machines": len(mine), "machines_with_an_alarm": sum(r["alarm_s"] > 0 for r in mine),
+                   "alarm_s": sum(r["alarm_s"] for r in mine), "judged_s": sum(r["judged_s"] for r in mine),
+                   "alarm_stretches": sum(r["alarm_stretches"] for r in mine),
+                   "highest_alarm_share": max(r["alarm_share"] for r in mine)}
+            out["normal_summary"].append(row)
+            print(f"   summary, entry {ename}: {row['machines_with_an_alarm']} of {row['machines']} machines alarmed in the "
+                  f"{WATCH_S} s of normal running; {row['alarm_s']} alarm seconds of {row['judged_s']} judged, in "
+                  f"{row['alarm_stretches']} stretches; highest share on one machine {row['highest_alarm_share']:.3f}")
 
     if not a.quick and not a.faults_only and not a.watch_hours:
         print(f"\nSIMULATED, sensors: {a.sensors}. 2. Share of the {WATCH_S} s after calibration that alarm, "
@@ -294,33 +327,55 @@ def main(argv=None) -> int:
                 print(f"   {mname:40s} " + " ".join(cells))
 
     if not a.quick and not a.watch_hours:
-        kind, seed, start, settings = FAULT_MACHINE
-        print(f"\nSIMULATED, sensors: {a.sensors}. 3. Faults on 'conveyor, seed {seed}': calibrated on the first "
-              f"{cs} s, fault on from {FAULT_ONSET_S} s to the end ({FAULT_SESSION_S} s)")
+        if a.all_faults:
+            fault_machines = [(mname, m, all_fault_runs(m[0])) for mname, m in MACHINES.items()]
+            print(f"\nSIMULATED, sensors: {a.sensors}. 3. Every sudden simulated fault on every machine: calibrated on "
+                  f"the first {cs} s, fault on from {FAULT_ONSET_S} s (session {FAULT_SESSION_S} s; a jam lasts {JAM_S} s)")
+        else:
+            fault_machines = [(f"conveyor, seed {FAULT_MACHINE[1]}", FAULT_MACHINE, [(f, s, None) for f, s in FAULT_RUNS])]
+            print(f"\nSIMULATED, sensors: {a.sensors}. 3. Faults on 'conveyor, seed {FAULT_MACHINE[1]}': calibrated on the "
+                  f"first {cs} s, fault on from {FAULT_ONSET_S} s to the end ({FAULT_SESSION_S} s)")
         for ename, (d, manifest) in entries.items():
             print(f" entry {ename}")
-            for fault, sev in FAULT_RUNS:
-                t, X = get(kind, seed, start, FAULT_SESSION_S, settings, faults=((fault, FAULT_ONSET_S, sev),))
-                sel = t < t[0] + cs
-                cal, cv = run_calibrate(d, manifest, t[sel], X[sel], min_running_s=cs - 1)
-                before = (t >= t[0] + cs) & (t < t[0] + FAULT_ONSET_S)
-                during = t >= t[0] + FAULT_ONSET_S
-                jb, ab = watch(cal, t[before], X[before])[:2]
-                jd, ad, _, first, names, _ = watch(cal, t[during], X[during])
-                row = {"entry": ename, "fault": fault, "severity": sev, "threshold": cv["threshold"],
-                       "alarm_share_before": round(ab / max(jb, 1), 4), "alarm_share_during": round(ad / max(jd, 1), 4),
-                       "seconds_to_alarm": None if first is None else round(first - (t[0] + FAULT_ONSET_S), 1),
-                       "named": dict(names.most_common(3))}
-                print(f"   {fault:10s} severity {sev:.1f}: alarm share before {row['alarm_share_before']:.3f}, during "
-                      f"{row['alarm_share_during']:.3f}, first alarm after {row['seconds_to_alarm']} s, "
-                      f"named {row['named']}")
-                if not d.get("fault_classifier") and a.classifier:
-                    # the same entry asking for a classifier (calibrate fits one to an entry that carries the key)
-                    cal, _ = run_calibrate(dict(d, fault_classifier=None), manifest, t[sel], X[sel], min_running_s=cs - 1)
-                    row["named_with_a_classifier_fitted_here"] = dict(watch(cal, t[during], X[during])[4].most_common(3))
-                    print(f"   {'':10s} with a fault classifier fitted during calibration: "
-                          f"named {row['named_with_a_classifier_fitted_here']}")
-                out["faults"].append(row)
+            for mname, (kind, seed, start, settings), runs in fault_machines:
+                if a.all_faults:
+                    print(f"  {mname}")
+                for fault, sev, lasts in runs:
+                    t, X = get(kind, seed, start, FAULT_SESSION_S, settings, faults=((fault, FAULT_ONSET_S, sev, lasts),))
+                    sel = t < t[0] + cs
+                    cal, cv = run_calibrate(d, manifest, t[sel], X[sel], min_running_s=cs - 1)
+                    before = (t >= t[0] + cs) & (t < t[0] + FAULT_ONSET_S)
+                    during = t >= t[0] + FAULT_ONSET_S
+                    jb, ab = watch(cal, t[before], X[before])[:2]
+                    jd, ad, _, first, names, _ = watch(cal, t[during], X[during])
+                    row = {"entry": ename, "machine": mname, "machine_kind": kind, "fault": fault, "severity": sev,
+                           "threshold": cv["threshold"],
+                           "alarm_share_before": round(ab / max(jb, 1), 4), "alarm_share_during": round(ad / max(jd, 1), 4),
+                           "seconds_to_alarm": None if first is None else round(first - (t[0] + FAULT_ONSET_S), 1),
+                           "named": dict(names.most_common(3))}
+                    print(f"   {fault:16s} severity {sev:.1f}: alarm share before {row['alarm_share_before']:.3f}, during "
+                          f"{row['alarm_share_during']:.3f}, first alarm after {row['seconds_to_alarm']} s, "
+                          f"named {row['named']}")
+                    if not d.get("fault_classifier") and a.classifier:
+                        # the same entry asking for a classifier (calibrate fits one to an entry that carries the key)
+                        cal, _ = run_calibrate(dict(d, fault_classifier=None), manifest, t[sel], X[sel], min_running_s=cs - 1)
+                        row["named_with_a_classifier_fitted_here"] = dict(watch(cal, t[during], X[during])[4].most_common(3))
+                        print(f"   {'':16s} with a fault classifier fitted during calibration: "
+                              f"named {row['named_with_a_classifier_fitted_here']}")
+                    out["faults"].append(row)
+        # A fault counts as caught only if the machine was quiet before it: an alarm that was already
+        # on says nothing about the fault.
+        out["fault_summary"] = []
+        print(" summary: faults that alarmed, of those with no alarm between the calibration and the fault")
+        for ename in entries:
+            for kind, sev in sorted({(r["machine_kind"], r["severity"]) for r in out["faults"]}):
+                mine = [r for r in out["faults"] if (r["entry"], r["machine_kind"], r["severity"]) == (ename, kind, sev)]
+                quiet = [r for r in mine if r["alarm_share_before"] == 0]
+                row = {"entry": ename, "machine_kind": kind, "severity": sev, "faults": len(mine),
+                       "quiet_before": len(quiet), "caught": sum(r["seconds_to_alarm"] is not None for r in quiet)}
+                out["fault_summary"].append(row)
+                print(f"   entry {ename}, {kind} faults, severity {sev:.1f}: {row['caught']} alarmed of {row['quiet_before']} "
+                      f"({row['faults'] - row['quiet_before']} of {row['faults']} left out: alarm before the fault)")
 
     if a.watch_hours:
         start, watch_s = a.start_hour * H, a.watch_hours * H
