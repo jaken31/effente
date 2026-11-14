@@ -11,14 +11,16 @@ If there is no run, or it fails, the person fills the five fields by hand. The l
 From the repo root:
 
 ```
-python3 platform/setup_run.py --machine ID --answers FILE [--backend standin] [--port 8000] [--no-post] [--agent-log FILE]
+python3 platform/setup_run.py --machine ID --answers FILE [--backend standin|local] [--llm-url URL] [--port 8000] [--no-post] [--agent-log FILE]
 ```
 
 - `--answers`: a JSON file, or `-` for stdin. The format is below.
 - `--backend standin` (the default): fixed word lists, no model and no network. The explanation begins `Stand-in:`, the run's `model` is `stand-in (no model call)` and it is `simulated: true`, as the report agent's stand-in. Its draft goes through the same checks as a model's.
+- `--backend local`: asks a model server on this laptop, as the report agent does (`device/agent/README.md`, "What local mode needs"). The model gets the questions and answers, the five fields with their value lists, and the rules, in one request with no tools. Not the library, the lookup table or a manifest. If its draft fails the checks, it is asked once more with the problems listed; a second failure is discarded. The run's `model` is `local: <model>` and it is `simulated: false`: a real model on a person's answers. Opt-in: the stand-in is the default.
+- `--llm-url`: where the model server is. Falls back to `EFFENTE_LLM_URL`, then `http://127.0.0.1:8081`.
 - `--no-post`: post nothing to the receiver.
 - `--agent-log`: one JSON line per run, default `platform/server/data/setup.jsonl`.
-- Prints the result as JSON. Exit code 0 when the profile was filled and passed its checks, 1 otherwise, with the reason and the problems on stderr.
+- Prints the result as JSON. Exit code 0 when the profile was filled and passed its checks, 1 otherwise, with the reason and the problems on stderr. If the model server is not running, does not answer in time or answers with something that is not JSON, the run ends `ok: false` with `reason: "agent unavailable: ..."`.
 - One run per machine at a time: if the receiver shows a setup run for this machine still `running` and under 10 minutes old, nothing is started or posted. An older one is taken as dead.
 
 No receiver needed:
@@ -64,11 +66,31 @@ The word lists are starting values written for this stand-in, not checked on rea
 
 A draft that fails is discarded: the run ends with `ok: false`, `reason: "profile failed checks"` and the problems.
 
+A wrong shape from the model (an extra key, a missing field) is a failed check and gets the retry, not "agent unavailable": `local.py` asks `LocalCall._ask` only for a JSON object and leaves the shape to `check_draft`.
+
 ## Reuse
 
-The run (`SetupRun`) is the report agent's `Run` from `device/agent/run.py`, with the differences of contract 10.3. The errors and the agent log writer are the report agent's too. `device/agent/` is not changed. `run_agent` is tied to device log records and `check_report`, so `agent.py` holds the same flow for a setup run, as the part review does. It uses `_append_log`, which `device/agent` marks as private, so a change to it there has to keep it working here.
+The run (`SetupRun`) is the report agent's `Run` from `device/agent/run.py`, with the differences of contract 10.3. The local call (`LocalSetupCall`) is its `LocalCall`: the same model lookup, request, fall back to plain JSON and error reasons. The errors and the agent log writer are the report agent's too. `device/agent/` is not changed. `run_agent` is tied to device log records and `check_report`, so `agent.py` holds the same flow for a setup run, as the part review does. The retry inside `LocalCall.__call__` is repeated in `local.py` for the same reason. They use three names `device/agent` marks as private (`_append_log`, `_ask`, `_find_model`), so a change to those there has to keep them working here.
+
+## Real runs
+
+### The local model
+
+Done on 14 Nov 2026, on one Linux laptop: llama.cpp's `llama-server` with `small.gguf` and the settings of `device/agent/serve_model.sh`, on the six fixed answer sets in `tests/setup_cases.py`, twice each, with `--backend local --no-post`, after the last prompt change.
+
+- All 12 drafts passed the checks at the first request: no retry was needed. 661 to 692 tokens in, 344 to 743 out, 4 to 8 seconds each with the model already loaded.
+- 11 of 12 profiles were the one we judged right. The miss: "a belt and a gearbox" filled `drive` as `belt` once. The prompt says an answer that fits two values is unsure; before that line was added it did this every time. No check catches it: it is a guess that is a value from the list.
+- Before "Do not repeat the lists of allowed values" was added to the prompt, one run of the same answers was discarded after its retry: its explanation named `conveyor` while the profile's machine type was empty. The likely cause is that the model listed the allowed values, but that run's text was not kept.
+- Once more with a real receiver: the run was posted as `agent: setup`, `simulated: false`, with one tool call. No profile was stored by it. A `PUT` of its five fields stored the profile, with the same choice as the run's.
+
+The expected profiles are our judgement of a right reading, not measured outcomes. Twelve runs on six short answer sets do not measure the model. Not done: the large model, and answers longer than a sentence each.
+
+### The stand-in
+
+The tests run it on the same six answer sets and get the expected profile for each.
 
 ## Not checked
 
 - The value lists and the stand-in's word lists on real machines and real answers.
 - A run started from the Setup page (plan row U5): not built yet.
+- The run's `model` with the local backend is the server's model id as `LocalCall` finds it. With this laptop's server that was the full path of the model file, `local: <folder>/small.gguf`, not `local: small.gguf` as in the contract's example. The report agent has the same behaviour.

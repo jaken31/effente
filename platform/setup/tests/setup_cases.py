@@ -46,7 +46,7 @@ CASES = {
         {**EMPTY, "machine_type": "motor"},
     ),
     "two_drives_is_unsure": (
-        answers("a press", "a belt and a gearbox", None, None, None),
+        answers(None, "a belt and a gearbox", None, None, None),
         dict(EMPTY),
     ),
 }

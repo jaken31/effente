@@ -1,11 +1,13 @@
 """Run the setup agent: fill a machine profile's five fields from a person's answers.
 
     python3 platform/setup_run.py --machine conveyor-07 --answers answers.json                  # rule-based stand-in
+    python3 platform/setup_run.py --machine conveyor-07 --answers answers.json --backend local  # a model server on this laptop
     some-page | python3 platform/setup_run.py --machine conveyor-07 --answers -                 # answers on stdin
 
---backend standin (the only one so far) fills the profile by fixed word lists,
-with no model, labelled as a stand-in and as simulated. No answer and no profile
-leaves the site.
+--backend standin (the default) fills the profile by fixed word lists, with no
+model, labelled as a stand-in and as simulated. --backend local needs a model
+server (llama.cpp's llama-server) at --llm-url; the default is
+http://127.0.0.1:8081. No answer and no profile leaves the site.
 
 The run fills the form. It stores nothing and picks nothing: the lookup picks the
 starting model in code, and only a person's confirm on the Setup page stores the
@@ -34,6 +36,7 @@ for path in (str(REPO), str(HERE)):
 
 from setup.agent.agent import AGENT, SetupResult, run_setup  # noqa: E402
 from setup.agent.checks import AnswersUnavailable, read_answers  # noqa: E402
+from setup.agent.local import LocalSetupCall  # noqa: E402
 from setup.agent.standin import stand_in_call  # noqa: E402
 
 # A run still `running` after this long has died: a run asks the model at most
@@ -48,8 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--answers", required=True,
                         help='JSON file of [{"question", "answer", "about"}], or - for stdin')
     parser.add_argument("--port", type=int, default=8000, help="the receiver's port on this laptop")
-    parser.add_argument("--backend", choices=["standin"], default="standin",
-                        help="standin: fixed word lists, no model, no network")
+    parser.add_argument("--backend", choices=["standin", "local"], default="standin",
+                        help="standin: fixed word lists, no model, no network; local: a model server on this site")
+    parser.add_argument("--llm-url", default="",
+                        help="local model server; default EFFENTE_LLM_URL, then http://127.0.0.1:8081")
     parser.add_argument("--no-post", action="store_true", help="post nothing to the receiver")
     parser.add_argument("--agent-log", default="",
                         help="local log, one JSON line per run; default platform/server/data/setup.jsonl")
@@ -69,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError) as error:
             raise AnswersUnavailable(f"cannot read {args.answers}: {error}") from error
 
-    call = stand_in_call
+    call = LocalSetupCall(args.llm_url) if args.backend == "local" else stand_in_call
     agent_log = Path(args.agent_log) if args.agent_log else DATA / "setup.jsonl"
     agent_log.parent.mkdir(parents=True, exist_ok=True)
     result = run_setup(args.machine, load, call=call, platform_url=platform_url, agent_log_path=agent_log)
@@ -79,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"No profile was filled: {result.reason}. Fill the five fields by hand.", file=sys.stderr)
         for problem in result.problems:
             print(f"  - {problem}", file=sys.stderr)
+        if result.reason.startswith("agent unavailable"):
+            print("Use --backend standin for the rule-based stand-in with no model call.", file=sys.stderr)
     return 0 if result.ok else 1
 
 
