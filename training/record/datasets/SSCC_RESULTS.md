@@ -367,7 +367,10 @@ robust as it stands, so the hardware what-if numbers above are an upper bound, n
 ### (b) Larger redesigns
 
 **B1. The recommended model** (expected: +15 to +19 points of faults caught at equal or fewer false alarms; most of it
-under background noise. Risk: medium, see the multi-speed result. Effort: 1-2 days.)
+under background noise. Risk: medium, see the multi-speed result. Effort: an estimate of 1-2 days.)
+- A complete NumPy-only reference is in `training/record/sscc_eval/board_model.py`: `window_row(accel_g, audio)` (the
+  136 inputs of one second), `Final().learn(rows)` and `Final.judge(row)` (one call a second, returns alarm and level).
+  `check_final()` shows it gives exactly the benchmark's scores (relative difference 0) on a test condition.
 - Features, per one-second window (reference code: `training/record/sscc_eval/make_features.py`, `generic()`):
   - vibration, per axis (x, y, z) of the 1 kHz accelerometer after removing its mean: 20 log10 band powers on
     `np.geomspace(5, 500, 21)` edges (Hann window, power summed per band), log10 rms, kurtosis, crest factor
