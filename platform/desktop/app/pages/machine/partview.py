@@ -11,9 +11,11 @@ from app.theme import tokens as t
 from app.theme.qss import css
 from app.widgets import Button, Panel, Segmented, SimChip
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -46,6 +48,24 @@ def _box(name: str) -> QFrame:
     return f
 
 
+class Elided(QLabel):
+    """One line that ends in an ellipsis instead of being cut, with the whole text in its tooltip."""
+
+    def __init__(self, text: str, role: str, font):
+        super().__init__(text)
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setProperty("role", role)
+        self.setFont(font)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setPen(self.palette().windowText().color())
+        text = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
+        p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
+
+
 class PartHead(QWidget):
     """The part's mark, name, kind and state, what that state means, and the probe and pin buttons."""
 
@@ -63,8 +83,7 @@ class PartHead(QWidget):
         self.mark = PinMark()
         self.name = label("", "strong", fonts.font(t.FONT_PAGE_TITLE - 1, 600, tracking=t.TRACK_TITLE))
         self.kind = label("", "muted")
-        self.headline = label("", "strong", fonts.font(t.FONT_BASE, 600))
-        self.headline.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.headline = Elided("", "strong", fonts.font(t.FONT_BASE, 600))
         self.pin_button = Button("", "ghost", small=True)
         self.pin_button.setToolTip("Then click the model where this part is")
         self.pin_button.clicked.connect(self.move_pin)
@@ -76,7 +95,6 @@ class PartHead(QWidget):
         row.addWidget(self.name)
         row.addWidget(self.kind, 0, Qt.AlignmentFlag.AlignBaseline)
         row.addWidget(self.headline, 1, Qt.AlignmentFlag.AlignBaseline)
-        row.addWidget(self.pin_button)
         row.addWidget(self.probe_button)
         col.addLayout(row)
         under = QHBoxLayout()
@@ -87,6 +105,7 @@ class PartHead(QWidget):
         self.sim_chip = _sim_chip()
         self.sim_chip.setToolTip("The numbers in the tiles below come from simulated readings.")
         under.addWidget(self.means, 1)
+        under.addWidget(self.pin_button, 0, Qt.AlignmentFlag.AlignBottom)
         under.addWidget(self.sim_chip, 0, Qt.AlignmentFlag.AlignBottom)
         col.addLayout(under)
 

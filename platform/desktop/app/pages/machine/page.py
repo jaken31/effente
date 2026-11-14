@@ -37,7 +37,7 @@ from .stage import CONVERT_AGAIN, IMPORT, Stage
 
 LEFT_MIN_W = 300
 MID_MIN_W = 440
-RIGHT_W = 300
+RIGHT_W = 316
 # The page's height when the window is 1440x820, less the top bar and the content's padding: the page
 # never asks for more, so the window does not scroll it. Only the log list scrolls.
 FIT_H = 820 - t.TOPBAR_H - 2 * t.CONTENT_PAD

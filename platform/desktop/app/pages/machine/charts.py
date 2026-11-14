@@ -131,8 +131,9 @@ class VelocityChart(_Chart):
         last = self.points[-1]
         label = rd.number(last.velocity)
         w = fm.horizontalAdvance(label) + 4
-        lx = min(self.x(last.at) + 8, r.right() - w)
-        _text(p, QRectF(lx, self.y(last.velocity) - 20, w, 16), Qt.AlignmentFlag.AlignLeft, label, t.TEXT)
+        lx = min(max(self.x(last.at) - w / 2, r.left()), r.right() - w)  # above the newest point
+        ly = max(r.top(), min(self.y(last.velocity), *(self.y(q.velocity) for q in self.points[-4:])) - 24)
+        _text(p, QRectF(lx, ly, w, 16), Qt.AlignmentFlag.AlignHCenter, label, t.TEXT)
 
 
 class MovedChart(_Chart):
@@ -225,7 +226,7 @@ class SpectrumChart(_Chart):
         if v.edges:  # a few band edges in Hz along the bottom
             fm = self.fontMetrics()
             for i in (0, n // 4, n // 2, 3 * n // 4, n):
-                label = f"{v.edges[i]:g}" + (" Hz" if i == n else "")
+                label = f"{v.edges[i]:.3g}" + (" Hz" if i == n else "")
                 lw = fm.horizontalAdvance(label)
                 x = min(max(r.left() + i * w - lw / 2, r.left()), r.right() - lw)
                 _text(p, QRectF(x, r.bottom() + 4, lw + 2, BOTTOM - 4), Qt.AlignmentFlag.AlignLeft, label)
