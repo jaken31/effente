@@ -264,6 +264,16 @@ When the device is not watching (display, calibrating, recording or training), i
 
 Reply: `{"ok": true}`, with `settings` as in message 2 once the dashboard has set a sensitivity.
 
+### Readings (optional, proposed: not yet agreed by the team)
+
+A check-in or a record may carry `readings`, the numbers on the device's own screen, so the dashboard can show them in every mode:
+
+```json
+"readings": {"vib_mg": 4.5, "peak_g": 0.014, "speed_hz": 0.0, "imu_temp_c": 26.6, "tilt": [0.98, 0.41, 0.25], "sound_db": 82.6, "thermal_max_c": null}
+```
+
+These are `readings` in the device's status (`device/intake/device_app.py`). A value is `null` when its sensor gave none. The platform keeps the newest for each connected device: `readings` (`{"at", "readings"}`) in `GET /api/state`, and a `readings` event on the stream (`device_id`, `machine_id`, `at`, `readings`). A check-in may also carry `spectrum` with `spectrum_edges_hz` and `heat`, in the shapes of messages 2 and 1, so the spectrum and heat panels have something to draw while the device is not watching; the platform keeps them beside the readings. `readings` may then include features from the device's newest row under their own names: `vib_velocity_mm_s`, `snd_tone_hz`, `snd_tone_db` and `snd_centroid_hz`. They are not stored in the history. Today only `platform/link/device_link.py` sends them; `device/intake/uploader.py` does not.
+
 ## 4. Agent sends its report
 
 The agents run on the laptop. An agent sends the whole run each time something happens: once when it starts, after each tool call, and once at the end. Same `run_id` every time; the platform keeps the latest copy. This is how tool calls show up live.

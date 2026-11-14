@@ -93,11 +93,11 @@ class SpectrumPage(QWidget):
         if machine != self._machine:
             self._machine, self._custom = machine, None
         self._records = list(s.records(limit=HISTORY, spectrum=True))
-        latest = s.latest()
+        latest = s.live_record()
         newer = latest is not None and (not self._records or self._records[-1].get("seq") != latest.get("seq"))
         if newer and maths.spectrum_of(latest) and latest.get("machine_id") == machine:
             self._records.append(latest)
-        self._draw(latest, s.model())
+        self._draw(latest, s.spectrum_model())
 
     def _on_record(self, rec: dict) -> None:
         if self._state is not None and rec.get("machine_id") == self._state.current_machine():

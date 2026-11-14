@@ -15,6 +15,7 @@ import signal
 import sys
 import threading
 import time
+from collections import deque
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, Signal
@@ -22,6 +23,8 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, S
 from . import logic, model_server, paths
 from .api import ApiClient, ApiError, StreamReader
 from .model_settings import ModelSettings
+
+READINGS_KEPT = 300  # readings kept per device for the Live page's sparklines: 5 minutes at one a second
 
 
 def _ms(record) -> float | None:
@@ -88,6 +91,7 @@ class StateReads(QObject):
         self._machine = None  # picked by hand with set_machine; None = follow the shown device
         self._agent_message = ""
         self._seen_alarms = None  # alarm ids already looked at; None before the first look
+        self._readings_history: dict = {}  # device_id -> deque of readings dicts, for the sparklines
         self.model_settings = ModelSettings()  # remembers nothing unless given a store
         self._model_status = model_server.Status(model_server.STOPPED, "Not running.")
         self.alarms_changed.connect(self._note_alarms)  # first, so alarm_opened precedes page refreshes
@@ -181,6 +185,36 @@ class StateReads(QObject):
         (every one when None), oldest first, without `spectrum` and `heat.frames`.
         Here from the live history only; the live state reads the whole range."""
         return _within(self.records(logic.HISTORY_CAP), span_s)
+
+    def readings(self) -> dict:
+        """The shown device's own readings (the numbers on its screen: vib_mg, sound_db,
+        imu_temp_c, ...), in any mode. {} when it sent none or is not connected."""
+        d = self._device()
+        kept = d.get("readings") if d and d.get("connected") else None
+        return dict(kept["readings"]) if kept else {}
+
+    def live_record(self):
+        """What the spectrum and heat panels draw. While the shown device is connected and not
+        watching it sends no records, so this is the `spectrum` and `heat` of its newest
+        check-in when it carried them (contract section 3); otherwise latest()."""
+        d = self._device()
+        kept = d.get("readings") if d and d.get("connected") and d.get("mode") != "watching" else None
+        if kept and ("spectrum" in kept or "heat" in kept):
+            return {k: kept[k] for k in ("at", "spectrum", "heat") if k in kept}
+        return self.latest()
+
+    def spectrum_model(self):
+        """model(), or just the band edges a check-in carried when no model is announced."""
+        model = self.model()
+        d = self._device()
+        edges = ((d or {}).get("readings") or {}).get("spectrum_edges_hz")
+        if model is None and isinstance(edges, list):
+            return {"spectrum_edges_hz": edges}
+        return model
+
+    def readings_history(self) -> list:
+        """The shown device's readings since this app started, oldest first, at most 5 minutes."""
+        return list(self._readings_history.get(self.device_id(), ()))
 
     def problems(self) -> list:
         """The shown device's problems now, limits first as sent. [] while not connected."""
@@ -438,6 +472,11 @@ class DashboardState(StateReads):
             self.settings_changed.emit()
         elif name in ("model", "device"):
             self.snapshot_changed.emit()
+        elif name == "readings" and isinstance(data, dict) and isinstance(data.get("readings"), dict):
+            kept = self._readings_history.setdefault(data.get("device_id"), deque(maxlen=READINGS_KEPT))
+            kept.append(data["readings"])
+            if data.get("device_id") == self.device_id():
+                self.snapshot_changed.emit()
         if self._problem_key() != before:
             self.problems_changed.emit()
 
