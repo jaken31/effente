@@ -274,7 +274,8 @@ float micDb = NAN, micToneHz = NAN;
 // The tone as the screen shows it: smoothed, 0.6 of what it showed and 0.4 of each new reading (the user,
 // 14 Nov), so the number doesn't jump about. Only the screen: the readings sent on are untouched.
 const float TONE_KEEP = 0.6f;
-const uint32_t TILE_EVERY_MS = 250;  // how often the six tiles' numbers are replaced, all at once
+const uint32_t TILE_EVERY_MS = 100;  // how often the six tiles' numbers are replaced, all at once: with every
+                                     // frame the screen draws (10 a second; faster, the user, 14 Nov)
 float micToneShown = NAN;
 uint32_t micLines = 0, micAt = 0;
 char espIp[20] = "";
@@ -531,7 +532,7 @@ void composeTiles() {
   // the microphone's about the same size). Top row: vibration, peak, temperature. Bottom row: running
   // speed, sound level, strongest tone. A tile's number is at most 3 characters at double size, so big
   // values change unit: 1000 mg and over is shown in g, 1000 Hz and over in kHz ("k").
-  const char *units[6] = {"mg", "%", "F", "", "dB", "Hz"};
+  const char *units[6] = {"mg", "", "F", "", "dB", "Hz"};
   float mg = 1000 * sqrtf(shownRms2);
   if (mpuOk) {
     if (mg >= 999.5f) { fnum(val[0], mg / 1000, mg < 9950 ? 1 : 0); units[0] = "g"; }
@@ -540,12 +541,12 @@ void composeTiles() {
   } else {
     strcpy(val[0], "--"); strcpy(val[2], "--");
   }
-  // The second tile was the peak, which jumped about too much to read (the user, 14 Nov). It is the model's
-  // score now, as a share of its alarm line: 100 % is the line, so it shows how near an alarm is. The Linux
-  // side writes it (line 5 of the layout), once a second; 0 when nothing is being judged.
+  // The second tile was the peak, which jumped about too much to read (the user, 14 Nov). It is the vibration
+  // velocity in mm/s now, the usual measure of how hard a machine shakes (the fixed limit is 11 mm/s). The
+  // Linux side writes it (line 5 of the layout), with one decimal under 10; its unit is the tile's label.
   strncpy(val[1], tmpl[4][0] ? tmpl[4] : "0", 11);
   val[1][11] = 0;
-  if (strlen(val[1]) > 3) strcpy(val[1], "999");
+  if (strlen(val[1]) > 3) val[1][3] = 0;
   strncpy(val[3], tmpl[3][0] ? tmpl[3] : "0", 11);  // the running speed, as the Linux side wrote it; 0 when none
   val[3][11] = 0;
   if (strlen(val[3]) > 3) {  // too wide for a tile: drop the decimals ("29.8" -> "29")
@@ -566,11 +567,12 @@ void composeTiles() {
     if (tone >= 999.5f) { fnum(val[5], tone / 1000, tone < 9950 ? 1 : 0); units[5] = "k"; }
     else fnum(val[5], tone, 0);
   }
-  static const char *labels[6] = {"VIB", "SCORE", "TEMP", "HZ", "SND", "TONE"};
+  static const char *labels[6] = {"VIB", "MM/S", "TEMP", "HZ", "SND", "TONE"};
   // All six numbers change together, TILE_EVERY_MS apart (the user, 14 Nov: they changed at different speeds:
   // vibration and temperature with every frame, sound 11 times a second, the tone 4 times, the speed once).
   // Each is still worked out as before; this only chooses when what is shown is replaced. The speed and the
-  // score come from the Linux side once a second, so those two change on every fourth beat at most.
+  // velocity come from the Linux side, which works them out 4 times a second, and the tone from the ESP32
+  // about 4 times a second, so those three can change on some beats only.
   static char shownVal[6][12];
   static const char *shownUnit[6] = {"", "", "", "", "", ""};
   static uint32_t tilesAt = 0;

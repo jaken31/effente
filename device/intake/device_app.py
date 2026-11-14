@@ -969,9 +969,9 @@ class DeviceApp:
           "<header right>"   the time, hours and minutes
           "<tile>"           vib, peak, temp or hz: the reading that goes with what is wrong; else empty
           "<speed>"          running speed in Hz, a whole number; 0 when no speed is found (the user, 13 Nov)
-          "<score>"          the model's score as a percentage of its alarm line at the present sensitivity (100 is
-                             the line), a whole number up to 999; 0 when nothing is being judged. It has the tile
-                             the peak had (the user, 14 Nov: the peak jumped about too much to read)
+          "<velocity>"       vibration velocity in mm/s, with one decimal under 10 (the usual measure of how hard a
+                             machine shakes; the fixed limit is 11). It has the tile the peak had (the user,
+                             14 Nov: the peak jumped about too much to read)
         Vibration, peak and temperature (shown in F) come from the samples on the microcontroller, so they
         move at the screen's own rate; this changes only when the mode, the minute or what is wrong does."""
         r = readings(self.latest)
@@ -1003,11 +1003,9 @@ class DeviceApp:
                 tile = "vib"
         now = time.localtime(self.clock())  # 12-hour, with AM or PM, and 12 for midnight and noon (the user, 14 Nov)
         clock = f"{now.tm_hour % 12 or 12}:{now.tm_min:02d}{'AM' if now.tm_hour < 12 else 'PM'}"
-        level = (res or {}).get("unknown_score") if mode == "watching" else None
-        score = "0"
-        if isinstance(level, (int, float)) and math.isfinite(level):  # as a share of the line at this sensitivity
-            score = str(int(min(999, max(0, round(100.0 * level / self._margins()["model"])))))
-        return [f"@{left}"[:24], clock, tile, speed, score]
+        v = _g(self.latest, "vib_velocity_mm_s") if self.latest is not None else None
+        velocity = "0" if v is None or not math.isfinite(v) else (f"{v:.1f}" if v < 9.95 else f"{min(v, 999):.0f}")
+        return [f"@{left}"[:24], clock, tile, speed, velocity]
 
     def _screen_worker(self):
         while not self._stop.is_set():
