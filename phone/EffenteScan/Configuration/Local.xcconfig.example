@@ -1,0 +1,4 @@
+// Copy this file to Local.xcconfig (same folder) and put your own team id here.
+// Find it in Xcode: Settings, Accounts, your team, or at developer.apple.com under Membership.
+// Local.xcconfig is not committed.
+DEVELOPMENT_TEAM = XXXXXXXXXX
