@@ -3,8 +3,12 @@
     python3 platform/part_review.py --machine conveyor-07                    # every part, rule-based stand-in
     python3 platform/part_review.py --machine conveyor-07 --part part-0007   # one part
 
+    python3 platform/part_review.py --machine conveyor-07 --backend local    # a model server on this laptop
+
 --backend standin (the default) writes a rule-based review with no model, labelled
-as a stand-in and as simulated. No history and no review leaves the site.
+as a stand-in and as simulated. --backend local needs a model server (llama.cpp's
+llama-server) at --llm-url; the default is http://127.0.0.1:8081. No history and
+no review leaves the site.
 
 Each run and its review appear in the desktop app, and a review that passes its
 checks is added to the part's log. See platform/partlog/review/README.md.
@@ -31,10 +35,11 @@ for path in (str(REPO), str(HERE)):
 
 from partlog.review import history as histories  # noqa: E402
 from partlog.review.agent import AGENT, ReviewResult, run_review  # noqa: E402
+from partlog.review.local import LocalReviewCall  # noqa: E402
 from partlog.review.standin import stand_in_call  # noqa: E402
 
 # A run still `running` after this long has died: a review asks the model at
-# most twice, and each answer has a time limit (device/agent/harness.py).
+# most twice, and each answer has a 120 second limit (device/agent/harness.py).
 STALE_AFTER = timedelta(minutes=10)
 
 
@@ -43,8 +48,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--machine", required=True, help="machine_id whose parts to review")
     parser.add_argument("--part", default="", help="part_id of one part; default: every part that is not removed")
     parser.add_argument("--port", type=int, default=8000, help="the receiver's port on this laptop")
-    parser.add_argument("--backend", choices=["standin"], default="standin",
-                        help="standin: rule-based review, no model, no network")
+    parser.add_argument("--backend", choices=["standin", "local"], default="standin",
+                        help="standin: rule-based review, no model, no network; local: a model server on this site")
+    parser.add_argument("--llm-url", default="",
+                        help="local model server; default EFFENTE_LLM_URL, then http://127.0.0.1:8081")
     parser.add_argument("--history", default="",
                         help="read the machine's parts, entries and alarms from this JSON file, not from "
                              "the receiver. Nothing is posted and no log entry is added")
@@ -68,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.machine} has no parts to review.", file=sys.stderr)
         return 1
 
+    call = LocalReviewCall(args.llm_url) if args.backend == "local" else stand_in_call
     agent_log = Path(args.agent_log) if args.agent_log else DATA / "part-review.jsonl"
     agent_log.parent.mkdir(parents=True, exist_ok=True)
     results = []
@@ -81,13 +89,15 @@ def main(argv: list[str] | None = None) -> int:
         results.append(run_review(
             args.machine, part_id,
             load=lambda part_id=part_id: histories.part_history(read(part_id), part_id),
-            call=stand_in_call, platform_url=platform_url, agent_log_path=agent_log,
+            call=call, platform_url=platform_url, agent_log_path=agent_log,
         ))
 
     print(json.dumps([_shown(result) for result in results], indent=2))
     for result in results:
         if not result.ok:
             print(f"{result.part_id}: no review was written: {result.reason}.", file=sys.stderr)
+    if any(result.reason.startswith("agent unavailable") for result in results):
+        print("Use --backend standin for a rule-based review with no model call.", file=sys.stderr)
     return 0 if all(result.ok for result in results) else 1
 
 
