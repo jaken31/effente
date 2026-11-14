@@ -406,9 +406,9 @@ class RowTint(QObject):
 class Reveal(QWidget):
     """Holds one widget and opens or closes it: the height eases while the content fades.
 
-    Use `set_open` in place of the child's `setVisible`. Closed, the Reveal is hidden,
-    so the child reads as not visible. The child keeps its own size while the Reveal
-    clips it, so its words never reflow on the way.
+    Use `set_open` in place of the child's `setVisible`. Closed, the Reveal and the child
+    are both hidden, so `isVisible` and `isHidden` on the child read as they did. The
+    child keeps its own size while the Reveal clips it, so its words never reflow on the way.
     """
 
     def __init__(self, child: QWidget, parent: QWidget | None = None):
@@ -454,6 +454,7 @@ class Reveal(QWidget):
         self._anim.stop()
         if on:
             self.setMaximumHeight(round(self._from))
+            self.child.show()
             self.show()
             if parent.layout() is not None:
                 parent.layout().activate()  # give it its width now, so its natural height is right
@@ -478,6 +479,7 @@ class Reveal(QWidget):
         if isinstance(self.child.graphicsEffect(), Lift):
             self.child.setGraphicsEffect(None)
         self.setMaximumHeight(_MAX)
+        self.child.setVisible(self._open)
         self.setVisible(self._open)
 
 

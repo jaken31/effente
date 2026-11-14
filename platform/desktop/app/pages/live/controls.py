@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from ...data import logic
 from ...theme import fonts
 from ...theme import tokens as t
-from ...widgets import Button, Segmented
+from ...widgets import Button, Segmented, motion
 from .common import label, short
 
 PRESETS = [("0.25", "Low"), ("0.5", "Balanced"), ("0.75", "High")]
@@ -153,9 +153,10 @@ class ControlsBody(QWidget):
         self.impact.setTextFormat(Qt.TextFormat.RichText)
         self.pending = label("", "soft", self, fonts.body())
         self.pending.setWordWrap(True)
-        self.pending.hide()
+        self.pending_reveal = motion.Reveal(self.pending)
+        self.pending_reveal.set_open(False)
         sens.lay.addWidget(self.impact)
-        sens.lay.addWidget(self.pending)
+        sens.lay.addWidget(self.pending_reveal)
         outer.addWidget(sens)
 
         acts = _Section(False, self)
@@ -172,8 +173,9 @@ class ControlsBody(QWidget):
         row.addStretch(1)
         acts.lay.addLayout(row)
         self.flash = label("", "muted", self, fonts.font(t.FONT_SMALL))
-        self.flash.hide()
-        acts.lay.addWidget(self.flash)
+        self.flash_reveal = motion.Reveal(self.flash)
+        self.flash_reveal.set_open(False)
+        acts.lay.addWidget(self.flash_reveal)
         outer.addWidget(acts)
 
         self.sim = _Section(False, self)
@@ -220,9 +222,9 @@ class ControlsBody(QWidget):
         if wanted is not None and (reported is None or abs(wanted - reported) > 1e-9):
             now = f"{reported:.2f}" if reported is not None else logic.sensitivity_name(None).lower()
             self.pending.setText(f"Device still at {now}. Change to {wanted:.2f} on its way.")
-            self.pending.show()
+            self.pending_reveal.set_open(True)
         else:
-            self.pending.hide()
+            self.pending_reveal.set_open(False)
 
     def _moved(self, v: int) -> None:
         self._describe(v / 100)
@@ -258,8 +260,9 @@ class ControlsBody(QWidget):
         self.btn_agent.setToolTip("A report agent is already running for this machine." if running else "")
 
     def say(self, text: str) -> None:
-        self.flash.setText(text)
-        self.flash.setVisible(bool(text))
+        if text:  # the old words stay while it closes
+            self.flash.setText(text)
+        self.flash_reveal.set_open(bool(text))
 
     # ---- simulator ---------------------------------------------------------
 

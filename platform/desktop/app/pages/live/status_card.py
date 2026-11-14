@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from ...data import logic
 from ...theme import fonts
 from ...theme import tokens as t
-from ...widgets import Button, Pill, StatusDot
+from ...widgets import Button, Pill, StatusDot, motion
 from .common import clock, label, periods
 
 HEADLINE_DOT = {"wrong": t.WARN, "ok": t.NORMAL}
@@ -141,10 +141,14 @@ class StatusCard(QFrame):
         self.problems.hide()
         self.note = label("", "muted", main, fonts.body())
         self.note.hide()
+        self.problems_reveal = motion.Reveal(self.problems)
+        self.note_reveal = motion.Reveal(self.note)
         text.addWidget(self.headline)
         text.addLayout(sub_row)
-        text.addWidget(self.problems)
-        text.addWidget(self.note)
+        text.addWidget(self.problems_reveal)
+        text.addWidget(self.note_reveal)
+        self.problems_reveal.set_open(False)
+        self.note_reveal.set_open(False)
         ml.addLayout(text, 1)
 
         meta = QHBoxLayout()
@@ -183,8 +187,9 @@ class StatusCard(QFrame):
         self.btn_real.clicked.connect(lambda: self._answer("real"))
         self.btn_false.clicked.connect(lambda: self._answer("false"))
         self.btn_later.clicked.connect(lambda: self._alarm_id and self.later.emit(self._alarm_id))
-        outer.addWidget(self.ask)
-        self.ask.hide()
+        self.ask_reveal = motion.Reveal(self.ask)
+        outer.addWidget(self.ask_reveal)
+        self.ask_reveal.set_open(False)
         self._alarm_id: str | None = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -192,7 +197,7 @@ class StatusCard(QFrame):
         return [self.tile_state, self.tile_since, self.tile_protection, self.tile_sensitivity]
 
     def asked_alarm(self) -> str | None:
-        return self._alarm_id if self.ask.isVisible() or not self.ask.isHidden() else None
+        return self._alarm_id if self.ask_reveal.is_open() else None
 
     def _answer(self, verdict: str) -> None:
         if self._alarm_id:
@@ -202,22 +207,27 @@ class StatusCard(QFrame):
 
     def show_state(self, state, records: list, snoozed: set) -> None:
         head = state.headline()
-        self.headline.setText(head["text"])
+        if head["text"] != self.headline.text():
+            was = self.headline.text()
+            self.headline.setText(head["text"])
+            if was:
+                motion.swap(self.headline)  # the machine's state changed: the new words come up
         self.dot.set_color(HEADLINE_DOT.get(head["state"], t.MUTED))
 
         ml = state.model_line()
         if ml is None:
             self.sub.setText("")
-            self.possible.hide()
-            self.note.hide()
+            motion.set_shown(self.possible, False, drop=0.0)
+            self.note_reveal.set_open(False)
         else:
             detail = logic.capitalise(ml["detail"]) if ml["detail"] else ""
             self.sub.setText(" · ".join(x for x in (ml["label"], detail) if x))
             if ml["possible"]:
                 self.possible.set_text(logic.fault_type_tag(self._fault_type(state)))
-            self.possible.setVisible(bool(ml["possible"]))
-            self.note.setText(ml["note"])
-            self.note.setVisible(bool(ml["note"]))
+            motion.set_shown(self.possible, bool(ml["possible"]), drop=0.0)
+            if ml["note"]:  # the old words stay while it closes
+                self.note.setText(ml["note"])
+            self.note_reveal.set_open(bool(ml["note"]))
         self._show_problems(state, head["state"])
         self._show_meta(state, records)
         self._show_ask(state, snoozed)
@@ -234,7 +244,7 @@ class StatusCard(QFrame):
     def _show_problems(self, state, head_state: str) -> None:
         probs = state.problems() if head_state != "not_live" else []
         if not probs:
-            self.problems.hide()
+            self.problems_reveal.set_open(False)
             return
         bits = []
         for p in probs:
@@ -244,7 +254,7 @@ class StatusCard(QFrame):
             bits.append(" · ".join(x for x in (f'<span style="color:{t.TEXT}">{text}</span>', value, kind) if x))
         dot = f'<span style="color:{t.MUTED}">Problems</span>&nbsp;&nbsp;'
         self.problems.setText(dot + "&nbsp;&nbsp;|&nbsp;&nbsp;".join(bits))
-        self.problems.show()
+        self.problems_reveal.set_open(True)
 
     def _show_meta(self, state, records: list) -> None:
         rec = state.latest()
@@ -277,7 +287,7 @@ class StatusCard(QFrame):
         open_alarms = [a for a in state.unanswered_alarms() if a["alarm_id"] not in snoozed]
         if not open_alarms:
             self._alarm_id = None
-            self.ask.hide()
+            self.ask_reveal.set_open(False)
             return
         a = open_alarms[0]
         self._alarm_id = a["alarm_id"]
@@ -289,4 +299,4 @@ class StatusCard(QFrame):
         more = len(open_alarms) - 1
         self.more.setText(f"{more} more to answer")
         self.more.setVisible(more > 0)
-        self.ask.show()
+        self.ask_reveal.set_open(True)
