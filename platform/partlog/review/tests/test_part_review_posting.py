@@ -46,7 +46,8 @@ def test_the_finished_run_is_message_4_with_the_three_differences():
     assert done["part_id"] == PART and done["machine_id"] == MACHINE
     assert done["report"] is None
     assert done["review"] == result.review
-    assert list(done["review"]) == ["what", "how", "since", "needs_repair", "why", "cited_alarms", "cited_entries"]
+    assert list(done["review"]) == ["what", "how", "since", "needs_repair", "why", "cited_alarms", "cited_entries",
+                                    "trend"]
     assert (done["status"], done["ok"], done["reason"], done["problems"]) == ("done", True, "", [])
     assert done["model"] == MODEL_NAME and done["simulated"] is True
     assert done["run_id"].startswith("review-") and done["run_id"].endswith(PART)

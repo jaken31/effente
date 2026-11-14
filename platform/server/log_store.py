@@ -47,6 +47,7 @@ if PARTLOG_DIR not in sys.path:
 
 import part_kinds  # noqa: E402
 import part_state  # noqa: E402
+import projection  # noqa: E402
 import readings  # noqa: E402
 
 PARTS_FILE = "parts.jsonl"
@@ -441,15 +442,20 @@ class LogStore:
     # ---- readings (section 9.3) ---------------------------------------------
 
     def part_readings(self, part_id, since=None, limit=300):
-        """The readings route's reply, but `projection`, which is not built yet (row P1)."""
+        """The readings route's reply (section 9.3). `projection` (9.5) is worked
+        out from every reading and the newest repair, whatever `since` and `limit` say."""
         with self.store.lock:
             part = self.parts.get(part_id)
             if part is None:
                 raise BadRequest(f"no such part: {part_id}")
-            every = readings.readings(self.part_records.get(part_id, []), self._alarm_of, self.clock())
+            now = self.clock()
+            every = readings.readings(self.part_records.get(part_id, []), self._alarm_of, now)
+            repairs = [e["at"] for e in self.part_entries.get(part_id, ()) if e.get("kind") == "repair" and e.get("at")]
+        last_repair = max(repairs, key=parse_time, default=None)
         shown = readings.chosen(every, since, limit)
         return {"part_id": part_id, "machine_id": part["machine_id"], "readings": shown,
-                "summary": readings.summary(shown)}
+                "summary": readings.summary(shown),
+                "projection": projection.project(every, last_repair, now=_iso(now))}
 
     def _alarm_of(self, record):
         """The alarm an abnormal stored record belongs to: its machine's newest

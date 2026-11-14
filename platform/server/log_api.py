@@ -79,7 +79,7 @@ def put_probe(request, query, machine_id):
 
 
 def get_part_readings(request, query, part_id):
-    """GET /api/parts/<part_id>/readings (section 9.3). `projection` is null until row P1 builds it."""
+    """GET /api/parts/<part_id>/readings (section 9.3), with its `projection` (9.5)."""
     since = None
     if "since" in query:
         since = parse_time(query["since"][-1])
@@ -92,7 +92,7 @@ def get_part_readings(request, query, part_id):
     if limit < 0:
         raise BadRequest("limit must be 0 or more")
     reply = _log(request).part_readings(part_id, since, min(limit, MAX_HISTORY_LIMIT))
-    request.send_json(200, dict({"ok": True}, **reply, projection=None))
+    request.send_json(200, dict({"ok": True}, **reply))
 
 
 def get_normal_spectrum(request, query, machine_id):
