@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from app.theme import fonts
 from app.theme import tokens as t
-from app.widgets import Button, Panel
+from app.widgets import Button, Panel, motion
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -164,12 +164,12 @@ class Stage(Panel):
         self.hint_cancel.clicked.connect(self.cancelled)
         hl.addWidget(self.hint_text, 1)
         hl.addWidget(self.hint_cancel)
-        self.add(self.hint_strip)
+        self.hint_reveal = self.add(motion.Reveal(self.hint_strip))
 
         self.form = PartForm()
         self.form.submitted.connect(self.part_submitted)
         self.form.cancelled.connect(self.cancelled)
-        self.add(self.form)
+        self.form_reveal = self.add(motion.Reveal(self.form))
 
         self.stack = QStackedWidget()
         self.card = Card()
@@ -204,10 +204,10 @@ class Stage(Panel):
 
     def show_overlay(self, shown: bool) -> None:
         if self.overlay is not None:
-            self.overlay.setVisible(shown)
             if shown:
                 self.overlay.raise_()
                 self._place()
+            motion.set_shown(self.overlay, shown)  # settles in over the model, fades out
 
     def _place(self) -> None:
         if self.overlay is not None:
@@ -224,21 +224,26 @@ class Stage(Panel):
         self.reset_button.setVisible(self.view is not None)
 
     def show_card(self, title: str, text: str, steps: list[dict], button: str) -> None:
+        changed = title != self.card.title.text() or self.stack.currentWidget() is not self.card
         self.card.show_state(title, text, steps, button)
         self.stack.setCurrentWidget(self.card)
+        if changed:
+            motion.swap(self.card)  # one state of a scan gives way to the next
         self.reset_button.setVisible(False)
 
     def model_shown(self) -> bool:
         return self.view is not None and self.stack.currentWidget() is self._holder
 
     def show_hint(self, text: str, can_cancel: bool) -> None:
-        self.hint_text.setText(text)
-        self.hint_cancel.setVisible(can_cancel)
-        self.hint_strip.setVisible(bool(text))
+        if text:  # the old words stay while it closes
+            self.hint_text.setText(text)
+            self.hint_cancel.setVisible(can_cancel)
+        self.hint_reveal.set_open(bool(text))
 
     def show_form(self, shown: bool, *, pinned: bool = False) -> None:
-        was = self.form.isVisibleTo(self)
-        self.form.set_pinned(pinned)
-        self.form.setVisible(shown)
+        was = self.form_reveal.is_open()
+        if shown:  # the note stays as it was while the form closes
+            self.form.set_pinned(pinned)
+        self.form_reveal.set_open(shown)
         if shown and not was:
             self.form.name.setFocus()

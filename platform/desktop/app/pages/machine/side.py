@@ -11,9 +11,9 @@ from __future__ import annotations
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
-from app.widgets import Button, Panel, Segmented, SimChip
+from app.widgets import Button, Panel, Segmented, SimChip, motion
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QTextOption
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QTextOption
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -71,16 +71,35 @@ def _swap(area: QScrollArea, inner: QWidget) -> None:
 
 class _Fit(QScrollArea):
     """A scroll area that asks for the height of what it holds, so a short list takes no more room than
-    it needs. It scrolls only when the window leaves less room than that."""
+    it needs. It scrolls only when the window leaves less room than that.
 
-    def sizeHint(self) -> QSize:
+    Call `fit()` after changing what it holds: the height it asks for eases to the new one, so the
+    panels under it glide to their places."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._height = motion.Glide(self, motion.REVEAL, on_change=self.updateGeometry)
+        self._height.finished.connect(lambda: self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded))
+
+    def _natural(self) -> int:
         inner = self.widget()
         h = 0
         if inner is not None:
             w = self.viewport().width()
             h = inner.heightForWidth(w) if inner.hasHeightForWidth() and w > 0 else -1
             h = h if h > 0 else inner.sizeHint().height()
-        return QSize(super().sizeHint().width(), h + 2)
+        return h + 2
+
+    def fit(self) -> None:
+        if not self._height.moving():
+            self._height.at = float(self.height())  # from the height it has, whatever set it
+        self._height.to(self._natural())  # jumps while hidden or with motion off
+        if self._height.moving():  # no scroll bar flickering by while it grows into its room
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def sizeHint(self) -> QSize:
+        h = round(self._height.at) if self._height.moving() else self._natural()
+        return QSize(super().sizeHint().width(), h)
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -100,9 +119,12 @@ class PartRow(QFrame):
         self.row = row
         self.setObjectName("machinePartRow")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        bg = css(t.ACCENT_BG) if row["selected"] else "transparent"
-        self.setStyleSheet(f"#machinePartRow {{ background: {bg}; border: 0; "
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self.setStyleSheet(f"#machinePartRow {{ background: transparent; border: 0; "
                            f"border-top: 1px solid {css(t.GRID)}; }}")
+        self._hover = motion.Glide(self)  # 0 plain, 1 under the pointer
+        self._chosen = motion.Glide(self, motion.SLIDE, 1.0 if row["selected"] else 0.0)
+        self._fresh = False  # picked just now: the tint comes up when the row is first shown
         lay = QHBoxLayout(self)
         lay.setContentsMargins(PAD_H, 6, PAD_H - 4, 6)
         lay.setSpacing(10)
@@ -128,6 +150,47 @@ class PartRow(QFrame):
         self.number.setToolTip("The newest reading, in mm/s")
         lay.addWidget(self.number, 0, Qt.AlignmentFlag.AlignVCenter)
 
+    def pick_in(self) -> None:
+        """This row was picked just now: its tint comes up instead of being there at once."""
+        self._fresh = True
+        self._chosen.jump(0.0)
+
+    def tints(self) -> list[QColor]:
+        """The row's background now, bottom layer first: the hover's tint while it is not picked,
+        then the pick's."""
+        chosen = self._chosen.at
+        layers = []
+        for token, amount in ((t.HOVER, self._hover.at * (1.0 - chosen)), (t.ACCENT_BG, chosen)):
+            if amount > 0:
+                colour = QColor(t.qcolor(token))
+                colour.setAlphaF(colour.alphaF() * amount)
+                layers.append(colour)
+        return layers
+
+    def enterEvent(self, e) -> None:
+        super().enterEvent(e)
+        self._hover.to(1.0)
+
+    def leaveEvent(self, e) -> None:
+        super().leaveEvent(e)
+        self._hover.to(0.0)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._hover.jump(1.0 if self.underMouse() else 0.0)
+        if self._fresh:
+            self._fresh = False
+            self._chosen.to(1.0)
+
+    def paintEvent(self, e) -> None:
+        layers = self.tints()
+        if layers:
+            p = QPainter(self)
+            for colour in layers:
+                p.fillRect(self.rect(), colour)
+            p.end()
+        super().paintEvent(e)  # the hairline goes over
+
     def mouseReleaseEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.position().toPoint()):
             self.clicked.emit(self.row["part_id"])
@@ -150,7 +213,7 @@ class PartsPanel(Panel):
         self.header_end.addWidget(self.add_button)
         self.note = label("", "empty", wrap=True)
         self.note.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add(self.note)
+        self.note_reveal = self.add(motion.Reveal(self.note))
         self.area = _scroll(_Fit)
         self.add(self.area, 1)
         self.set_rows([], False, "")
@@ -158,6 +221,7 @@ class PartsPanel(Panel):
     def set_rows(self, rows: list[dict], can_place: bool, note: str) -> None:
         """`can_place`: a model is on screen, so a part with no pin there gets its "Place" button."""
         if (rows, can_place) != self._shown:
+            was = {r["part_id"]: r["selected"] for r in self._shown[0]} if self._shown else {}
             self._shown = ([dict(r) for r in rows], can_place)
             inner = QWidget()
             col = _column(inner)
@@ -168,11 +232,16 @@ class PartsPanel(Panel):
                 w.place.connect(self.place)
                 col.addWidget(w)
                 self.rows.append(w)
+                if row["selected"] and was.get(row["part_id"]) is False and self.isVisible():
+                    w.pick_in()
+                elif was and row["part_id"] not in was and self.isVisible():
+                    motion.lift_in(w, ms=motion.REVEAL, drop=6.0)  # a part added just now
             col.addStretch(1)
             _swap(self.area, inner)
-            self.area.updateGeometry()
-        self.note.setText(note)
-        self.note.setVisible(bool(note))
+            self.area.fit()
+        if note:  # the old words stay while it closes
+            self.note.setText(note)
+        self.note_reveal.set_open(bool(note))
         self.set_hint("newest reading, mm/s" if rows else "")
 
 
@@ -357,6 +426,7 @@ class ReviewPanel(Panel):
         self.run_button.setEnabled(review is not None and not running)
         if review == self.shown and self.message.text():
             return
+        first = not self.message.text()
         self.shown = review
         review = review or rd.Review("Pick a part to read its review.")
         self.message.setText(review.message)
@@ -365,7 +435,9 @@ class ReviewPanel(Panel):
         self.sim_chip.setVisible(review.simulated)
         self.agree_button.setVisible(review.can_agree)
         self.area.widget().adjustSize()
-        self.area.updateGeometry()
+        self.area.fit()
+        if not first and self.isVisible():
+            motion.swap(self.area.widget())  # another part's review, or a new one, comes up in place
 
 
 class Compose(Strip):
@@ -398,9 +470,10 @@ class Compose(Strip):
         buttons.addWidget(self.add_button)
         buttons.addWidget(self.cancel_button)
         buttons.addStretch(1)
+        self.needs_reveal = motion.Reveal(self.needs)
         col.addWidget(self.kind)
         col.addWidget(self.text)
-        col.addWidget(self.needs)
+        col.addWidget(self.needs_reveal)
         col.addLayout(buttons)
         self._draw()
 
@@ -413,7 +486,7 @@ class Compose(Strip):
         return rd.entry_problem(self.kind.current(), self.text.text(), self.needs_repair())
 
     def _draw(self, *_args) -> None:
-        self.needs.setVisible(self.kind.current() in rd.NEEDS_ANSWER)
+        self.needs_reveal.set_open(self.kind.current() in rd.NEEDS_ANSWER)
         problem = self.problem()
         self.add_button.setEnabled(not problem)
         self.add_button.setToolTip(problem)
@@ -469,8 +542,8 @@ class LogPanel(Panel):
         self.form = Compose()
         self.form.submitted.connect(self.submitted)
         self.form.cancelled.connect(self.close_form)
-        self.form.hide()
-        self.add(self.form)
+        self.form_reveal = self.add(motion.Reveal(self.form))
+        self.form_reveal.set_open(False)
         self.empty = label(NO_ENTRIES, "empty", wrap=True)
         self.empty.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add(self.empty)
@@ -482,22 +555,26 @@ class LogPanel(Panel):
         self.set_entries([])
 
     def form_open(self) -> bool:
-        return self.form.isVisibleTo(self)
+        return self.form_reveal.is_open()
+
+    def open_form(self) -> None:
+        self.form_reveal.set_open(True)
 
     def toggle_form(self) -> None:
         if self.form_open():
             self.close_form()
         else:
-            self.form.setVisible(True)
+            self.open_form()
             self.form.text.setFocus()
 
     def close_form(self) -> None:
         self.form.clear()
-        self.form.setVisible(False)
+        self.form_reveal.set_open(False)
 
     def set_entries(self, entries: list[rd.Entry]) -> None:
         if entries == self._shown:
             return
+        before = self._shown or []
         self._shown = list(entries)
         inner = QWidget()
         col = _column(inner)
@@ -508,3 +585,11 @@ class LogPanel(Panel):
         _swap(self.area, inner)
         self.empty.setVisible(not entries)
         self.area.setVisible(bool(entries))
+        if not self.isVisible():
+            return
+        if before and entries[1:] == before:
+            motion.lift_in(self.rows[0], ms=motion.REVEAL, drop=6.0)  # the entry added just now
+        elif entries:
+            motion.lift_in(inner, ms=motion.SWAP, drop=3.0)  # another part's entries
+        else:
+            motion.swap(self.empty)

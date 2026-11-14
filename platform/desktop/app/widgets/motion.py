@@ -125,10 +125,52 @@ class Glide(QVariantAnimation):
         return self.state() == QAbstractAnimation.State.Running
 
 
-def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[], None] | None) -> None:
+def _under_effect(widget: QWidget) -> bool:
+    """Whether something `widget` is inside is being drawn through an effect right now."""
+    w = widget.parentWidget()
+    while w is not None:
+        if w.graphicsEffect() is not None:
+            return True
+        w = w.parentWidget()
+    return False
+
+
+def _land_below(widget: QWidget) -> None:
+    """Finish, at once, every move under way inside `widget`.
+
+    Qt cannot draw one effect through another: the inner one paints nothing and warns. So
+    a move never starts inside one that is running (see `_under_effect`), and one that
+    starts around others ends them first.
+    """
+    for w in widget.findChildren(QWidget):
+        if w.graphicsEffect() is None:
+            continue
+        anim, land = getattr(w, "_motion_fade", None), getattr(w, "_motion_land", None)
+        if anim is not None:
+            anim.stop()
+            w._motion_fade = None
+        if land is not None:
+            w._motion_land = None
+            land()
+        if w.graphicsEffect() is not None:
+            w.setGraphicsEffect(None)
+
+
+def _stop(widget: QWidget) -> None:
     old = getattr(widget, "_motion_fade", None)
     if old is not None:
         old.stop()
+    widget._motion_fade = widget._motion_land = None
+
+
+def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[], None] | None) -> None:
+    _stop(widget)
+    if _under_effect(widget):  # what it is inside is moving: land where the fade would
+        widget.setGraphicsEffect(None)
+        if done is not None:
+            done()
+        return
+    _land_below(widget)
     effect = QGraphicsOpacityEffect(widget)
     effect.setOpacity(start)
     widget.setGraphicsEffect(effect)  # takes the place of, and deletes, an earlier one
@@ -140,7 +182,7 @@ def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[],
     anim.valueChanged.connect(lambda v: effect.setOpacity(float(v)))
 
     def finished() -> None:
-        widget._motion_fade = None
+        widget._motion_fade = widget._motion_land = None
         if end >= 1.0:
             widget.setGraphicsEffect(None)  # back to plain painting
         if done is not None:
@@ -148,6 +190,7 @@ def _fade(widget: QWidget, start: float, end: float, ms: int, done: Callable[[],
 
     anim.finished.connect(finished)
     widget._motion_fade = anim
+    widget._motion_land = finished
     anim.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
@@ -198,6 +241,12 @@ class Lift(QGraphicsEffect):
         logical = Qt.CoordinateSystem.LogicalCoordinates
         pixmap = self.sourcePixmap(logical, None, QGraphicsEffect.PixmapPadMode.NoPad)
         painter.save()
+        widget = self.parent()
+        if isinstance(widget, QWidget):
+            # An effect draws past what holds its widget: keep to the part that shows, so a
+            # card opening inside a Reveal is never drawn over what lies under it.
+            seen = QRectF(widget.visibleRegion().boundingRect())
+            painter.setClipRect(seen.adjusted(0, 0, 0, self._room + 1), Qt.ClipOperation.IntersectClip)
         painter.setOpacity(self.opacity)
         painter.drawPixmap(self.sourceBoundingRect(logical).topLeft() + QPointF(0, self.drop), pixmap)
         painter.restore()
@@ -208,9 +257,11 @@ def lift_in(widget: QWidget, delay: int = 0, ms: int = RISE, drop: float = 10.0)
     It is clear from the moment this is called, so a delayed card never flashes first."""
     if not enabled():
         return
-    old = getattr(widget, "_motion_fade", None)
-    if old is not None:
-        old.stop()
+    _stop(widget)
+    if _under_effect(widget):  # it rides in with what it is inside
+        widget.setGraphicsEffect(None)
+        return
+    _land_below(widget)
     effect = Lift(widget, 0.0, drop)
     widget.setGraphicsEffect(effect)
     anim = QVariantAnimation()
@@ -226,11 +277,12 @@ def lift_in(widget: QWidget, delay: int = 0, ms: int = RISE, drop: float = 10.0)
     group.addAnimation(anim)
 
     def finished() -> None:
-        widget._motion_fade = None
+        widget._motion_fade = widget._motion_land = None
         widget.setGraphicsEffect(None)
 
     group.finished.connect(finished)
     widget._motion_fade = group
+    widget._motion_land = finished
     group.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
@@ -262,10 +314,7 @@ def set_shown(widget: QWidget, on: bool, drop: float = 8.0) -> None:
     widget._motion_shown = on
     parent = widget.parentWidget()
     if not enabled() or parent is None or not parent.isVisible():
-        old = getattr(widget, "_motion_fade", None)
-        if old is not None:
-            old.stop()
-            widget._motion_fade = None
+        _stop(widget)
         if widget.graphicsEffect() is not None:
             widget.setGraphicsEffect(None)
         widget.setVisible(on)
@@ -346,11 +395,12 @@ class Reveal(QWidget):
             self.show()
             if parent.layout() is not None:
                 parent.layout().activate()  # give it its width now, so its natural height is right
-        old = getattr(self.child, "_motion_fade", None)
-        if old is not None:
-            old.stop()
-            self.child._motion_fade = None
-        self.child.setGraphicsEffect(Lift(self.child, 0.0 if on else 1.0))
+        _stop(self.child)
+        if _under_effect(self.child):
+            self.child.setGraphicsEffect(None)  # the height still eases; the fade is its holder's
+        else:
+            _land_below(self.child)
+            self.child.setGraphicsEffect(Lift(self.child, 0.0 if on else 1.0))
         self._anim.start()
 
     def _step(self, f) -> None:
