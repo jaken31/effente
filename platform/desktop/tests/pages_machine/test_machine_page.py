@@ -520,6 +520,12 @@ def test_a_machine_with_nothing_shows_no_scan_and_no_parts(page, state):
     assert page.scan_panel.machine.text() == "press-02"
 
 
+def test_a_machine_that_shows_up_with_its_first_record_is_followed(page, state, monkeypatch):
+    monkeypatch.setattr(state, "current_machine", lambda: "press-02")
+    state.record_added.emit({"machine_id": "press-02"})
+    assert page.scan_panel.machine.text() == "press-02" and page.parts_panel.rows == []
+
+
 # ---- the New scan panel ------------------------------------------------------------------------------------
 
 

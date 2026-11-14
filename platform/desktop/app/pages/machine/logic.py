@@ -310,7 +310,8 @@ def steps(view_state_name: str) -> list[dict]:
 MACHINE_ID = re.compile(r"[a-z0-9-]{1,40}")
 NO_MACHINE_ID = "Type the machine's id to get its code."
 BAD_MACHINE_ID = "A machine id is 1 to 40 lowercase letters, digits or -."
-NO_QR_TEXT = "This app cannot make the pairing line yet, so there is no code to scan. Import a scan file instead."
+NO_QR_TEXT = ("No pairing code: the phone could not reach this laptop. The laptop has no address on a local "
+              "network, or its receiver listens on this laptop only. A scan file can still be imported.")
 
 
 def machine_id_problem(text) -> str:

@@ -117,6 +117,7 @@ class MachinePage(QWidget):
         state.log.entries_changed.connect(self.refresh)
         state.log.selection_changed.connect(self._selection_changed)
         state.snapshot_changed.connect(self.refresh)
+        state.record_added.connect(self._record_added)
         state.action_failed.connect(self._action_failed)
         self.refresh()
 
@@ -266,6 +267,11 @@ class MachinePage(QWidget):
                 self.stage.form.clear()
                 self.state.log.select_part(new)
         self.refresh()
+
+    def _record_added(self, _record: dict) -> None:
+        """A first record can be what makes a machine the one shown, with no snapshot to say so."""
+        if self.state.current_machine() != self._machine:
+            self.refresh()
 
     def _selection_changed(self) -> None:
         if self._scan_wanted and self.part() is not None:
