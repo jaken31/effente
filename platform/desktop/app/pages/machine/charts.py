@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from . import readings as rd
 
 LEFT, RIGHT, TOP, BOTTOM = 34, 10, 12, 22  # room for the axis labels
+UNIT_H = 14
 
 
 def _text(p: QPainter, rect: QRectF, flags, text: str, colour=t.MUTED) -> None:
@@ -69,7 +70,8 @@ class VelocityChart(_Chart):
         self.update()
 
     def plot(self) -> QRectF:
-        return QRectF(LEFT, TOP, max(1, self.width() - LEFT - RIGHT), max(1, self.height() - TOP - BOTTOM))
+        top = TOP + UNIT_H  # the axis's unit sits above its numbers
+        return QRectF(LEFT, top, max(1, self.width() - LEFT - RIGHT), max(1, self.height() - top - BOTTOM))
 
     def x(self, at: float) -> float:
         r, (lo, hi) = self.plot(), self.span
@@ -86,6 +88,7 @@ class VelocityChart(_Chart):
         fm = self.fontMetrics()
         step = 2 if self.top <= 14 else 5
         v = 0
+        _text(p, QRectF(4, 0, LEFT + 40, UNIT_H), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "mm/s")
         while v <= self.top:  # the mm/s grid
             p.setPen(QPen(t.qcolor(t.GRID), 1))
             p.drawLine(QPointF(r.left(), self.y(v)), QPointF(r.right(), self.y(v)))
@@ -100,14 +103,15 @@ class VelocityChart(_Chart):
             x = min(max(self.x(at) - w / 2, r.left()), r.right() - w)
             _text(p, QRectF(x, r.bottom() + 4, w + 2, BOTTOM - 4), Qt.AlignmentFlag.AlignLeft, label)
 
-        for m in self.marks:  # repairs
+        ly = self.y(rd.LIMIT_MM_S)  # the limit line: a shape, so red; its label is not
+        for m in self.marks:  # repairs: under the limit line, so they never cross its label
             x = self.x(m.at)
             p.setPen(QPen(t.qcolor(t.MUTED), 1, Qt.PenStyle.DashLine))
-            p.drawLine(QPointF(x, r.top() + 18), QPointF(x, r.bottom()))
-            _text(p, QRectF(x + 4, r.bottom() - 18, fm.horizontalAdvance(m.label) + 4, 16),
+            p.drawLine(QPointF(x, ly + 4), QPointF(x, r.bottom()))
+            w = fm.horizontalAdvance(m.label) + 4
+            _text(p, QRectF(min(x + 4, r.right() - w), ly + 4, w, 16),
                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, m.label)
 
-        ly = self.y(rd.LIMIT_MM_S)  # the limit line: a shape, so red; its label is not
         p.setPen(QPen(t.qcolor(t.RED), 1.4, Qt.PenStyle.DashLine))
         p.drawLine(QPointF(r.left(), ly), QPointF(r.right(), ly))
         _text(p, QRectF(r.left() + 6, ly - 18, r.width(), 16),
@@ -132,13 +136,22 @@ class VelocityChart(_Chart):
 
     def newest_label_rect(self) -> QRectF:
         """Where the newest reading's value goes: just left of its point, on the side away from the line
-        coming into it, so it reads as that point's and not a neighbour's."""
+        coming into it, so it reads as that point's and not a neighbour's. A place that would cover another
+        point or leave the plot is passed over: next is the other side, then level with the point."""
         r, last = self.plot(), self.points[-1]
         w = self.fontMetrics().horizontalAdvance(rd.number(last.velocity)) + 4
         x, y = self.x(last.at), self.y(last.velocity)
+        left = max(r.left(), x - 8 - w)
+        under, over, level = QRectF(left, y + 4, w, 16), QRectF(left, y - 20, w, 16), QRectF(left, y - 8, w, 16)
         rising = len(self.points) < 2 or last.velocity >= self.points[-2].velocity
-        top = y - 20 if rising else y + 4
-        return QRectF(max(r.left(), x - 8 - w), min(max(top, r.top()), r.bottom() - 16), w, 16)
+        others = [QPointF(self.x(p.at), self.y(p.velocity)) for p in self.points[:-1]]
+
+        def clear(box: QRectF) -> bool:
+            pad = box.adjusted(-4, -4, 4, 4)
+            return r.contains(box) and not any(pad.contains(o) for o in others)
+
+        tries = (over, under, level) if rising else (under, over, level)
+        return next((box for box in tries if clear(box)), tries[0] if r.contains(tries[0]) else level)
 
 
 class MovedChart(_Chart):
@@ -146,6 +159,7 @@ class MovedChart(_Chart):
     No "counts as evidence" line: no such threshold is in the contract (plan 15.1)."""
 
     ROW = 22
+    ROW_TWO = 34  # when a name takes two lines
     BAR_MIN = 120
 
     def __init__(self, parent: QWidget | None = None):
@@ -166,8 +180,20 @@ class MovedChart(_Chart):
         return names_w, values_w
 
     def name_shown(self, row: rd.Moved) -> str:
-        """The name as drawn: whole, or cut with an ellipsis when the chart is too narrow."""
-        return self.fontMetrics().elidedText(row.text, Qt.TextElideMode.ElideRight, int(self.columns()[0] - 12))
+        """The name as drawn: on one line, on two when it is too long for one, and cut with an ellipsis only
+        when two lines are not enough."""
+        fm, room = self.fontMetrics(), int(self.columns()[0] - 12)
+        if fm.horizontalAdvance(row.text) <= room:
+            return row.text
+        first = ""
+        for word in row.text.split(" "):
+            if first and fm.horizontalAdvance(f"{first} {word}") > room:
+                break
+            first = f"{first} {word}".strip()
+        rest = row.text[len(first):].strip()
+        if not first or fm.horizontalAdvance(first) > room:  # one long word
+            return fm.elidedText(row.text, Qt.TextElideMode.ElideRight, room)
+        return f"{first}\n{fm.elidedText(rest, Qt.TextElideMode.ElideRight, room)}"
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
@@ -181,15 +207,15 @@ class MovedChart(_Chart):
         neg = any(m.spreads < 0 for m in self.rows)
         zero = r.left() + (r.width() / 2 if neg else 0)
         scale = (r.width() / 2 if neg else r.width()) / top
-        step = min(self.ROW, r.height() / len(self.rows))
+        names = [self.name_shown(m) for m in self.rows]
+        step = min(self.ROW_TWO if any("\n" in n for n in names) else self.ROW, r.height() / len(self.rows))
         p.setPen(QPen(t.qcolor(t.GRID), 1))
         p.drawLine(QPointF(zero, r.top()), QPointF(zero, r.top() + step * len(self.rows)))
         for i, m in enumerate(self.rows):
             y = r.top() + i * step
             h = max(4.0, min(12.0, step - 8))
-            name = self.name_shown(m)
             _text(p, QRectF(4, y, names_w - 8, step), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                  name, t.SOFT)
+                  names[i], t.SOFT)
             w = m.spreads * scale
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(t.qcolor(t.DOT))

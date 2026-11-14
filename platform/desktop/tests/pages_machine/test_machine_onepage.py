@@ -17,7 +17,7 @@ from app.pages.machine import readings as rd
 from app.pages.machine.charts import VelocityChart
 from app.theme import tokens as t
 from fake_partlog import BELT, DRIVE_ROLLER, IDLE_ROLLER, MOTOR_MOUNT
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QLabel, QWidget
 from sample import no_normal, stamp_visit
@@ -377,6 +377,27 @@ def test_the_page_does_not_scroll_at_1440x820_and_up(qtbot, state, size, part_id
 # ---- labels fit where there is room --------------------------------------------------------------------------
 
 
+def test_tile_numbers_and_times_are_never_cut_at_1440x820(qtbot, page):
+    tiles = page.findChild(pv.Tiles)
+    tiles.set_tiles([rd.Tile("Now, mm/s", "1.52", "13 Nov 05:18", True),
+                     rd.Tile("Average, mm/s", "1.55", "30 readings", True),
+                     rd.Tile("Highest, mm/s", "1.62", "28 Oct", True),
+                     rd.Tile("Change a day", "-0.000604", "model score", True)])
+    qtbot.waitUntil(lambda: tiles.tiles[0].value.width() > 0)
+    for tile in tiles.tiles:
+        assert tile.value.fits() and tile.sub.fits(), (tile.value.text(), tile.sub.text())
+
+
+def test_a_tile_number_too_wide_for_its_tile_shrinks_instead_of_being_cut(qtbot):
+    tile = pv.Tile()
+    qtbot.addWidget(tile)
+    tile.set_tile(rd.Tile("Change a day", "-0.000604", "model score", True))
+    full = pv.QFontMetrics(tile.value.font()).horizontalAdvance("-0.000604")
+    tile.value.resize(full - 20, 30)
+    assert tile.value.fits()
+    assert tile.value.fitted_font().pixelSize() < tile.value.font().pixelSize()
+
+
 def test_what_moved_names_are_whole_when_the_bars_leave_room(qtbot):
     from app.pages.machine.charts import MovedChart
 
@@ -393,7 +414,7 @@ def test_what_moved_names_are_whole_when_the_bars_leave_room(qtbot):
 def test_the_newest_value_sits_by_the_newest_point(qtbot):
     chart = VelocityChart()
     qtbot.addWidget(chart)
-    chart.resize(440, 200)
+    chart.resize(440, 260)
     day = 86400.0
     falling = [rd.Point(i * day, 3.0, True, False) for i in range(5)] + [rd.Point(5 * day, 1.3, True, True)]
     chart.set_data(falling, [], (0.0, 5 * day))
@@ -402,3 +423,22 @@ def test_the_newest_value_sits_by_the_newest_point(qtbot):
     assert box.top() >= y  # under it, away from the line coming down into it
     chart.set_data(falling[:-1] + [rd.Point(5 * day, 4.0, True, False)], [], (0.0, 5 * day))
     assert chart.newest_label_rect().bottom() <= chart.y(4.0)  # rising: above it
+    for height in (120, 160, 260):  # falling near the axis: under, over or level, never on another point
+        chart.resize(440, height)
+        chart.set_data(falling, [], (0.0, 5 * day))
+        box = chart.newest_label_rect()
+        assert chart.plot().contains(box)
+        assert not any(box.contains(QPointF(chart.x(p.at), chart.y(p.velocity))) for p in falling[:-1])
+
+
+def test_a_name_too_long_for_one_line_takes_two(qtbot):
+    from app.pages.machine.charts import MovedChart
+
+    chart = MovedChart()
+    qtbot.addWidget(chart)
+    chart.resize(440, 160)
+    long = rd.Moved("vib_velocity_mm_s", "vibration velocity, 10-250 Hz rms (ISO 10816-like, partial band)", 2.0)
+    chart.set_rows([long])
+    lines = chart.name_shown(long).split("\n")
+    assert len(lines) == 2 and lines[0].startswith("vibration velocity")
+    assert all(chart.fontMetrics().horizontalAdvance(line) <= chart.columns()[0] - 12 for line in lines)
