@@ -13,7 +13,7 @@ Additions only. A version 3.4 device, dashboard or phone app keeps working. All 
 - Readings: the platform sums up each visit of the probe to a part, and a route returns one part's readings over time with their average, highest and count (section 9.3). A reading also keeps the median `unknown_score` of its records.
 - A normal spectrum, worked out by the platform from stored records judged normal (section 9.4).
 - A projection: a straight line through the model's score in a part's recent readings, and when it meets the model's alarm line, as a range. Worked out by code. The chart beside it still plots velocity in mm/s, with the 11 mm/s limit as a labelled line (section 9.5).
-- Simulated history: the simulator writes weeks of readings through the same routes, and the `simulated` mark follows them into everything worked out from them (section 9.6).
+- Simulated history: the simulator writes weeks of readings through the same routes, only to a separate sample machine with the fixed id `sample-machine`, and the `simulated` mark follows them into everything worked out from them (section 9.6).
 - A part review may carry `trend`, copied by code from the projection (section 9.7).
 - `GET /api/state` gains `probe`, and each part gains `reading`. The stream gains the events `probe` and `reading`.
 
@@ -964,7 +964,7 @@ A record is **judged normal** when its `diagnosis` is `normal`, its `wrong` is `
 - The normal is the median of each band over the newest such records, at most 2,000 of them. Same unit as `spectrum` in message 2: log10 band levels. The drawing's mm/s spectrum axis is a drawing.
 - It needs 300 records judged normal: five minutes of normal running at one record a second. A starting value. Whether five minutes gives a steady median is not checked.
 - With `part`, only records stamped with that part are used, and `part_id` in the reply names it. Without it, every judged-normal record of the machine is used, wherever the probe was, and `part_id` is `null`.
-- Real and simulated records are never mixed. If the machine has any real record judged normal, only real ones are used. Otherwise simulated ones are, and `simulated` is `true`.
+- Real and simulated records are never mixed. If the machine has any real record judged normal, only real ones are used. Otherwise simulated ones are, and `simulated` is `true`. This still matters outside the sample machine (9.6): the live simulated device reports on a machine of its own choosing.
 
 **Before there are enough.** `ready` is `false`, `spectrum` is `null`, and `records` and `needed` say how far along it is. The app then draws the current bars alone, with no normal line, and the words "Normal not known yet: 120 of 300 normal records". It never draws a line it does not have.
 
@@ -1040,20 +1040,29 @@ What this leaves open, all unverified:
 
 For the hackathon the simulator writes weeks of per-part history, so the page has something to draw. It uses the routes above and nothing else: no file is written behind the receiver's back.
 
+**Only on the sample machine.** Simulated history is written to one machine, kept apart for it, with the fixed `machine_id` `sample-machine`. Never to any other machine, and never to a machine that has any real record.
+
+- The history command takes no machine id. It always writes to `sample-machine`.
+- The receiver keeps the sample machine free of real records: a record for `sample-machine` without `"simulated": true` is a 400. So is a record from `device_id` `sim-history` for any other machine.
+- Before it writes, the simulator still reads the sample machine's records. If it finds one that is not simulated (stored before this rule was built), it refuses and says so.
+- The app shows the machine as "Sample machine (simulated)" wherever machines are listed. It is not the demo conveyor, and its history says nothing about any real machine.
+
+The id `sample-machine` and the two refusals in the receiver were chosen when this rule was written down. The team agreed the rule, not those details: confirm them (unverified).
+
 | What it writes | Through | Marked |
 |----------------|---------|--------|
-| Parts, if the machine has none | `POST /api/machines/{id}/parts` (8.5), with `by` as `simulator` and `"simulated": true` | The part's `simulated`, stored and passed on |
+| Parts, if the sample machine has none | `POST /api/machines/sample-machine/parts` (8.5), with `by` as `simulator` and `"simulated": true` | The part's `simulated`, stored and passed on |
 | Records, in visits | `POST /api/records` (message 2), each with `part_id`, a past `at`, `readings.vib_velocity_mm_s`, a `spectrum`, and `"simulated": true` | The record's `simulated` |
-| Past findings and repairs | `POST /api/machines/{id}/log` (8.6), with a past `at` and `"simulated": true` | The entry's `simulated` |
+| Past findings and repairs | `POST /api/machines/sample-machine/log` (8.6), with a past `at` and `"simulated": true` | The entry's `simulated` |
 
 Two small additions make this possible. A record may arrive already stamped (9.1). And the log route accepts `"simulated": true` in the body: the platform keeps a `true` it is given, and still sets `true` itself where 8.6 says so. Nothing can set it back to `false`.
 
 Rules for the simulator:
 
 - **Its own device.** History is sent as `device_id` `sim-history`, never as the live simulated device, so the live device's newest record in `/api/state` is not replaced by one from weeks ago. That device will show as connected for 5 seconds after the last batch. Not checked: how the Live page behaves meanwhile.
-- **Oldest first, and before going live.** Alarms are found in the order records are stored (section 6), so a normal record from the past, stored now, would close an alarm that is open now. The simulator reads `/api/state` first and refuses to write history for a machine that has an open alarm or a connected device.
+- **Oldest first.** Alarms are found in the order records are stored (section 6), so a normal record from the past, stored now, would close an alarm that is open now. The sample machine has no live device, so this can only happen between two runs of the history command. The simulator reads `/api/state` first and refuses if the sample machine has an open alarm or a connected device.
 - **Short visits.** A visit is 30 records a second apart, not weeks of one record a second. One visit a part a day for 60 days is 1,800 records a part. Records go in arrays of at most 500.
-- **No undo.** There is no route that deletes records. Simulated history is removed by clearing the receiver's data folder. Do not write it on a laptop whose data matters.
+- **No undo.** There is no route that deletes records. Simulated history is removed by clearing the receiver's data folder, which removes every real record too. Until then the sample machine stays in the list of machines.
 
 **The mark is in the data, and it travels.** A record's `simulated` makes its reading's `simulated`, which makes `simulated` in the part's `reading`, the `summary`, the `projection`, the normal spectrum and, as section 4 already says, the review. None of these can be `false` when something under it is `true`.
 

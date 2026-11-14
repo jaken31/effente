@@ -750,13 +750,13 @@ Owners follow the folders in section 2. The simulator and the device link have n
 | Piece | What | Files | Who |
 |-------|------|-------|-----|
 | R0. Wiring | The new routes in the route table, one call that lets the log store stamp a record before it is stored, `probe` in the state reply, stubs that answer "not built yet". Merged first, as step 0 was. | `platform/server/receiver_server.py`, `receiver_store.py` | Jake |
-| R1. Receiver: the probe's part | Contract 9.1: the route, the stamp, the 60 second and 5 minute rules, the file that keeps the pick across a restart, the `probe` event. | `platform/server/log_store.py`, `log_api.py` | Jake |
+| R1. Receiver: the probe's part | Contract 9.1: the route, the stamp, the 60 second and 5 minute rules, the file that keeps the pick across a restart, the `probe` event. Contract 9.6: a record for `sample-machine` that is not simulated is refused, and so is a `sim-history` record for any other machine. | `platform/server/log_store.py`, `log_api.py` | Jake |
 | R2. Receiver: readings | Contract 9.3: visits and readings as plain functions, each reading's median velocity and median `unknown_score`, the route, the part's `reading`, the `reading` event at most every 10 seconds. | `platform/partlog/readings.py` (new), `log_store.py`, `log_api.py` | Jake |
 | R3. Receiver: normal spectrum | Contract 9.4. | `platform/partlog/normal_spectrum.py` (new), `log_api.py` | Jake |
 | V1. Velocity, device link | Contract 9.2 for the link. | `platform/link/device_link.py` | Jake |
 | V2. Velocity, device | Contract 9.2 for the uploader. The one change asked of track 1. | `device/intake/uploader.py` | Track 1 |
 | S1. Simulator: velocity | Every simulated record carries `readings.vib_velocity_mm_s`, in step with its case. | `platform/sim/` | Jake |
-| S2. Simulator: history | Contract 9.6: a command that writes weeks of visits, past findings and a repair, through the routes, and refuses on a live machine. | `platform/sim/` | Jake |
+| S2. Simulator: history | Contract 9.6: a command that writes weeks of visits, past findings and a repair, through the routes, only to the sample machine `sample-machine`, never to a machine with any real record. The receiver's two refusals that keep it so are R1's. | `platform/sim/` | Jake |
 | M1. The Machine page | The one-screen layout of the drawing, on top of the page in PR #63: the probe control, tiles, chart, evidence panel, the review and log columns, and every "simulated" mark in contract 9.6. | `platform/desktop/app/pages/machine/` | Cameron |
 | M2. `state.log` additions | 15.3, and the fakes. | `platform/desktop/app/data/partlog.py`, `tests/fake_partlog.py` | Jake |
 | P1. The projection | Contract 9.5 as one plain function: readings and the newest repair in, the projection out. It fits the readings' `unknown_score` against the alarm line. No model call anywhere near it. Also the check of that function on run-to-failure bearing data, which decides `show_days`. | `platform/partlog/projection.py` (new) | Jake |
@@ -809,7 +809,8 @@ Sample data in the fakes, so the page can be built before the receiver works: th
 - **R3.** 299 records is not ready and 300 is. A new `model_version` starts again. A record with a problem on is left out. Real records push simulated ones out.
 - **P1.** Fixed readings with known answers for all five statuses, fitted on `unknown_score`. A repair inside the window cuts it, and so does a new `model_version`. A reading with no score is left out. The line is the newest reading's `alarm_line`, so a changed sensitivity moves it. Two days is not enough and three is. The range from a hand-worked example. With `show_days` off, no status carries `reaches`. The same input always gives the same output.
 - **P2.** `trend` equals the projection's sentence, word for word. A review that changes a number from the history is rejected. A rising projection with no alarm and no entry never gives `needs_repair: yes`.
-- **S2.** After a run, every record, reading, summary, projection and entry it made says `simulated: true`. It refuses on a machine with an open alarm or a connected device. A second run does not double the history.
+- **S2.** It writes to `sample-machine` and to no other machine, whatever it is given. After a run, every record, reading, summary, projection and entry it made says `simulated: true`. It refuses when the sample machine holds a record that is not simulated, has an open alarm or has a connected device. A second run does not double the history.
+- **R1, for the sample machine.** A record for `sample-machine` without `simulated: true` is a 400 and is not stored. A `sim-history` record for another machine is a 400.
 - **M1.** The chart is in mm/s with the limit line labelled, and nothing from the projection is drawn on it. With `show_days` off the page says "Trend" and shows no days and no date. Each state of the drawing: weeks of history, a first day, a part the probe has never been on. Every "simulated" mark in contract 9.6, with simulated and real readings on one chart. No normal line while the normal is not ready.
 
 ### 15.5 Checked, and not checked
@@ -841,7 +842,7 @@ Not checked:
 
 On top of the list in section 14:
 
-- That the history is real. It is written by the simulator, and the screen says so.
+- That the history is real, or that it is the demo conveyor's. It is written by the simulator on a sample machine kept apart for it, and the screen says so.
 - That the projection is a prediction of failure, or a remaining life. It is a straight line through the model's past scores and the date it would cross the model's alarm line. If the app says "Trend", say trend, and give no days.
 - That 11 mm/s is the alarm. The alarm is the model's, and it may come sooner.
 - That the velocity is an ISO 10816 value. It covers part of that band.
