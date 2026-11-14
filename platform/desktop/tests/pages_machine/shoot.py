@@ -1,19 +1,21 @@
 """Render the Machine page inside the shell on FakeState, once for each state it has.
 
-    python3 platform/desktop/tests/pages_machine/shoot.py [out_dir]
+    python3 platform/desktop/tests/pages_machine/shoot.py [--size 1600x1000] [--only machine,...] [out_dir]
 
 Run it on a real screen, not with QT_QPA_PLATFORM=offscreen: offscreen the 3D view draws nothing, so
 the pictures that show the model are left out there and the script says so. On a real screen a
 window opens for each picture and closes again.
 
-The real MainWindow at 1600x1000, with the sample data of tests/fake_scans.py and
+The real MainWindow at 1600x1000 (or `--size`), with the sample data of tests/fake_scans.py and
 tests/fake_partlog.py. That sample is written by hand and is all simulated, and the model is a plain
-box written by code, not a scan of anything. `convert_again` is added to the fake here: it is not in
+box written by code, not a scan of anything. Where a picture needs the newest visit's evidence, the
+fake's records are stamped with the part as one more visit (sample.stamp_visit). `convert_again` is added to the fake here: it is not in
 `state.scans` yet.
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from datetime import UTC, datetime
@@ -35,8 +37,62 @@ POINT = (0.05624, 0.11301, 0.09)  # a point on the box's front face, as a click 
 
 def _ready(state, page):
     from fake_partlog import DRIVE_ROLLER
+    from sample import stamp_visit
 
+    stamp_visit(state, DRIVE_ROLLER)
+    state.log.set_probe_part(DRIVE_ROLLER)
     state.log.select_part(DRIVE_ROLLER)
+
+
+def _spectrum(state, page):
+    _ready(state, page)
+    page.part_column.evidence_panel.view.button("spectrum").click()
+
+
+def _no_normal(state, page):
+    from sample import no_normal
+
+    no_normal(state)
+    _spectrum(state, page)
+
+
+def _trend(state, page):
+    state.log.set_show_days(False)
+    _ready(state, page)
+
+
+def _all_history(state, page):
+    _ready(state, page)
+    page.part_column.chart_panel.range.button("all").click()
+
+
+def _first_day(state, page):
+    from fake_partlog import MOTOR_MOUNT
+
+    state.log.select_part(MOTOR_MOUNT)
+
+
+def _never(state, page):
+    from fake_partlog import IDLE_ROLLER
+
+    state.log.select_part(IDLE_ROLLER)
+
+
+def _mixed(state, page):
+    from fake_partlog import DRIVE_ROLLER
+    from sample import stamp_visit
+
+    stamp_visit(state, DRIVE_ROLLER, simulated=False)  # one real visit after weeks of simulated ones
+    state.log.select_part(DRIVE_ROLLER)
+
+
+def _agree(state, page):
+    _ready(state, page)
+    page.review_panel.agree_button.click()
+
+
+def _no_part(state, page):
+    state.log.select_part(None)
 
 
 def _possible(state, page):
@@ -111,6 +167,15 @@ def _no_pin(state, page):
 # file name -> (what to do to a fresh FakeState and its Machine page before the picture, shows the model)
 SHOTS = {
     "machine": (_ready, True),
+    "machine-all-history": (_all_history, True),
+    "machine-first-day": (_first_day, True),
+    "machine-never-probed": (_never, True),
+    "machine-trend": (_trend, True),
+    "machine-spectrum": (_spectrum, True),
+    "machine-no-normal": (_no_normal, True),
+    "machine-real-and-simulated": (_mixed, True),
+    "machine-agree": (_agree, True),
+    "machine-no-part": (_no_part, True),
     "machine-possible": (_possible, True),
     "machine-nothing-found": (_nothing_found, True),
     "machine-adding": (_adding, True),
@@ -138,15 +203,24 @@ def _settle(app, page, model: bool) -> None:
         time.sleep(0.01)
 
 
-def main(out_dir: str | None = None) -> None:
+def main(argv=None) -> None:
     from app.pages.machine.view3d import can_draw
     from fakes import FakeState
 
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("out_dir", nargs="?")
+    parser.add_argument("--size", default=f"{W}x{H}", help="window size, for example 1440x820")
+    parser.add_argument("--only", default="", help="comma separated picture names")
+    args = parser.parse_args(argv)
+    width, height = (int(v) for v in args.size.lower().split("x"))
+    only = {n for n in args.only.split(",") if n}
     app = QApplication.instance() or QApplication(sys.argv[:1])
     apply_theme(app)
-    out = Path(out_dir or HERE.parents[1] / "screenshots" / "machine")
+    out = Path(args.out_dir or HERE.parents[1] / "screenshots" / "machine")
     out.mkdir(parents=True, exist_ok=True)
     for name, (prepare, model) in SHOTS.items():
+        if only and name not in only:
+            continue
         if model and not can_draw():
             print(f"left out, needs a real screen: {name}")
             continue
@@ -154,7 +228,7 @@ def main(out_dir: str | None = None) -> None:
         state._now = NOW.timestamp() * 1000.0
         state.scans.convert_again = lambda scan_id, s=state: s.scans.set_status("converting")
         w = MainWindow(state, receiver_address="0.0.0.0:8000")
-        w.setFixedSize(W, H)  # a fixed size also keeps a tiling window manager from resizing it
+        w.setFixedSize(width, height)  # a fixed size also keeps a tiling window manager from resizing it
         w.show()
         w.navigate("machine")
         page = w.pages["machine"]
@@ -163,12 +237,13 @@ def main(out_dir: str | None = None) -> None:
         _settle(app, page, False)
         path = out / f"{name}.png"
         # one picture pixel for each window pixel, whatever the screen's scale
-        w.grab().scaled(W, H, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation).save(
+        w.grab().scaled(width, height, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation).save(
             str(path))
-        print(path)
+        scroll = page.parentWidget().parentWidget().parentWidget().verticalScrollBar().maximum()
+        print(path, "page scrolls" if scroll else "")
         w.close()
         w.deleteLater()
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    main()
