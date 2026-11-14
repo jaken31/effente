@@ -50,6 +50,7 @@ from device.intake.recorder import Recorder
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
                 "watching": "DETECTING"}  # what the screen calls each mode, and status's "state"
+SOUND_MISSING_S = 3.0  # no sound readings for this long: the status says sound_missing
 NO_DATA_S = 8.0  # no row for this long: the screen says NO DATA
 LIVE_EVERY_S, LIVE_WINDOW_S = 0.15, 1.0  # start_live_screen: how often (about 7 a second: 10 was a little too quick to read, the user), and from how much vibration
 SCREEN_EVERY_S = 0.2  # the layout goes to the screen with every row (4 a second): its arrival is the beat on which
@@ -1124,6 +1125,12 @@ class DeviceApp:
                 s["learning_notes"] = list(self.watcher.m.d["baseline"]["warnings"])
         if hasattr(self.source, "stats"):
             s["sensors"] = dict(self.source.stats)
+            snd = getattr(self.source, "_sound", None)
+            if snd:  # how old the newest sound readings are NOW (the source's own figure is from when they came,
+                # and stood still at 0.4 s when the ESP32 lost its power: 14 Nov, on the board)
+                age = round(self.source.clock() - snd[-1][0], 1)
+                s["sensors"]["sound_age_s"] = age
+                s["sensors"]["sound_missing"] = age > SOUND_MISSING_S
         s["row_errors"] = self.row_errors
         if self._row_at is not None:
             s["last_row_age_s"] = round(time.monotonic() - self._row_at, 1)
