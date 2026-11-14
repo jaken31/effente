@@ -66,7 +66,8 @@ mcu = {"beat": None, "at": None}  # the sketch's heartbeat: alive, sensor and sc
 
 
 def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high, scl_high, read_errors,
-                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None, out_of_step=None, odd_counts=None):
+                 oled_errors=None, frames=None, mic_lines=None, mic_db10=None, out_of_step=None, odd_counts=None,
+                 heat_frames=None, heat_errors=None, heat_range=None, *more):  # the thermal camera on the sketch own bus (screen only)
     # The last four only from sketches that send them. mic_lines: lines received from the ESP32 microphone
     # front end; mic_db10: its last level in tenths of a dB below full scale (screen only, not a feature yet).
     if mpu_ok:
@@ -77,7 +78,9 @@ def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high,
                          mic_lines=mic_lines, mic_db=None if mic_db10 is None else mic_db10 / 10,
                          # out_of_step: times the sketch found the samples out of step and restarted the FIFO;
                          # odd_counts: reads where the FIFO did not hold a whole number of samples
-                         out_of_step=out_of_step, odd_counts=odd_counts), at=time.time())
+                         out_of_step=out_of_step, odd_counts=odd_counts,
+                         heat_frames=heat_frames, heat_errors=heat_errors, heat_range=heat_range,
+                         heat_debug=list(more)), at=time.time())
 
 
 Bridge.provide("hb", on_heartbeat)

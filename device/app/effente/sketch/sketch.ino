@@ -18,9 +18,13 @@
 
 #include <Arduino_RouterBridge.h>
 #include <Wire.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/i2c.h>  // for the thermal camera read (see mlxRead)
 
 TwoWire &BUS = Wire2;
 const uint8_t MPU_ADDR = 0x68, OLED_ADDR = 0x3C;  // not "MPU": that name is the chip's memory protection unit
+const bool OLED_FLIP = true;   // the picture turned 180 degrees: the screen sits upside down in the case (the user, 14 Nov)
 const uint8_t OLED_COL_OFFSET = 0;                 // 2 for an SH1106 controller
 const int BUTTON_PIN = 9;  // D9 to GND (the board as wired, 13 Nov)
 const uint8_t GYRO_EVERY = 10;     // 1 kHz / 10 = 100 gyro samples a second
@@ -171,12 +175,36 @@ void oledCmds(const uint8_t *c, uint8_t n) {  // several commands in one transmi
   BUS.endTransmission();
 }
 
+// The screen's settings: its size (64 rows), where the picture starts, which way it is drawn, no scrolling,
+// no zoom, and on. Sent at the start and again with every full redraw (every 2 s): the picture's bytes are
+// sent again and again, but these were sent once, so a write garbled on the bus that the screen took as a
+// setting stayed for good. On 14 Nov, after a burst of bus errors (2,280 failed writes), the picture stayed
+// the wrong size until the app was started again. Whether a garbled setting was the cause is not proven
+// (unverified); sending them again costs about 2 ms every 2 s and nothing flickers (no display-off here).
+void oledSettings() {
+  const uint8_t set[] = {0xD5, 0xF0,   // clock: fastest internal refresh
+                         0xA8, 0x3F,   // 64 rows
+                         0xD3, 0x00,   // no vertical shift
+                         0x40,         // the picture starts at row 0
+                         0x8D, 0x14,   // charge pump on
+                         0x20, 0x02,   // page addressing, as oledPage writes
+                         // which way up: 0xA1 0xC8 is the module's own way up; 0xA0 0xC0 is turned 180 degrees
+                         (uint8_t)(OLED_FLIP ? 0xA0 : 0xA1), (uint8_t)(OLED_FLIP ? 0xC0 : 0xC8),
+                         0xDA, 0x12,   // row wiring of a 128 x 64 panel (0x02 here draws every row twice)
+                         0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40,  // contrast, pre-charge, VCOMH
+                         0x2E,         // no scrolling
+                         0xD6, 0x00,   // no zoom (SSD1306; taken as "column 0" by a controller without it)
+                         0xA4, 0xA6,   // show the picture, not inverted
+                         0xAF};        // on
+  for (uint8_t c : set) oledCmds(&c, 1);
+}
+
 bool oledBegin() {
   BUS.beginTransmission(OLED_ADDR);
   if (BUS.endTransmission() != 0) return false;
-  const uint8_t init[] = {0xAE, 0xD5, 0xF0, 0xA8, 0x3F, 0xD3, 0x00, 0x40, 0x8D, 0x14, 0xA1, 0xC8,
-                          0xDA, 0x12, 0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6, 0xAF};
-  for (uint8_t c : init) oledCmds(&c, 1);  // 0xD5 0xF0: fastest internal refresh
+  const uint8_t off = 0xAE;
+  oledCmds(&off, 1);
+  oledSettings();
   return true;
 }
 
@@ -603,7 +631,208 @@ void composeTiles() {
 
 // A line starting with '^' is drawn inverted (the header bar); with '#', double size over this line and
 // the next (the Linux side leaves the next line empty). A first line starting with '@': design B's tiles.
+// ---- thermal camera: an MLX90640 (24 x 32 pixels) on this bus at 0x33 (the user, 14 Nov). Screen only.
+// The picture is RELATIVE: lighter means warmer within the picture, and no temperature is worked out here.
+// Each pixel's reading has its own fixed offset taken off (from the camera's own memory); the rest of the
+// maker's calibration (sensitivity, the chip's own temperature, supply voltage) is left out, so a number in
+// degrees would be wrong and none is shown. The real calibration is to be done on the computer from the
+// raw readings (not built yet: nothing of the camera goes to the Linux side so far). Unverified against a
+// thermometer or the maker's code.
+// Read in small pieces, one per pass of loop() (at most 32 words, about 2 ms at 400 kHz), so the IMU's
+// FIFO is still read in between: a whole frame in one go would hold the bus for about 40 ms.
+const uint8_t MLX_ADDR = 0x33;
+bool showThermal = false;               // which screen: the readings, or the heat picture. The button swaps them
+                                        // (the user, 14 Nov; before that they swapped by themselves every 10 s)
+const bool MLX_MIRROR = false;          // true if the picture comes out left-right swapped in the case
+bool mlxOk = false, mlxHave = false;
+uint8_t mlxState = 0;                   // 0 not found yet, 1 reading its memory, 2 waiting for a frame, 3 reading one
+uint16_t mlxWord = 0, mlxChunk = 32;    // words done of the part being read; words per read (halved if refused)
+uint8_t mlxFailRun = 0;
+uint16_t mlxWord0 = 0;        // the first word of the frame as the camera gave it
+uint32_t mlxFrames = 0, mlxErrors = 0, mlxPollAt = 0, mlxTryAt = 0;
+uint16_t mlxEe[16];                     // the camera's memory, words 0x10 to 0x1F: the offsets' scales and parts
+int16_t mlxOffset[768], mlxRaw[768], mlxShown[768];
+
+// The camera must be asked and answered in ONE transfer (the register's address, then a repeated start, then
+// the read). This core's Wire always ends the write with a stop (its endTransmission ignores the argument),
+// which the IMU puts up with but the camera does not: it then answered with words that never changed, and the
+// picture was nonsense (14 Nov, on the board). So this read goes to Zephyr's own I2C call, on Wire2's device.
+static const struct device *const mlxBus = DEVICE_DT_GET(DT_PHANDLE_BY_IDX(DT_PATH(zephyr_user), i2cs, 2));
+
+bool mlxRead(uint16_t reg, uint16_t n, uint16_t *out) {
+  uint8_t ask[2] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF)};
+  uint8_t got[64];
+  if (n > 32) return false;
+  if (i2c_write_read(mlxBus, MLX_ADDR, ask, 2, got, n * 2) != 0) return false;
+  for (uint16_t i = 0; i < n; i++) out[i] = ((uint16_t)got[2 * i] << 8) | got[2 * i + 1];
+  return true;
+}
+
+bool mlxWrite(uint16_t reg, uint16_t v) {
+  BUS.beginTransmission(MLX_ADDR);
+  BUS.write((uint8_t)(reg >> 8));
+  BUS.write((uint8_t)(reg & 0xFF));
+  BUS.write((uint8_t)(v >> 8));
+  BUS.write((uint8_t)(v & 0xFF));
+  return BUS.endTransmission() == 0;
+}
+
+void mlxFail() {
+  mlxErrors++;
+  if (mlxChunk > 8) mlxChunk /= 2;  // the bus refused a long read
+  if (++mlxFailRun >= 5) {          // gone: look for it again every 2 s, and show the readings meanwhile
+    mlxFailRun = 0;
+    mlxState = 0;
+    mlxOk = false;
+    mlxHave = false;
+  }
+}
+
+int mlxNibble(uint16_t w, uint8_t k) {  // a signed 4-bit part of a word
+  int v = (w >> (4 * k)) & 0xF;
+  return v > 7 ? v - 16 : v;
+}
+
+void mlxTake();
+
+void mlxPoll() {
+  uint32_t now = millis();
+  uint16_t buf[32];
+  if (mlxState == 0) {
+    if (now - mlxTryAt < 2000) return;
+    mlxTryAt = now;
+    uint16_t ctrl;
+    if (!mlxRead(0x800D, 1, &ctrl)) return;       // not there
+    mlxWrite(0x800D, (ctrl & ~(7u << 7)) | (3u << 7));  // 4 half-frames a second
+    if (!mlxRead(0x2410, 16, mlxEe)) { mlxErrors++; return; }
+    mlxWord = 0;
+    mlxState = 1;
+    return;
+  }
+  uint16_t k = 768 - mlxWord < mlxChunk ? 768 - mlxWord : mlxChunk;
+  if (mlxState == 1) {  // each pixel's fixed offset, from the camera's memory (the datasheet's offset formula)
+    if (!mlxRead(0x2440 + mlxWord, k, buf)) { mlxFail(); return; }
+    int remScale = mlxEe[0] & 0xF, colScale = (mlxEe[0] >> 4) & 0xF, rowScale = (mlxEe[0] >> 8) & 0xF;
+    int ref = (int16_t)mlxEe[1];
+    for (uint16_t i = 0; i < k; i++) {
+      uint16_t p = mlxWord + i;
+      int row = p / 32, col = p % 32;
+      int rem = buf[i] >> 10;
+      if (rem > 31) rem -= 64;
+      mlxOffset[p] = (int16_t)(ref + mlxNibble(mlxEe[2 + row / 4], row % 4) * (1 << rowScale)
+                               + mlxNibble(mlxEe[8 + col / 4], col % 4) * (1 << colScale) + rem * (1 << remScale));
+    }
+    mlxFailRun = 0;
+    mlxWord += k;
+    if (mlxWord >= 768) { mlxState = 2; mlxOk = true; }
+    return;
+  }
+  if (mlxState == 2) {  // a new half-frame ready?
+    if (now - mlxPollAt < 20) return;
+    mlxPollAt = now;
+    uint16_t status;
+    if (!mlxRead(0x8000, 1, &status)) { mlxFail(); return; }
+    mlxFailRun = 0;
+    if (status & 0x0008) {
+      mlxWrite(0x8000, 0x0030);  // taken: the camera may measure the next one
+      mlxWord = 0;
+      mlxState = 3;
+    }
+    return;
+  }
+  if (!mlxRead(0x0400 + mlxWord, k, buf)) { mlxFail(); return; }
+  if (mlxWord == 0) mlxWord0 = buf[0];
+  for (uint16_t i = 0; i < k; i++) mlxRaw[mlxWord + i] = (int16_t)((int16_t)buf[i] - mlxOffset[mlxWord + i]);
+  mlxFailRun = 0;
+  mlxWord += k;
+  if (mlxWord >= 768) {
+    mlxTake();
+    mlxState = 2;
+  }
+}
+
+// A frame has been read whole. Two things before it is shown (14 Nov: the first version's picture
+// "didn't really seem to work"):
+//  - The camera measures its pixels in two halves, like the two colours of a chessboard, and the halves sit
+//    at slightly different levels, which draws a chessboard over everything. The halves are brought to the
+//    same average.
+//  - Each frame is averaged with the one shown before it, which halves the flicker of the noise.
+int mlxLo2 = 0, mlxHi2 = 0;   // the picture's coolest and warmest readings (the heartbeat, for checking)
+int mlxRange = 0;  // warmest minus coolest of the picture shown, in raw counts (the heartbeat)
+
+void mlxTake() {
+  long sum[2] = {0, 0};
+  for (int p = 0; p < 768; p++) sum[((p / 32) + (p % 32)) & 1] += mlxRaw[p];
+  int shift = (int)((sum[0] - sum[1]) / 384);
+  for (int p = 0; p < 768; p++) {
+    int v = mlxRaw[p] + ((((p / 32) + (p % 32)) & 1) ? shift : 0);
+    mlxShown[p] = mlxHave ? (int16_t)((mlxShown[p] + v) / 2) : (int16_t)v;
+  }
+  mlxHave = true;
+  mlxFrames++;
+}
+
+// The heat picture, over the WHOLE screen (the user, 14 Nov): no header and no words. The camera's 32 x 24
+// pixels are stretched to 128 x 64 and smoothed, and drawn in dots: the more dots, the warmer. The stretch
+// is 4 times across and 2.67 times down, so things look about 1.5 times wider than they are; every pixel of
+// the camera is on the screen. The scale runs from the coolest to the warmest reading in view (leaving out
+// the single most extreme of each), so the picture is relative: it says where it is warmer, not how warm.
+uint8_t mlxFb[8][128];
+uint32_t mlxDrawn = 0;  // the frame number mlxFb was drawn from
+
+void composeThermal() {
+  if (!mlxHave) {
+    memset(fb, 0, sizeof fb);
+    drawText(22, 20, "HEAT CAMERA", 1, true);
+    drawText(43, 34, "WAITING", 1, true);
+    return;
+  }
+  if (mlxDrawn != mlxFrames) {  // worked out once per camera frame, not once per screen frame
+    mlxDrawn = mlxFrames;
+    int lo = 32767, lo2 = 32767, hi = -32768, hi2 = -32768;
+    for (int i = 0; i < 768; i++) {
+      int v = mlxShown[i];
+      if (v < lo) { lo2 = lo; lo = v; } else if (v < lo2) lo2 = v;
+      if (v > hi) { hi2 = hi; hi = v; } else if (v > hi2) hi2 = v;
+    }
+    mlxRange = hi2 - lo2;
+    mlxLo2 = lo2;
+    mlxHi2 = hi2;
+    int span = mlxRange < 16 ? 16 : mlxRange;  // a view all at one temperature: not noise blown up to full scale
+    static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    uint32_t perCount = ((uint32_t)17 << 16) / (16u * (uint32_t)span);
+    memset(mlxFb, 0, sizeof mlxFb);
+    for (int oy = 0; oy < 64; oy++) {
+      int syf = (2 * oy + 1) * 48 - 128;  // the camera row this screen row falls on, in 256ths
+      if (syf < 0) syf = 0;
+      int r0 = syf >> 8, fy = syf & 255, r1 = r0 + 1;
+      if (r1 > 23) r1 = 23;
+      for (int ox = 0; ox < 128; ox++) {
+        int sxf = (2 * ox + 1) * 32 - 128;
+        if (sxf < 0) sxf = 0;
+        int c0 = sxf >> 8, fx = sxf & 255, c1 = c0 + 1;
+        if (c1 > 31) c1 = 31;
+        int a0 = MLX_MIRROR ? 31 - c0 : c0, a1 = MLX_MIRROR ? 31 - c1 : c1;
+        // 32-bit sums only, and a multiply where a divide was: with 64-bit divides the whole picture took
+        // long enough that the IMU lost samples while this screen was up (14 Nov: 900 a second, overflows).
+        int32_t top = ((int32_t)mlxShown[r0 * 32 + a0] * (256 - fx) + (int32_t)mlxShown[r0 * 32 + a1] * fx) >> 4;
+        int32_t bot = ((int32_t)mlxShown[r1 * 32 + a0] * (256 - fx) + (int32_t)mlxShown[r1 * 32 + a1] * fx) >> 4;
+        int32_t d = ((top * (256 - fy) + bot * fy) >> 8) - 16 * lo2;       // above the coolest, times 16
+        if (d < 0) d = 0;
+        if (d > 16 * span) d = 16 * span;
+        int32_t level = (int32_t)(((uint32_t)d * perCount) >> 16);         // 0 (coolest) to 16 (warmest)
+        if (level > bayer[oy & 3][ox & 3]) mlxFb[oy >> 3][ox] |= (uint8_t)(1 << (oy & 7));
+      }
+    }
+  }
+  memcpy(fb, mlxFb, sizeof fb);
+}
+
 void compose() {
+  if (mlxOk && showThermal) {
+    composeThermal();
+    return;
+  }
   if (tmpl[0][0] == '@') {
     composeTiles();
     return;
@@ -680,7 +909,8 @@ bool screen(MsgPack::str_t text) {
 
 // ------------------------------------------------------------------ main
 uint32_t seq = 0, lastRead = 0, lastStatus = 0, batches = 0, presses = 0, notifyUs = 0, lastFrameAt = 0;
-bool buttonDown = false;
+bool buttonDown = false, buttonHeld = false;
+const uint32_t BUTTON_HOLD_MS = 1000;
 uint32_t buttonChange = 0;
 uint32_t lastSampleMs = 0;  // when the FIFO last gave a sample
 uint32_t sensorRestarts = 0;
@@ -798,6 +1028,7 @@ void readFifo() {
 
 void loop() {
   micPoll();
+  mlxPoll();  // the thermal camera, a small piece at a time
   if (!mpuOk) sndSend();  // with the sensor running, parts go out after its reads (below)
   static uint32_t lastTry = 0;  // a sensor or screen that didn't answer: look again every 2 s
   // A sensor that answers but gives no samples: a glitch on its wires or power reset it, so it is back in
@@ -842,6 +1073,9 @@ void loop() {
     if (millis() - lastFullAt >= 2000) {
       lastFullAt = millis();
       screenKnown = false;
+      BUS.setClock(OLED_I2C_HZ);
+      oledSettings();  // and the screen's settings with it: see oledSettings
+      BUS.setClock(MPU_I2C_HZ);
     }
   }
   while (oledOk && nextPage < 8 && screenKnown && !memcmp(fb[nextPage], onScreen[nextPage], 128))
@@ -865,13 +1099,26 @@ void loop() {
     Bridge.notify("hb", (uint32_t)millis(), mpuOk, oledOk, (uint32_t)whoAmI, (uint32_t)lastBusClocks,
                   (uint32_t)busTries, sdaWasHigh, sclWasHigh, (uint32_t)readErrors, (uint32_t)oledErrors,
                   (uint32_t)frames, (uint32_t)micLines, (int32_t)(micDb == micDb ? micDb * 10 : 0),
-                  (uint32_t)outOfStep, (uint32_t)oddCounts);
+                  (uint32_t)outOfStep, (uint32_t)oddCounts, (uint32_t)mlxFrames, (uint32_t)mlxErrors, (uint32_t)(mlxRange < 0 ? 0 : mlxRange),
+                  (int32_t)mlxLo2, (int32_t)mlxHi2, (int32_t)mlxWord0, (int32_t)mlxRaw[0], (int32_t)mlxRaw[400],
+                  (int32_t)mlxOffset[0], (int32_t)mlxOffset[400], (int32_t)mlxEe[0], (int32_t)mlxEe[1],
+                  (int32_t)mlxShown[1], (int32_t)mlxShown[401], (int32_t)mlxChunk, (int32_t)showThermal);
   }
   bool down = digitalRead(BUTTON_PIN) == LOW;
+  // Held for a second: what a press used to be (start or stop learning), sent once per hold. A short press
+  // only swaps the screen, so swapping screens never starts a recording.
+  if (buttonDown && !buttonHeld && millis() - buttonChange >= BUTTON_HOLD_MS) {
+    buttonHeld = true;
+    Bridge.notify("button", ++presses);
+  }
   if (down != buttonDown && millis() - buttonChange > 30) {  // 30 ms debounce
     buttonDown = down;
     buttonChange = millis();
-    if (down) Bridge.notify("button", ++presses);
+    if (down) {
+      buttonHeld = false;
+    } else if (!buttonHeld) {
+      showThermal = !showThermal;  // a short press: the other screen (the user, 14 Nov)
+    }
   }
   if (millis() - lastStatus >= 5000) {
     static uint32_t lastSeq = 0, lastUs = 0;
