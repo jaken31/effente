@@ -12,8 +12,8 @@ Give it 10 minutes of the machine running. 5 minutes (300 s) is the least it acc
 
 --entry is a library entry folder (model.json and manifest.json). --run is a learn-mode recording
 folder (its one-a-second rows); --rows is any file with t, X and feature_names.
-Exit code: 0 if the fit check passed, 2 if it failed (the model file is still written), 1 if there
-was too little running. A pass only means no gross mismatch was found: the rule is a starting value
+Exit code: 0 if the fit check passed, 2 if it failed (the model file is still written), 1 if
+calibration refused the rows (too little running, for one). A pass only means no gross mismatch was found: the rule is a starting value
 from simulated machines and does not show the machine is of the entry's type.
 The numbers are starting values (unverified on real machines).
 """
