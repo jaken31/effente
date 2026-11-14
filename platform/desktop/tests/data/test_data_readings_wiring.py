@@ -1,7 +1,7 @@
 """Row R0 and row M2 of docs/scan-and-log-plan.md section 15.2: the `state.log`
 additions of INTERFACES.md addition 22 and `state.setup` of addition 24 exist, with
-the samples of additions 22 and 25 on the fake one. `state.setup` is still a stub on
-the live state; the live part readings are tested in test_data_readings.py."""
+the samples of additions 22 and 25 on the fake one. The live part readings are tested
+in test_data_readings.py, the live `state.setup` in test_data_setup.py."""
 
 import pytest
 
@@ -32,27 +32,16 @@ def test_the_objects_have_the_agreed_names(cls, names):
         assert hasattr(cls, name), name
 
 
-def test_the_live_setup_has_stubs_and_gets_every_snapshot_and_event(make_host, make_state, qtbot):
+def test_the_live_setup_gets_every_snapshot_and_event(make_host, make_state, qtbot):
     host = make_host()
     state = make_state(host, wait=False)
-    seen, failed = [], []
+    seen = []
     state.setup.apply_snapshot = lambda snap: seen.append("snapshot")
     state.setup.apply_event = lambda name, data: seen.append(name)
-    state.action_failed.connect(failed.append)
     qtbot.waitUntil(lambda: "snapshot" in seen, timeout=5000)
     ApiClient(host.url).put("/api/devices/effente-01/settings", {"sensitivity": 0.7})
     qtbot.waitUntil(lambda: "settings" in seen, timeout=5000)
-
-    setup = state.setup
-    assert type(setup) is Setup
-    assert setup.profile() is None and setup.choice() is None and setup.run() is None and not setup.run_running()
-    assert setup.wanted_entry() is None and setup.device_entry() is None and setup.local_profile() is None
-    assert setup.draft() == dict.fromkeys(FIELDS)
-    setup.start_run({"What kind of machine is it?": "a belt conveyor"})
-    setup.set_draft(drive="belt")
-    setup.confirm()
-    setup.set_local_profile("Sam", "technician")
-    assert failed == ["Setup is not built yet."] * 4
+    assert type(state.setup) is Setup  # built: its own tests are test_data_setup.py
 
 
 def test_the_answerer_is_the_local_profiles_name_first(make_host, make_state, monkeypatch):
