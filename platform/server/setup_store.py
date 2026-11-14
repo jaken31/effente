@@ -1,5 +1,5 @@
 """Machine profiles and the wanted library entry (platform/CONTRACT.md sections 10.1
-and 10.4). A stub: nothing is built yet.
+and 10.4).
 
 The receiver's Store makes one of these, as `store.setup`, after it has loaded its
 own files and made the scan and log stores. The route functions in setup_api.py
@@ -14,20 +14,75 @@ A call that fails is logged and skipped, so it can never stop a record, a
 check-in or `/api/state`. The one exception: `check_settings` may raise
 BadRequest to refuse the settings.
 
-To send a `settings` event when the wanted entry changes, emit
-`store._settings_event(device_id)` for each device on that machine: it asks
-`wanted_settings` and `device_part` itself.
+One append-only file in the data dir, `machine_profiles.jsonl`: every stored
+profile, oldest first. The newest one per machine counts. Storing a profile is
+confirming it (contract 10.1): there is no stored draft.
 """
+
+import os
+import sys
+
+from receiver_store import BadRequest, JsonLines, utc_now
+
+PLATFORM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PLATFORM_DIR not in sys.path:
+    sys.path.append(PLATFORM_DIR)  # for `setup.lookup`; appended so nothing here is shadowed
+
+from setup import lookup  # noqa: E402
+
+PROFILES_FILE = "machine_profiles.jsonl"
+SET_BY_PLATFORM = ("machine_id", "confirmed", "choice")  # never taken from a client's body
+
+
+def _profile_from(machine_id, body):
+    """The profile a PUT body stores, checked (contract 10.1). Raises BadRequest."""
+    if not isinstance(body, dict):
+        raise BadRequest("machine profile must be a JSON object")
+    by = body.get("by")
+    if not isinstance(by, str) or not by.strip():
+        raise BadRequest("machine profile is missing required field 'by' (the name of the person who confirmed it)")
+    problems = lookup.field_problems(body)
+    if problems:
+        raise BadRequest(f"machine profile: {problems[0]}")
+    run_id = body.get("run_id")
+    if run_id is not None and (not isinstance(run_id, str) or not run_id):
+        raise BadRequest("machine profile 'run_id' must be the setup run's id, or null if filled by hand")
+    profile = {"machine_id": machine_id, **lookup.five_fields(body), "confirmed": {"at": utc_now(), "by": by.strip()},
+               "run_id": run_id}
+    # Unknown fields (the lifecycle doc's other five among them) are stored and passed on.
+    skip = (*lookup.FIELDS, "by", "run_id", *SET_BY_PLATFORM)
+    profile.update((k, v) for k, v in body.items() if k not in skip)
+    return profile
 
 
 class SetupStore:
     def __init__(self, store):
         self.store = store
+        self.file = JsonLines(os.path.join(store.data_dir, PROFILES_FILE))
+        self.profiles = {}  # machine_id -> its newest profile
+        for profile in self.file.load():
+            if isinstance(profile.get("machine_id"), str):
+                self.profiles[profile["machine_id"]] = profile
+
+    # ---- the routes (contract 10.1) ----------------------------------------
+
+    def put_profile(self, machine_id, body):
+        """Store a confirmed profile in place of the machine's last one. Returns it."""
+        profile = _profile_from(machine_id, body)
+        with self.store.lock:
+            self.file.append([profile])
+            self.profiles[machine_id] = profile
+            self.store.emit("profile", profile)
+        return profile
+
+    def get_profile(self, machine_id):
+        with self.store.lock:
+            return self.profiles.get(machine_id)
 
     def state_part(self):
         """This store's keys of GET /api/state: `profiles`, and under `machines`
         the machines that have a profile, which the Store adds to its own list."""
-        return {}
+        return {"profiles": dict(self.profiles), "machines": list(self.profiles)}
 
     # ---- called by the Store with its lock held ----------------------------
 
@@ -49,4 +104,4 @@ class SetupStore:
         JSON object that holds `sensitivity`. Raise BadRequest to refuse it."""
 
     def close(self):
-        """The receiver is stopping."""
+        """The receiver is stopping. Every profile is already on disk."""
