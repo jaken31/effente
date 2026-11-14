@@ -16,7 +16,7 @@ from fake_setup import FakeSetup
 from fakes import FakeState
 
 READINGS = {"signals": ("probe_changed", "readings_changed"),
-            "calls": ("probe_part", "readings", "normal_spectrum", "set_probe_part")}
+            "calls": ("probe_part", "probe", "readings", "normal_spectrum", "set_probe_part")}
 SETUP = {"signals": ("profile_changed", "run_changed", "entry_changed", "local_profile_changed"),
          "calls": ("profile", "draft", "choice", "run", "run_running", "wanted_entry", "device_entry",
                    "local_profile", "start_run", "set_draft", "confirm", "set_local_profile")}
@@ -106,11 +106,14 @@ def test_the_fake_probe(qapp, qtbot):
     with qtbot.waitSignal(log.probe_changed):
         log.set_probe_part(DRIVE_ROLLER)
     assert log.probe_part() == DRIVE_ROLLER
+    pick = log.probe()
+    assert set(pick) == {"machine_id", "part_id", "since", "by"}
+    assert (pick["machine_id"], pick["part_id"], pick["by"]) == (state.current_machine(), DRIVE_ROLLER, state.answerer())
     log.set_probe_part("part-9999")
     assert log.probe_part() == DRIVE_ROLLER and failed == ["Probe part not set: no such part: part-9999"]
     with qtbot.waitSignal(log.probe_changed):
         log.set_probe_part(None)
-    assert log.probe_part() is None
+    assert log.probe_part() is None and log.probe() is None
 
 
 def test_the_fake_setup_sample(qapp):

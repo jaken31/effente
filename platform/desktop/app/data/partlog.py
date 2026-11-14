@@ -267,7 +267,13 @@ class PartLog(QObject):
 
     def probe_part(self):
         """The `part_id` the probe is on for the current machine, or None."""
-        return (self._probes.get(self.state.current_machine()) or {}).get("part_id")
+        return (self.probe() or {}).get("part_id")
+
+    def probe(self):
+        """The current machine's selection, {machine_id, part_id, since, by}
+        (contract 9.1), or None. A copy: changing it changes nothing here."""
+        selection = self._probes.get(self.state.current_machine())
+        return dict(selection) if selection else None
 
     def readings(self, part_id, since=None):
         """The reply of the part's readings route (contract 9.3), or None while it
