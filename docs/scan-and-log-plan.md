@@ -1,6 +1,6 @@
 # Scan and log: work plan for three people
 
-Status: proposal, written Sat 14 Nov 2026. Not yet agreed by the team. This file is instructions only. It adds no code.
+Status: proposal, written Sat 14 Nov 2026. Not yet agreed by the team. This file is instructions only. It adds no code. Sections 15 and 16 were added later and each carries its own status: section 15 is agreed.
 
 Read this whole file before you start. Then read only your own brief again (sections 8, 9 or 10).
 
@@ -749,7 +749,7 @@ Owners follow the folders in section 2. The simulator and the device link have n
 
 | Piece | What | Files | Who |
 |-------|------|-------|-----|
-| R0. Wiring | The new routes in the route table, one call that lets the log store stamp a record before it is stored, `probe` in the state reply, stubs that answer "not built yet". Merged first, as step 0 was. | `platform/server/receiver_server.py`, `receiver_store.py` | Jake |
+| R0. Wiring | For this section: the new routes in the route table, one call that lets the log store stamp a record before it is stored, `probe` in the state reply, stubs that answer "not built yet". For section 16: the setup routes of contract 10.1 and 10.2 with stubs behind them, one call that lets the setup store add to the `settings` of a reply and to the state reply, the `setup` page key after the existing nine, and stubs for a `state.setup` data class with its fake (16.3), including the one line that lets `answerer()` ask it for the local profile's name first. Merged first, as step 0 was, so nobody touches a shared file after it. | `platform/server/receiver_server.py`, `receiver_store.py`, `setup_api.py` and `setup_store.py` (new stubs), `platform/desktop/app/shell/pages.py`, `sidebar.py`, `app/data/state.py`, `app/data/setup.py` (new stub), `tests/fake_setup.py` (new), the shell test that lists the page keys | Jake |
 | R1. Receiver: the probe's part | Contract 9.1: the route, the stamp, the 60 second and 5 minute rules, the file that keeps the pick across a restart, the `probe` event. Contract 9.6: a record for `sample-machine` that is not simulated is refused, and so is a `sim-history` record for any other machine. | `platform/server/log_store.py`, `log_api.py` | Jake |
 | R2. Receiver: readings | Contract 9.3: visits and readings as plain functions, each reading's median velocity and median `unknown_score`, the route, the part's `reading`, the `reading` event at most every 10 seconds. | `platform/partlog/readings.py` (new), `log_store.py`, `log_api.py` | Jake |
 | R3. Receiver: normal spectrum | Contract 9.4. | `platform/partlog/normal_spectrum.py` (new), `log_api.py` | Jake |
@@ -789,7 +789,7 @@ If it is not working, cut in this order, and the page falls back to what PR #63 
 
 ### 15.3 Inside the desktop app
 
-Additions to `state.log`, to be copied into [platform/desktop/INTERFACES.md](../platform/desktop/INTERFACES.md) as its next numbered addition once agreed. That file is not changed by this proposal.
+Additions to `state.log`. Now agreed, and copied into [platform/desktop/INTERFACES.md](../platform/desktop/INTERFACES.md) as addition 22.
 
 | Kind | Name | Meaning |
 |------|------|---------|
@@ -848,3 +848,175 @@ On top of the list in section 14:
 - That the velocity is an ISO 10816 value. It covers part of that band.
 - That a reading on a part shows the fault is in that part. It shows what the probe measured where a person said it was.
 - That the agent worked out the trend. Code did, and the agent may only repeat it.
+
+## 16. Setup (contract section 10)
+
+Status: written Sat 14 Nov 2026, from Jake's brief, on the day section 15 was agreed. Nothing in it is built. This file does not record the whole team agreeing it (unverified), and row D1 waits for review by tracks 1 and 2. It is stretch work on top of sections 1 to 15 and follows every rule in section 3. The interface is section 10 of [platform/CONTRACT.md](../platform/CONTRACT.md). This section says who builds what.
+
+### 16.1 What it adds
+
+Today the library entry is picked on the device with its button, and the laptop knows nothing about the machine. Setup adds the first steps of the customer cycle in [model-lifecycle.md](model-lifecycle.md): a person answers a few questions about the machine, the laptop keeps a short machine profile, code picks the starting model from it, and the device is told which one is wanted.
+
+| Step | What happens | Contract |
+|------|--------------|----------|
+| 1. Questions | The Setup page asks a few guided questions. "I don't know" is an answer. | 10.3 |
+| 2. One agent run | The setup agent fills five fields and explains what it understood. It never picks the model. | 10.3 |
+| 3. The lookup | Code picks the library entry and shows why, and what the entry has and has not been checked on, from its manifest. | 10.2 |
+| 4. Confirm | The person reads the five fields, changes what is wrong, and confirms. Nothing is stored or sent before this. | 10.1 |
+| 5. Wanted entry | The device gets the entry's name in the `settings` it already receives, and reports the entry it is using. | 10.4 |
+
+Beside that, a local profile: a name and a role kept on that laptop, so `by` fills itself (10.5).
+
+Three things to keep straight:
+
+- **The agent fills a form. Code picks the model.** If the agent run fails, or no model server runs, the person fills the five fields by hand and the lookup still picks.
+- **Both library entries are trained on simulated data and checked on nothing.** That is what their manifests say today, and the page must say it too. `conveyor` is `demo`, `generic_rotating` is `unverified`, and all 21 fault types of each are "not validated".
+- **The local profile is not security.** No password, no login, no proof. Nothing may call it that: not a screen, not a doc, not the pitch.
+
+### 16.2 Who builds what
+
+The brief named the rows and gave D1 to the device side, with tracks 1 and 2 to review. It named no person for U1 to U6. They are all in track 5's folders, so Jake is proposed for each, as for section 15. Not confirmed.
+
+File names marked new are proposals. Change them in this table first if they are wrong.
+
+| Piece | What | Files | Who |
+|-------|------|-------|-----|
+| R0. Wiring | The row R0 of 15.2. It carries this section's wiring too: the setup routes and stubs, the `setup` page key, the `state.setup` stubs. | See 15.2 | Jake |
+| U1. Profile store and routes | Contract 10.1: the five fields, their value lists, empty stays empty, `PUT` and `GET`, the file that keeps profiles across a restart, `profiles` in the state reply, the `profile` event. | `platform/server/setup_store.py`, `setup_api.py` | Jake, proposed |
+| U2. The lookup | Contract 10.2 as one plain function: a profile in, the choice out. The table, the fixed reasons, and the reading of an entry's manifest into `trained_on`, `checked_on`, `not_checked_on` and the fault type counts. The lookup route. No model call anywhere near it. | `platform/setup/lookup.py` (new), `setup_api.py` | Jake, proposed |
+| U3. The wanted `library_entry` in settings | Contract 10.4, platform side: a stored profile sets the machine's wanted entry, replies to messages 2 and 3 carry it in `settings`, the state and the `settings` event show the wanted entry and the one the device reports. `PUT .../settings` refuses the key. | `platform/server/setup_store.py` | Jake, proposed |
+| U4. The setup agent | Contract 10.3: a command in the style of `platform/part_review.py`, the answers as its only input, the checks, one retry, the run posted with message 4 as agent `setup`. The rule-based stand-in first, labelled. Then the local model. Reuse the report agent's pieces as the part review does. Do not edit `device/agent/`. | `platform/setup/agent/` (new), `platform/setup_run.py` (new) | Jake, proposed |
+| U5. The Setup page | 16.3: the questions, the five fields, the agent's explanation, the choice with its lists, confirm, wanted against in use, and every state named there. | `platform/desktop/app/pages/setup/` (new) | Jake, proposed |
+| U6. The local profile | Contract 10.5: a name and a role in the app's settings store, a small form to set them, `by` filled from it. No password. | `platform/desktop/app/data/setup.py`, `app/settings.py` | Jake, proposed |
+| D1. The device acting on the wanted entry | Contract 10.4, device side: what the device does when the wanted entry differs from the one it runs. Design first, reviewed by tracks 1 and 2, because it means calibrating again. Then the change. | `device/` | Track 1. Tracks 1 and 2 review. |
+
+Order:
+
+```
+ R0 wiring --+-- U1 profile store --- U3 wanted entry in settings --- D1 device (after the review)
+             +-- U6 local profile
+             +-- U5 Setup page (against the fake first, the real pieces as they land)
+ U2 lookup needs nothing but the manifests: it can start at once.
+ U4 setup agent needs U2. Its stand-in first.
+ The D1 review can start at once: it needs only contract 10.4.
+```
+
+U1, U2 and U5 with the form filled by hand are the skeleton: a profile in, a choice shown, a confirm stored. Get that end to end before U4.
+
+No times are set here, and the brief did not say whether setup comes before or after the pieces of section 15. R0 carries the wiring for both, so either can start once it is merged. As for section 15, proposed: none of this starts before gate 2 of section 11 has passed.
+
+If it is not working, cut in this order. The first row is cut first.
+
+| If this is not working | Then |
+|------------------------|------|
+| The local model's setup run | The stand-in, labelled as a stand-in |
+| The setup agent at all (U4) | The person fills the five fields by hand on the Setup page. The lookup still picks. |
+| The device acting on the wanted entry (D1) | The page shows "Wanted" beside "Device is using", and the entry is picked on the device with its button, as today |
+| The wanted entry in settings (U3) | The page shows the choice and says it was not sent |
+| The local profile (U6) | `by` comes from where it comes today |
+| The Setup page (U5) | No setup in the demo. The profile routes still answer for a later page. |
+| Everything here | Entries are picked on the device with the button, as they are today |
+
+### 16.3 Inside the desktop app
+
+Copied into [platform/desktop/INTERFACES.md](../platform/desktop/INTERFACES.md) as additions 23 to 25.
+
+**The page.** Page key `setup`, after the existing nine, so shortcuts 1 to 9 are unchanged. It follows the theme, the widgets and the page rules in INTERFACES.md.
+
+```
+ +-------------------------------------+-------------------------------------------+
+ | Questions                           | Machine profile         not confirmed yet |
+ |  What kind of machine is it?        |  Machine type     [conveyor       v]      |
+ |  [a belt conveyor                 ] |  Drive            [belt           v]      |
+ |  How is it driven?                  |  Speed, rpm       [               ] empty |
+ |  [                 ] [I don't know] |  Mounting         [rigid          v]      |
+ |  ...                                |  Sensor location  [               ] empty |
+ | [Fill the profile]                  +-------------------------------------------+
+ +-------------------------------------+ Starting model: conveyor (demo)           |
+ | What the agent understood           |  Why: machine type is conveyor            |
+ |  "You said it is a belt conveyor    |  Trained on: sim_conveyor (simulated)     |
+ |   bolted to the floor. You did      |  Checked on: nothing yet                  |
+ |   not know its speed ..."           |  Not checked on: sim_server_rack          |
+ |  Stand-in, simulated: marked here   |  Fault types validated: 0 of 21           |
+ |                                     | [Confirm and send to the device]          |
+ +-------------------------------------+-------------------------------------------+
+  Local profile: Sam, technician [Change]    Wanted: conveyor. Device is using: generic_rotating
+```
+
+- **Questions.** A few, in plain words, each with "I don't know". Their wording is this page's to write. No question asks for a library entry.
+- **Fill the profile.** Starts one setup run through `state.setup.start_run`. Disabled while a run is running for this machine.
+- **The five fields.** Filled from the run, or by hand with no run at all. A field nobody knows shows "empty", never a guess and never a default. Changing a field asks the lookup again.
+- **Starting model.** The lookup's choice, with its reason, its status and its lists, in the contract's words. Nothing here comes from the agent.
+- **Confirm.** The only thing that stores the profile and sends the wanted entry. Until then the page says "not confirmed yet" and "nothing has been sent to the device".
+- **Wanted against in use.** After confirming, both entries are shown until they match. The page never shows the wanted entry as the one in use.
+- **The local profile.** Its name and role, and a "Change" form. The words on screen are "local profile". Never "log in", "account", "sign in" or "security".
+- **States to design, not leave blank:** no profile yet, a run running, a run failed with its reason, the stand-in's result with its label, every field empty, a profile confirmed with no device connected, wanted and in use differing, no local profile set.
+
+**`state.setup`** (`app/data/setup.py`).
+
+| Kind | Name | Meaning |
+|------|------|---------|
+| signal | `profile_changed()` | The current machine's stored profile, the draft or the choice moved |
+| signal | `run_changed()` | A setup run started, moved or ended |
+| signal | `entry_changed()` | The wanted entry, or the one the device reports, moved |
+| signal | `local_profile_changed()` | The local profile was set or changed |
+| read | `profile()` | The current machine's confirmed machine profile (contract 10.1), or `None` |
+| read | `draft()` | The five fields as they stand on the page, not yet confirmed. Starts from `profile()`, or all empty. |
+| read | `choice()` | The lookup's reply for the draft (contract 10.2), or `None` while it is being fetched |
+| read | `run()` | The newest setup run for the current machine, or `None` |
+| read | `run_running()` | `True` while one runs |
+| read | `wanted_entry()` | The library entry wanted for the current machine, or `None` |
+| read | `device_entry()` | The entry the shown device reports, or `None` |
+| read | `local_profile()` | `{"name", "role"}`, or `None` if none is set |
+| action | `start_run(answers, mode="standin")` | Run the setup agent on these answers. `mode` is `standin` or `local`, as for the report agent. A run that passes fills the draft. |
+| action | `set_draft(**fields)` | Change fields of the draft by hand. Asks the lookup again. |
+| action | `confirm()` | Store the draft as the machine profile. The only action that sends anything toward the device. |
+| action | `set_local_profile(name, role)` | Keep the local profile in the app's settings. No password. |
+
+`by` comes from the state's `answerer()`, which now gives the local profile's name first, then what it gave before. A failed action is reported through the state's existing `action_failed(str)`.
+
+**Sample data in the fake**, so the page can be built before the receiver works. `FakeState().setup` is a `FakeSetup` (`tests/fake_setup.py`). Written by hand, not by real code: a machine with no profile, a finished stand-in run that filled three fields and left two empty, a choice of `conveyor` with the lists of contract 10.2's example, a confirmed profile whose wanted entry differs from the one the device reports, and a local profile "Sam, technician". Actions change only the fake.
+
+### 16.4 Tests
+
+- **U1.** A profile stored and read back. A field left out is empty. A value outside its list is a 400, and so is a missing `by`. A second `PUT` replaces the first, and both are kept in the file. A restart gives the same profile. The five fields of the lifecycle doc that are not in 3.5 are stored and passed on.
+- **U2.** `conveyor` for a conveyor, `generic_rotating` for every other machine type and for an empty one, each with its fixed reason. The lists equal what the two real manifests say, read by the test, not copied into it. An entry with no readable manifest is never picked. The same profile always gives the same choice.
+- **U3.** No `library_entry` in any reply before a profile is confirmed. After it, replies to messages 2 and 3 for that machine carry it, and replies for another machine do not. `settings` holds only the keys that are set. The settings route refuses the key. The state shows wanted and reported apart.
+- **U4.** Fixed answers with known right profiles, through the stand-in. "I don't know" leaves the field empty. A run that invents a speed is rejected, and so is one with an extra key or a value outside a list. The run's `choice` equals the lookup's for its profile. The stand-in's run is `simulated` and its explanation begins "Stand-in:".
+- **U5.** Each state in 16.3. Nothing is sent before confirm. The page never shows the wanted entry as in use. An empty `checked_on` reads "Checked on: nothing yet".
+- **U6.** `by` is the local profile's name when one is set, and what it was before when none is. The role is not sent. No password field exists. The words "login", "account", "sign in" and "security" appear nowhere on the page.
+- **D1.** Set by tracks 1 and 2 with the design.
+
+### 16.5 Checked, and not checked
+
+Read from `master` (`78d726b`) on 14 Nov. Nothing below was run.
+
+- The two manifests under `training/library/entries/`: `conveyor` has status `demo`, one training source and one evaluation source, both simulated, the evaluation one with `evaluated: false`. `generic_rotating` has status `unverified`, six simulated training sources and five evaluation sources, none evaluated. Each scorecard lists 21 fault types, all "not validated". Neither manifest has a field saying which profiles the entry suits.
+- The receiver puts the wanted `settings` into its replies in `platform/server/receiver_store.py`, and the settings route is in `receiver_server.py`.
+- `device/intake/uploader.py` hands a reply's `settings` to a handler given to it. `platform/link/device_link.py` reads only `sensitivity` from it.
+- The page keys are the nine in `platform/desktop/app/shell/pages.py`. `answerer()` in `app/data/state.py` gives `EFFENTE_ANSWERER`, else the login name.
+
+Not checked:
+
+| Open question | Who | Why it matters |
+|---------------|-----|----------------|
+| Has the whole team agreed contract section 10 and this section? | Jake | Until it has, this is one track's proposal |
+| Who builds U1 to U6? | Jake | The table proposes Jake for all six |
+| What does the device do with a wanted entry that differs from its own, and when? | Tracks 1 and 2 (D1) | It means calibrating again. Until settled, the device does nothing with it. |
+| Does a version 3.4 device ignore `library_entry` in `settings`? The device's own handler was not read. | Track 1 | Otherwise U3 breaks a device that has not been changed |
+| Does the device hold both entries, so a wanted one can be loaded with no file sent? | Track 1 | Contract 10.4 sends a name only |
+| Are the five value lists right for real machines? | All five | They are the lifecycle doc's examples |
+| Where does the lookup table live: with the library, as the lifecycle doc says, or in the platform? | Track 3 and Jake | U2 keeps it in the platform until track 3 adds a field to the manifest |
+| Does a local model fill the five fields from plain answers and pass the checks? | Jake | Otherwise the stand-in, or the form by hand |
+| Which key opens the tenth page? | Jake | Shortcuts 1 to 9 are taken |
+| Are the sample machine's id and the receiver's two refusals right (contract 9.6)? | Jake | Chosen while writing the agreed rule down |
+
+### 16.6 What not to say on stage
+
+On top of the lists in sections 14 and 15.6:
+
+- That the agent chose the model. Code did, from a table. The agent filled a form.
+- That the chosen entry is validated, or checked on real machines. Both entries are trained on simulated data and checked on nothing yet.
+- That the device is running the wanted entry, unless the screen shows the device reporting it.
+- That the local profile is a login, an account or security. It is a name on that laptop.
+- That setup knows the machine's speed, or anything else the person did not say.
