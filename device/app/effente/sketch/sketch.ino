@@ -271,6 +271,10 @@ char micLine[64];
 uint8_t micLen = 0;
 bool micOk = false;
 float micDb = NAN, micToneHz = NAN;
+// The tone as the screen shows it: smoothed, 0.6 of what it showed and 0.4 of each new reading (the user,
+// 14 Nov), so the number doesn't jump about. Only the screen: the readings sent on are untouched.
+const float TONE_KEEP = 0.6f;
+float micToneShown = NAN;
 uint32_t micLines = 0, micAt = 0;
 char espIp[20] = "";
 bool espTell = false;
@@ -386,6 +390,8 @@ void micPoll() {
         if (!micFastAt || millis() - micFastAt > 500) micDb = db;
         parseNum(p);                 // peak
         micToneHz = parseNum(p);
+        micToneShown = (micToneShown == micToneShown && millis() - micAt < 2000)
+                           ? TONE_KEEP * micToneShown + (1.0f - TONE_KEEP) * micToneHz : micToneHz;
         micLines++;
         micAt = millis();
       } else if (!strncmp(micLine, "IP,", 3)) {
@@ -551,8 +557,9 @@ void composeTiles() {
   } else {
     float db = micDb + 120.0f;
     fnum(val[4], db < 0 ? 0 : db, 0);
-    if (micToneHz >= 999.5f) { fnum(val[5], micToneHz / 1000, micToneHz < 9950 ? 1 : 0); units[5] = "k"; }
-    else fnum(val[5], micToneHz, 0);
+    float tone = micToneShown == micToneShown ? micToneShown : micToneHz;
+    if (tone >= 999.5f) { fnum(val[5], tone / 1000, tone < 9950 ? 1 : 0); units[5] = "k"; }
+    else fnum(val[5], tone, 0);
   }
   static const char *labels[6] = {"VIB", "PEAK", "TEMP", "HZ", "SND", "TONE"};
   for (uint8_t i = 0; i < 6; i++) {

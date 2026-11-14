@@ -520,3 +520,46 @@ if __name__ == "__main__":
                 print(f"FAIL  {name}: {type(e).__name__}: {e}")
     print("all passed" if not failed else f"{failed} failed")
     sys.exit(1 if failed else 0)
+
+
+def test_one_sudden_loud_sound_shows_at_once_holds_30_s_and_follows_the_spike_dial():
+    """A shout into the microphone: one second well louder than any second while learning. 6 dB over the loudest
+    counts at the default spike sensitivity, 3 dB at 0.75; it shows with that second's row and stays 30 s."""
+    rng = np.random.default_rng(3)
+    n = 300
+    snd = rng.normal(90.0, 2.0, n)
+    lv = SF.learn_spike_levels(np.arange(n, dtype=float), {"vib_kurtosis": rng.normal(0, 0.3, n),
+                                                           "vib_peak_g": rng.normal(-1.3, 0.02, n),
+                                                           "snd_level_db": snd}, np.ones(n, bool))
+    top = float(snd.max())
+    assert abs(lv["sound_max"] - top) < 0.01
+
+    def make(loud, running=1):  # loud {second: dB over the loudest while learning}
+        def f(tt):
+            x = row(kurt=float(rng.normal(0.0, 0.3)), peak_g=0.05)
+            x[F.INDEX["trend_running"]] = running
+            x[F.INDEX["snd_level_db"]] = top + loud[int(tt)] if int(tt) in loud else float(rng.normal(90.0, 2.0))
+            return x
+        return f
+
+    def run(s, seconds, loud, running=1):
+        on, off = [], []
+        for k in range(int(seconds * 4)):
+            tt = k * 0.25
+            a, c = s.update(tt, make(loud, running)(tt))
+            on += [(tt, p) for p in a if p["name"] == "sudden_sound"]
+            off += [tt for name in c if name == "sudden_sound"]
+        return on, off
+
+    spikes = lambda sens: SF.Safety({"levels": {}, "spikes": lv}, spike_sensitivity=sens)  # noqa: E731
+    assert run(spikes(0.5), 300, {}) == ([], [])  # the room as it was: nothing
+    on, off = run(spikes(0.5), 120, {40: 20.0})  # a yell: 20 dB over the loudest second while learning
+    assert [tt for tt, _ in on] == [40.0] and off == [70.0], (on, off)
+    p = on[0][1]
+    assert p["symptom"] == "louder_than_normal" and SF.screen_text(p) == "LOUDER THAN NORMAL" and abs(p["value"] - 20.0) < 0.01
+    assert run(spikes(0.5), 120, {40: 4.0})[0] == []  # 4 dB over: not at the default
+    assert [tt for tt, _ in run(spikes(0.75), 120, {40: 4.0})[0]] == [40.0]  # but at 0.75 (3 dB)
+    assert run(spikes(0.5), 120, {40: 20.0}, running=0)[0] == []  # a stopped machine is not judged
+    no_sound = dict(lv)
+    no_sound.pop("sound_max")
+    assert SF.Safety({"levels": {}, "spikes": no_sound}).measure(0.0, row()).get("sudden_sound") is None  # learned without a mic

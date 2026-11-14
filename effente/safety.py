@@ -147,12 +147,21 @@ SPIKE_SHORT_FLOOR = {"snd_kurt_hf": 1.0, "vib_kurtosis": 1.0, "vib_peak_g": 0.15
 # alerts a week from 2x down, from people knocking the device; the maximum gave none from 1.25x to 5x.
 # Simulated and test data only: unverified on a real machine.
 IMPACT_FEATURE, IMPACT_MIN_G, IMPACT_HOLD_S = "vib_peak_g", 0.05, 30.0
+# One sudden loud sound (a shout, a bang, something dropped out of the accelerometer's reach): the same for
+# sound. A single whole second whose sound level is over the highest of any second while learning by more than
+# the sound margin (6 dB at the default spike sensitivity, margins()["sound"]). It shows at once as LOUDER THAN
+# NORMAL and stays IMPACT_HOLD_S. Added 14 Nov after a yell into the microphone (26 dB over the room, 118 dB
+# on the mic's scale) left the model at 0.73 of its line and its spike rule at 0.23: the model has 45 sound
+# readings among about 100 and judges them all together, and louder_than_normal needs 10 s. The level of the
+# whole second, not its loudest instant: a click is not a loud second. Bench only: unverified on a machine,
+# where a passing forklift's beeper or a dropped spanner would show too.
+SOUND_FEATURE = "snd_level_db"
 
 SENSOR = ("sensor_problem",)
 UNIVERSAL = ("vibration_over_limit", "knocking", "too_hot", "heating_fast", "repeated_jolts")
 RELATIVE = ("vibration_above_normal", "hotter_than_normal", "louder_than_normal")
 RATES = ("more_impacts",)
-MOMENTS = ("sudden_impact",)  # on with the moment itself, off when its own hold ends
+MOMENTS = ("sudden_impact", "sudden_sound")  # on with the moment itself, off when its own hold ends
 CHECKS = SENSOR + UNIVERSAL + RELATIVE + RATES + MOMENTS
 # Old names of checks, as older saved models still list them in their baseline's "dropped".
 # "vibration_too_high" is now only a model fault type (effente.fault_types).
@@ -173,6 +182,7 @@ WHAT = {  # what each problem is, for people: (sentence, the screen's short form
     "louder_than_normal": ("louder than its normal", "LOUDER THAN NORMAL", "{v:+.0f} dB OVER NORMAL"),
     "more_impacts": ("more knocks or clicks than its normal", "MORE IMPACTS", None),
     "sudden_impact": ("a sudden impact, well beyond any while learning", "SUDDEN IMPACT", "IMPACT {v:.1f}x NORMAL"),
+    "sudden_sound": ("a sudden loud sound, well beyond any while learning", "SUDDEN LOUD SOUND", "{v:+.0f} dB OVER LOUDEST"),
 }
 
 # What each check means for people, in the same words as the model's fault types (effente.fault_types
@@ -181,7 +191,8 @@ SYMPTOM = {"sensor_problem": "sensor_problem", "vibration_over_limit": "vibratio
            "knocking": "knocking_or_jolts", "too_hot": "too_hot", "heating_fast": "heating_fast",
            "repeated_jolts": "knocking_or_jolts", "vibration_above_normal": "vibration_too_high",
            "hotter_than_normal": "too_hot", "louder_than_normal": "louder_than_normal",
-           "more_impacts": "knocking_or_jolts", "sudden_impact": "knocking_or_jolts"}
+           "more_impacts": "knocking_or_jolts", "sudden_impact": "knocking_or_jolts",
+           "sudden_sound": "louder_than_normal"}
 
 _NAN = float("nan")
 
@@ -301,6 +312,7 @@ class Safety:
         move it, and it moves nothing else). The same scale: margins(spike_sensitivity)["vibration"] x the highest."""
         self.spike_sensitivity = spike_sensitivity
         self.spike_margin = margins(spike_sensitivity)["vibration"]
+        self.spike_sound_db = margins(spike_sensitivity)["sound"]  # sudden_sound: dB over the loudest while learning
 
     def set_baseline(self, baseline: dict | None) -> None:
         """This machine's normal, from training (None while nothing has been learned). Pass a model's
@@ -313,6 +325,7 @@ class Safety:
         self.spikes = (baseline or {}).get("spikes") or None
         self.spike_secs: dict[str, deque] = {n: deque() for n in SPIKE_FEATURES}  # whole seconds over the level
         self.impact_until, self.impact = -math.inf, (_NAN, _NAN)  # the hold's end; the biggest (ratio, peak in g) in it
+        self.loud_until, self.loud = -math.inf, _NAN  # sudden_sound: the hold's end; the most dB over in it
         for n in RELATIVE + RATES + MOMENTS + tuple(self.dropped):
             self.hist[n].clear()
             self.active.pop(n, None)
@@ -372,6 +385,20 @@ class Safety:
                     self.impact_until = t0 + IMPACT_HOLD_S
         return t0 < self.impact_until, self.impact[0]
 
+    def _sudden_sound(self, t0: float, x) -> tuple[bool, float]:
+        """(a sudden loud sound within the last IMPACT_HOLD_S, how many dB over the loudest second while learning).
+        Whole-second running rows only, like the impact."""
+        top = self.spikes.get("sound_max")
+        if top is not None and abs(t0 - round(t0)) < 1e-6 and not (x[F.INDEX["trend_running"]] < 0.5):
+            v = _f(x, SOUND_FEATURE)
+            if math.isfinite(v):
+                over = v - float(top)
+                if over > self.spike_sound_db:
+                    if t0 >= self.loud_until or not over <= self.loud:
+                        self.loud = over  # the loudest of this hold
+                    self.loud_until = t0 + IMPACT_HOLD_S
+        return t0 < self.loud_until, self.loud
+
     def _imu_rise(self, t0: float, temp: float) -> float:
         """IMU temperature rise over the last minute, in degC a minute (NaN for the first minute)."""
         if not math.isfinite(temp):
@@ -392,6 +419,8 @@ class Safety:
         if self.spikes:
             m["more_impacts"] = self._impacts(t0, x)
             m["sudden_impact"] = self._sudden_impact(t0, x)
+            if "sound_max" in self.spikes:
+                m["sudden_sound"] = self._sudden_sound(t0, x)
         return m
 
     def update(self, t0: float, x) -> tuple[list[dict], list[str]]:
@@ -540,6 +569,11 @@ def learn_spike_levels(t, values: dict, running) -> dict | None:
         ok = run & np.isfinite(v)
         if ok.sum() >= SPIKE_SHORT_MIN_S:
             peak_max = {"peak_max": round(float(v[ok].max()), 4)}
+    if SOUND_FEATURE in values:  # for the single sudden loud sound: the loudest of any running second (dB)
+        v = np.asarray(values[SOUND_FEATURE], float)[order]
+        ok = run & np.isfinite(v)
+        if ok.sum() >= SPIKE_SHORT_MIN_S:
+            peak_max["sound_max"] = round(float(v[ok].max()), 2)
     if feats:
         return {"features": feats, "window_s": SPIKE_SHORT_WINDOW_S, "factor": SPIKE_SHORT_FACTOR, "short": True,
                 **peak_max,

@@ -98,8 +98,8 @@ def _wrap(text: str, width: int = 21) -> list[str]:
 
 
 # The commands that do something in each mode (the others are refused or change nothing there).
-USEFUL_NOW = {"display": ["record", "detect", "clear_history"], "recording": ["stop", "idle"],
-              "training": [], "watching": ["record", "idle", "clear_history"]}
+USEFUL_NOW = {"display": ["record", "detect", "train", "clear_history"], "recording": ["stop", "idle"],
+              "training": [], "watching": ["record", "idle", "train", "clear_history"]}
 
 ADD_MIN_S = 30.0  # the least recording worth adding to earlier ones, in seconds
 JOIN_MAX_ROWS = 400_000  # rows of several recordings joined in memory: about 4 days at one a second
@@ -326,7 +326,7 @@ class DeviceApp:
                                     progress=progress)
             report["recordings"] = [f.name for f in folders]
             try:  # the more_impacts check's levels, from the recordings' one-a-second rows (an addition)
-                parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + ("trend_running",)) for f in folders]
+                parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + (SF.SOUND_FEATURE, "trend_running")) for f in folders]
                 ts = np.concatenate([p[0] for p in parts])
                 cols = {c: np.concatenate([p[1][c] for p in parts]) for c in parts[0][1]}
                 spikes = SF.learn_spike_levels(ts, cols, ~(cols["trend_running"] < 0.5))
@@ -501,6 +501,7 @@ class DeviceApp:
                                     "db_over_normal": round(m["sound"], 1),
                                     "model_score_over": round(m["model"], 2),
                                     "sudden_impact_times_highest_while_learning": round(sp["vibration"], 2),
+                                    "sudden_sound_db_over_loudest_while_learning": round(sp["sound"], 1),
                                     "model_spike_line_times": round(sp["model"], 2)},
                 "default": SF.DEFAULT_SENSITIVITY,
                 "note": "0 is least sensitive, 1 most; each 0.25 halves or doubles how far outside normal "
@@ -519,7 +520,7 @@ class DeviceApp:
             before = self.mode
             self.on_button()
             return {"command": name, "mode_before": before, "mode": self.mode}
-        if name in ("record", "stop", "idle", "detect"):
+        if name in ("record", "stop", "idle", "detect", "train"):
             with self.lock:
                 before = self.mode
                 if before == "training":
@@ -573,6 +574,23 @@ class DeviceApp:
         self.result, self.message, self.mode = None, "", "display"
         self._event("mode", {"mode": "display", "by": "command"})
         return note
+
+    def _do_train(self, body) -> str | None:
+        """Make the model again from the recordings there are, without recording more (after the device's
+        software or its training settings changed, say)."""
+        if self.mode == "recording":
+            raise ValueError('recording: send "stop" to end it and train')
+        folders = [Path(p) for p in self.sessions if Path(p).exists()]
+        if not folders and self.model_path is not None:  # a model from before the recordings were listed
+            guess = self.dir / "recordings" / self.model_path.stem
+            folders = [guess] if guess.exists() else []
+        if not folders:
+            raise ValueError("no recording to train from: record first")
+        self.sessions, self.fresh = [str(f) for f in folders], False
+        self.recording, self.record_started = folders[-1], None
+        self._resumed_training = True  # if it fails, go back to what there was, not into a recording
+        self._begin_training()
+        return f"training from {len(folders)} recording(s)"
 
     def _do_detect(self, body) -> str | None:
         """Back to checking against the model there is (from idle)."""
@@ -844,6 +862,7 @@ COMMANDS = {
             "kept for the next training; in IDLE nothing is compared with the learned normal (the fixed limits "
             "still apply). The model is kept",
     "detect": "from IDLE, back to DETECTING with the model there is",
+    "train": "make the model again from the recordings there are, without recording more: TRAINING, then DETECTING",
     "press": "the same as pressing the button: starts a recording from nothing (as record with keep false), or "
              "stops the recording and trains (a recording under 2 minutes carries on); does nothing while training",
     "clear_history": "forget what the device remembers of past vibration, sound and heat: the trends, and which "

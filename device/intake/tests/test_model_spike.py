@@ -56,7 +56,8 @@ def test_the_spike_line_is_learned_from_unsmoothed_scores_and_adds_no_model_file
     d = trained()
     ms = d["baseline"]["model_spike"]
     assert "model_spike" not in d and "spike_line" not in d  # the model file has the keys it had
-    assert Model(d).spike_line == ms["line"] and ms["line"] > 3 * d["threshold"], (ms, d["threshold"])
+    assert Model(d).spike_line == ms["line"] and abs(ms["line"] - 2.5 * d["threshold"]) < 1e-3, (ms, d["threshold"])
+    assert ms["highest_held_out"] > 0 and ms["tail_one_a_week"] > 0
     assert ms["line"] > 2 * ms["highest_held_out"]  # well above any single held-out second
     older = {k: v for k, v in d.items()}
     older["baseline"] = {k: v for k, v in d["baseline"].items() if k != "model_spike"}
@@ -67,11 +68,14 @@ def test_the_spike_line_is_learned_from_unsmoothed_scores_and_adds_no_model_file
     assert "model_spike" not in TR.train_model(tl, Xl, F.FEATURE_NAMES, period=60)[0]["baseline"]
 
 
-def test_ten_clean_minutes_give_no_spike_alarm_at_0_5_or_0_75():
+def test_ten_clean_minutes_give_no_spike_alarm_at_the_default():
+    """With the spike line at 2.5x the threshold (14 Nov; it was about 5x): nothing at 0.25 or 0.5. At 0.75 the
+    line is 1.25x the threshold and clean minutes do set it off (1 and 11 seconds in 10 minutes on two of three
+    made-up boards, measured 14 Nov), so that setting is no longer checked as clean here."""
     for seed in (0, 1):
         d = trained(seed)
         t, X = rows(LEARN + 600, seed=seed)
-        for sens in (0.5, 0.75):
+        for sens in (0.25, 0.5):
             got = watch(d, t[t >= LEARN], X[t >= LEARN], spike=sens)
             assert not any(st.get("spike") or st.get("spike_held") for _, _, st in got), (seed, sens)
             top = max(st.get("spike_score", 0) for _, _, st in got)
@@ -98,26 +102,27 @@ def test_one_abnormal_second_alarms_at_once_is_named_and_clears_after_the_hold()
 
 
 def test_a_smaller_spike_needs_the_spike_dial_up_and_the_main_dial_leaves_it_alone():
-    """A 0.10 g knock: not at spike sensitivity 0.5; at 0.75 and 1 it alarms, while the main sensitivity stays at
-    0.5, so the median rule judges exactly as before (the same level every second, and no alarm on clean data).
-    And the main dial doesn't move the spike line: at main 1 and spike 0.5 the knock is still not a spike."""
+    """A 0.10 g knock: not at spike sensitivity 0.25; at 0.5 it alarms (since the line came down to 2.5x the
+    threshold, 14 Nov), while the main sensitivity stays at 0.5, so the median rule judges exactly as before (the
+    same level every second, and no alarm on clean data). And the main dial doesn't move the spike line: at main 1
+    and spike 0.25 the knock is still not a spike."""
     d = trained()
     knock = LEARN + 60
     t, X = rows(LEARN + 140, knocks={knock: 0.1})
     live = t >= LEARN
-    assert not any(st.get("spike") or st.get("spike_held") for _, _, st in watch(d, t[live], X[live], spike=0.5))
+    assert not any(st.get("spike") or st.get("spike_held") for _, _, st in watch(d, t[live], X[live], spike=0.25))
     base = watch(d, t[live], X[live], spike_rule=False)
-    for dial in (0.75, 1.0):
+    for dial in (0.5,):
         got = watch(d, t[live], X[live], spike=dial)
         assert [k for k, wrong, st in got if st.get("spike") and wrong] == [knock + 1], dial
         assert [st.get("unknown_score") for _, _, st in got] == [st.get("unknown_score") for _, _, st in base]
     tc, Xc = rows(LEARN + 600)
     clean = watch(d, tc[tc >= LEARN], Xc[tc >= LEARN], spike_rule=False)
-    for dial in (0.75, 1.0):  # the median rule's alarm share on clean data: unchanged by the spike dial
+    for dial in (0.5, 0.75, 1.0):  # the median rule's alarm share on clean data: unchanged by the spike dial
         got = watch(d, tc[tc >= LEARN], Xc[tc >= LEARN], spike=dial)
         same = [(w, st.get("unknown_score")) for _, w, st in clean]
         assert [(w and not (st.get("spike") or st.get("spike_held")), st.get("unknown_score")) for _, w, st in got] == same
-    assert not any(st.get("spike") for _, _, st in watch(d, t[live], X[live], sensitivity=1.0, spike=0.5))
+    assert not any(st.get("spike") for _, _, st in watch(d, t[live], X[live], sensitivity=1.0, spike=0.25))
 
 
 def test_both_dials_persist_across_a_restart_and_round_trip_through_settings():

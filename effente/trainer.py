@@ -293,11 +293,15 @@ THRESHOLD_FACTOR = 4.0 ** -0.3
 SMOOTH_LONG, SMOOTH_SHORT = 10, 5  # periods the Watcher takes the median of before judging
 # The spike line (effente.model_runtime.Watcher): one period scoring over it alarms at once, without waiting for
 # the median. The threshold above is fitted to median-smoothed scores, and single healthy seconds go over it
-# (measured: see SPIKE_LINE_FACTOR's note in the commit), so the spike line is fitted to the UNSMOOTHED held-out
-# scores: their gamma tail at one a week, x SPIKE_LINE_FACTOR for headroom. Short recordings only (1 s periods and
-# the like): with 1-minute periods the model sees minute medians, which a 1-second spike cannot move, and system
-# C's false-alert numbers were measured without a second alarm path. Simulated data only (unverified).
-SPIKE_LINE_FACTOR = 4.0
+# (measured on the fake board, 13 Nov), so the spike line sits well above it: SPIKE_LINE_TIMES x the threshold.
+# 2.5 at the default spike sensitivity (the user, 14 Nov). Until then it was 4 x the one-a-week gamma tail of the
+# UNSMOOTHED held-out scores, which on the first real recording (10 minutes on a bench) came to 5.2 x the
+# threshold: a stomp of 0.8 g and a yell into the microphone both reached only about a quarter of it. At 2.5 x
+# the threshold a healthy single second has less room: the baseline keeps the highest held-out single score and
+# that gamma tail beside the line, so the headroom can be read off. Short recordings only (1 s periods and the
+# like): with 1-minute periods the model sees minute medians, which a 1-second spike cannot move, and system C's
+# false-alert numbers were measured without a second alarm path. Unverified: not yet run for long on a machine.
+SPIKE_LINE_TIMES = 2.5
 
 
 def fit_pca(Z: np.ndarray, var: float = PCA_VARIANCE, max_k: int = PCA_MAX_K):
@@ -419,10 +423,12 @@ def train_model(t, X, names, period: int | None = None, smooth: int | None = Non
     if not long:  # kept in the baseline (it already carries added keys), so the model file gets no new key
         single = s_int[calib]
         baseline["model_spike"] = {
-            "line": round(SPIKE_LINE_FACTOR * gamma_threshold(single, 7 * 86400 / period), 4),
+            "line": round(SPIKE_LINE_TIMES * d["threshold"], 4),
             "highest_held_out": round(float(single.max()), 4),
-            "note": f"one period's own score over this alarms at once: {SPIKE_LINE_FACTOR:g}x the gamma tail (one a "
-                    f"week) of the {len(single)} unsmoothed held-out scores"}
+            "tail_one_a_week": round(gamma_threshold(single, 7 * 86400 / period), 4),
+            "note": f"one period's own score over this alarms at once: {SPIKE_LINE_TIMES:g}x the model's threshold "
+                    f"(highest_held_out: the highest single score of the {len(single)} held-out periods; "
+                    f"tail_one_a_week: their gamma tail)"}
     say("learning fault types", 0.75)
     rng = np.random.default_rng(seed)
     dev_cols = [c for c in prep.names_out if c in prep.columns]
