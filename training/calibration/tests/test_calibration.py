@@ -224,6 +224,12 @@ def test_it_refuses_an_entry_this_device_cannot_run():
     raises(lambda: C.calibrate(dict(d, format="effente-model-0"), t, X, NAMES), "not an effente-model-1")
 
 
+def test_it_refuses_a_model_that_is_already_calibrated():
+    cal, _ = calibrated()
+    t, X = seconds(300, seed=32, start=50_300, vib=0.5, heat=8.0)
+    raises(lambda: C.calibrate(cal, t, X, NAMES), "already calibrated")
+
+
 # ----------------------------------------------------------------- what calibration is for
 
 def test_another_machine_of_the_type_alarms_on_the_entry_and_not_once_calibrated():

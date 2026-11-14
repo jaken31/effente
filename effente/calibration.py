@@ -174,7 +174,8 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
 
     entry_model: the entry's effente-model-1 dict (not changed). t, X, names: one-a-second feature
     rows with their times and feature names, as for effente.trainer.train_model. Returns
-    (model file dict, report). Raises ValueError if the entry is not a model this device can run,
+    (model file dict, report). Raises ValueError if the entry is not a model this device can run or
+    is itself a calibrated model,
     the machine ran for less than min_running_s seconds in the rows given, no reading the entry
     uses was measured, or no threshold can be
     set from the held-out rows (fewer of them than the entry's smoothing window, or a median score
@@ -184,6 +185,11 @@ def calibrate(entry_model: dict, t, X, names, *, min_running_s: float = MIN_RUNN
     if not (isinstance(threshold_median_multiple, (int, float)) and not isinstance(threshold_median_multiple, bool)
             and math.isfinite(threshold_median_multiple) and threshold_median_multiple > 0):
         raise ValueError("threshold_median_multiple must be a number above 0")
+    report_in = entry_model.get("training_report") if isinstance(entry_model, dict) else None
+    if isinstance(report_in, dict) and report_in.get("calibrated"):
+        # Its "not judged" readings carry a huge spread as if it were the entry's, so a second
+        # calibration would keep them unjudged for good and report nothing missing.
+        raise ValueError("this model is already calibrated to a machine; calibrate the library entry it came from")
     entry = RT.Model(entry_model)  # refuses another format or another feature list
     X = TR.to_current(X, names)
     names = list(F.FEATURE_NAMES)
