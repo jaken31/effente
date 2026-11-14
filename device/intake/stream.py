@@ -27,9 +27,6 @@ platform or curl connects. No UI here, only the data.
   GET /controls   everything a connected program can tell the device (settings and commands), each with
                   what it does, the values it takes and what it is now; the same list is in GET /
   POST /settings  change settings, as a JSON object: {"sensitivity": 0.7}
-  POST /model         put a model file in use that was sent in: {"model": {<the file>}, "note": "why"}
-  POST /model/patch   change values in the model in use: {"changes": {"threshold": 20.5}, "note": "why"}
-                      (both are checked first, and undone with the revert_model command)
   POST /command   do something once, as a JSON object: {"command": "clear_history"}
   GET /view       a small page for a browser on the same network: the state, the readings and what
                   is wrong, read from /latest every second
@@ -172,7 +169,6 @@ class Stream:
         self.controls = None  # () -> everything a connected program can tell the device, for GET / and /controls
         self.fires_at = None  # () -> the value each check fires at now, for GET /latest and /fires_at
         self.model_info = None  # (full) -> the model in use and how to compute with it, for GET /model
-        self.model_handler = None  # (whole or patch, the JSON body) -> reply dict: a model sent in, for POST /model
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -459,35 +455,21 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/") or "/"
         try:
-            if path not in ("/settings", "/command", "/model", "/model/patch"):
+            if path not in ("/settings", "/command"):
                 return self._json(404, dumps({"error": f"no such endpoint: {path}", **_INDEX}))
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                limit = 4_000_000 if path.startswith("/model") else 4096  # a model file is about 100 kB
-                if n > limit:
-                    raise ValueError(f"too much: {n} bytes (at most {limit})")
-                changes = json.loads(self.rfile.read(n) or b"{}")
+                changes = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
                 if not isinstance(changes, dict):
                     raise ValueError("send a JSON object, e.g. {\"sensitivity\": 0.7}")
             except ValueError as e:
                 return self._json(400, dumps({"ok": False, "error": str(e)}))
-            if path.startswith("/model"):
-                self._model(path == "/model", changes)
-            elif path == "/command":
+            if path == "/command":
                 self._command(changes)
             else:
                 self._settings(changes)
         except OSError:
             pass
-
-    def _model(self, whole: bool, body) -> None:
-        handler = self.stream.model_handler
-        if handler is None:
-            return self._json(404, dumps({"ok": False, "error": "this device takes no models"}))
-        try:
-            self._json(200, dumps({"ok": True, **handler(whole, body)}))
-        except ValueError as e:
-            self._json(400, dumps({"ok": False, "error": str(e)}))
 
     def _command(self, body) -> None:
         handler = self.stream.command_handler

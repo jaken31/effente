@@ -52,7 +52,7 @@ def test_controls_lists_every_setting_and_command():
             assert set(COMMANDS) <= set(latest["you_can_send"]["commands"]) and "does" in latest["you_can_send"]["settings"]["sensitivity"]
             short = latest["status"]["you_can_send"]
             assert short["commands"]["names"] == list(COMMANDS) and short["settings"]["names"] == list(SETTINGS)
-            assert short["commands"]["useful_now"] == ["record", "detect", "train", "clear_history", "revert_model"]  # idle
+            assert short["commands"]["useful_now"] == ["record", "detect", "train", "clear_history"]  # idle
             post(stream.port, "/settings", {"sensitivity": 0.75})
             assert get(stream.port, "/controls")["you_can_send"]["settings"]["sensitivity"]["now"] == 0.75
         finally:

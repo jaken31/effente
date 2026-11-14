@@ -25,7 +25,6 @@ Until the button is wired, creating a file named `press` in the data folder coun
 
 from __future__ import annotations
 
-import copy
 import json
 import math
 import threading
@@ -43,7 +42,7 @@ from effente.model_runtime import Model, Watcher
 from effente.trainer import SPIKE_LINE_TIMES as TR_SPIKE_TIMES
 from effente.trainer import choose_period, load_for_training, train_model
 from device.intake import contract as C
-from device.intake.extract import feature_stream, features_version
+from device.intake.extract import feature_stream
 from device.intake.live import log_record
 from device.intake.recorder import Recorder
 
@@ -100,8 +99,8 @@ def _wrap(text: str, width: int = 21) -> list[str]:
 
 
 # The commands that do something in each mode (the others are refused or change nothing there).
-USEFUL_NOW = {"display": ["record", "detect", "train", "clear_history", "revert_model"], "recording": ["stop", "idle"],
-              "training": [], "watching": ["record", "idle", "train", "clear_history", "revert_model"]}
+USEFUL_NOW = {"display": ["record", "detect", "train", "clear_history"], "recording": ["stop", "idle"],
+              "training": [], "watching": ["record", "idle", "train", "clear_history"]}
 
 ADD_MIN_S = 30.0  # the least recording worth adding to earlier ones, in seconds
 JOIN_MAX_ROWS = 400_000  # rows of several recordings joined in memory: about 4 days at one a second
@@ -201,9 +200,6 @@ class DeviceApp:
             self.stream.controls = self.controls
             self.stream.fires_at = self.fires_at
             self.stream.model_info = self.model_info
-            self.stream.model_handler = lambda whole, body: (
-                self.set_model(body.get("model", body) if whole else None, note=body.get("note", "")) if whole
-                else self.patch_model(body.get("changes"), note=body.get("note", "")))
         if self.screen is not None:
             threading.Thread(target=self._screen_worker, name="screen", daemon=True).start()
 
@@ -211,8 +207,7 @@ class DeviceApp:
     def _save_state(self):
         state = {"mode": self.mode, "recording": str(self.recording) if self.recording else None,
                  "record_started": self.record_started, "model": str(self.model_path) if self.model_path else None,
-                 "sessions": list(self.sessions), "fresh": self.fresh,
-                 "previous_model": getattr(self, "previous_model", None)}
+                 "sessions": list(self.sessions), "fresh": self.fresh}
         tmp = self.dir / "state.json.tmp"
         tmp.write_text(json.dumps(state))
         tmp.replace(self.dir / "state.json")
@@ -223,7 +218,6 @@ class DeviceApp:
         mode = state.get("mode", "display")
         self.sessions = [str(p) for p in state.get("sessions") or [] if Path(str(p)).exists()]
         self.fresh = bool(state.get("fresh"))
-        self.previous_model = state.get("previous_model")
         if state.get("model") and Path(state["model"]).exists():
             try:
                 self.model_path = Path(state["model"])
@@ -531,7 +525,7 @@ class DeviceApp:
             before = self.mode
             self.on_button()
             return {"command": name, "mode_before": before, "mode": self.mode}
-        if name in ("record", "stop", "idle", "detect", "train", "revert_model"):
+        if name in ("record", "stop", "idle", "detect", "train"):
             with self.lock:
                 before = self.mode
                 if before == "training":
@@ -615,114 +609,6 @@ class DeviceApp:
         self.mode = "watching"
         self._event("mode", {"mode": "watching", "by": "command"})
         return None
-
-    # ------------------------------------------------------------ a model sent in (a dashboard, or its LLM)
-    def set_model(self, d, note: str = "", by: str = "upload") -> dict:
-        """Put a model file in use that was sent in, not trained here: the whole file, in the device's own format
-        (GET /model gives the one in use as "model_file"). It is checked before anything changes, and the model it
-        replaces is kept for the "revert_model" command. Raises ValueError, changing nothing, if the device is
-        recording or training, or the file is not a model for this device's readings, or cannot judge a row."""
-        if not isinstance(d, dict):
-            raise ValueError("send the model file as a JSON object")
-        with self.lock:
-            if self.mode in ("recording", "training"):
-                raise ValueError(f"the device is {SCREEN_NAMES[self.mode]}: wait until it is IDLE or DETECTING")
-        if d.get("features_version") != features_version():
-            raise ValueError(f"this model is for other readings (features_version {d.get('features_version')!r}; "
-                             f"this device's is {features_version()!r})")
-        thr = d.get("threshold")
-        if isinstance(thr, bool) or not isinstance(thr, (int, float)) or not math.isfinite(thr) or thr <= 0:
-            raise ValueError("the model's threshold must be a number above 0")
-        try:
-            model = Model(d)  # refuses another format, and shapes that don't fit
-            trial = Watcher(model)
-            if self.latest is not None and self.latest_t is not None:
-                out = trial.predict_at(float(math.floor(self.latest_t)), np.array(self.latest, float))
-                score = out.get("unknown_score")
-                if score is not None and not math.isfinite(float(score)):
-                    raise ValueError("it gives no finite score for the readings as they are now")
-        except ValueError:
-            raise
-        except Exception as e:  # noqa: BLE001  anything a malformed file can do
-            raise ValueError(f"the model does not work: {type(e).__name__}: {e}"[:200]) from None
-        models = self.dir / "models"
-        models.mkdir(exist_ok=True)
-        stem = (self.model_path.stem.split("-sent-")[0] if self.model_path is not None else "model")
-        when, n = time.strftime("%Y%m%d-%H%M%S", time.localtime(self.clock())), 0
-        path = models / f"{stem}-sent-{when}.json"
-        while path.exists():  # two within a second: never write over the one that is the way back
-            n += 1
-            path = models / f"{stem}-sent-{when}-{n}.json"
-        path.write_text(json.dumps(d))
-        calib = _load_early(self.model_path) if self.model_path is not None else None
-        if calib is not None:  # the early warning's normal goes with the machine, not with the weights
-            _early_path(path).write_text(json.dumps(calib))
-        watcher = self._watcher(model, calib)
-        version = C.model_version_of(path)
-        with self.lock:
-            before, before_version = self.model_path, self.model_version
-            self.previous_model = str(before) if before is not None else None
-            self.model_path, self.watcher, self.model_version = path, watcher, version
-            if self.mode == "watching":
-                self.safety.set_baseline(SF.baseline_of(d))
-            self._save_state()
-        if self.uploader is not None:
-            self.uploader.announce(path, d, self.sensitivity)
-        self._event("model_replaced", {"by": by, "note": str(note)[:300], "was": before_version, "now": version,
-                                       "file": path.name, "model": self.model_info()})
-        return {"model_version": version, "was": before_version, "file": path.name,
-                "undo": 'POST /command {"command": "revert_model"}'}
-
-    def patch_model(self, changes, note: str = "", by: str = "patch") -> dict:
-        """Change values in a copy of the model in use, check it and put it in use (set_model). `changes` is
-        {"path": value}, a path being the keys from the top of the model file joined by dots, list positions as
-        numbers: {"threshold": 20.5, "baseline.levels.snd_level_db": 97.0, "residual_scale.3": 0.8}. Only values
-        that are there can be changed, each to the kind it is (a number for a number, a list of the same length
-        for a list): a path that does not exist is refused, so a slip of the pen changes nothing."""
-        if self.watcher is None:
-            raise ValueError("no model to change: record, then stop")
-        if not isinstance(changes, dict) or not changes:
-            raise ValueError('send {"changes": {"<path>": <value>, ...}}')
-        d = copy.deepcopy(self.watcher.m.d)
-        for path, value in changes.items():
-            node, keys = d, str(path).split(".")
-            for i, k in enumerate(keys):
-                last = i == len(keys) - 1
-                if isinstance(node, list):
-                    if not k.lstrip("-").isdigit() or not -len(node) <= int(k) < len(node):
-                        raise ValueError(f"{path}: no position {k} there (the list has {len(node)})")
-                    k = int(k)
-                elif not isinstance(node, dict) or k not in node:
-                    raise ValueError(f"{path}: nothing called {k!r} there")
-                if not last:
-                    node = node[k]
-                    continue
-                old = node[k]
-                num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
-                if num(old) and not (num(value) and math.isfinite(value)):
-                    raise ValueError(f"{path} is a number: send a number")
-                if isinstance(old, list) and not (isinstance(value, list) and len(value) == len(old)):
-                    raise ValueError(f"{path} is a list of {len(old)}: send a list of the same length")
-                if isinstance(old, dict) or (isinstance(old, str) and not isinstance(value, str)):
-                    raise ValueError(f"{path}: send the same kind of value as is there")
-                node[k] = value
-        out = self.set_model(d, note=note, by=by)
-        out["changed"] = sorted(changes)
-        return out
-
-    def _do_revert_model(self, body) -> str | None:
-        """Back to the model that was in use before the last one sent in."""
-        prev = Path(self.previous_model) if getattr(self, "previous_model", None) else None
-        if prev is None or not prev.exists():
-            raise ValueError("no earlier model to go back to")
-        model = Model.load(prev)
-        now = self.model_path
-        self.model_path, self.watcher = prev, self._watcher(model, _load_early(prev))
-        self.model_version, self.previous_model = C.model_version_of(prev), str(now) if now else None
-        if self.mode == "watching":
-            self.safety.set_baseline(SF.baseline_of(model.d))
-        self._event("model_replaced", {"by": "revert_model", "now": self.model_version})
-        return f"the model is {self.model_version} again"
 
     def model_info(self, full: bool = False) -> dict:
         """The model in use, for a dashboard that works things out itself: what it learned, and how a sensitivity
@@ -881,19 +767,6 @@ class DeviceApp:
                 "settings": {"send": 'POST /settings with a JSON object of the settings to change, e.g. {"sensitivity": 0.7}; '
                                      "GET /settings shows them and what they mean in numbers", **settings},
                 "commands": {"send": 'POST /command with {"command": "<name>"}', **COMMANDS},
-                "model": {
-                    "note": "the model itself can be sent in, by a person or a program (an LLM on the dashboard, say). "
-                            "Every change is checked first (the device's format, its readings, a finite score on "
-                            "the readings as they are), refused while RECORDING or TRAINING, announced in a "
-                            "model_replaced event, and undone with the revert_model command. Nothing checks who is "
-                            "sending: anyone on the network can",
-                    "read": "GET /model gives the model in use: \"model_file\" is the file, weights and all",
-                    "replace": "POST /model with {\"model\": {<the whole model file>}, \"note\": \"why\"}",
-                    "change_values": "POST /model/patch with {\"changes\": {\"<path>\": <value>}, \"note\": \"why\"}; a path is "
-                                     "the keys from the top of the model file joined by dots, list positions as numbers, "
-                                     "e.g. {\"threshold\": 20.5, \"baseline.levels.snd_level_db\": 97.0}. Only values "
-                                     "that exist can be changed, each to the kind it is",
-                    "undo": "POST /command {\"command\": \"revert_model\"}"},
                 "now": {"mode": self.mode, "state": SCREEN_NAMES[self.mode], "model": self.model_version,
                         "recordings_in_model": [Path(p).name for p in self.sessions]},
                 "states": {"IDLE": "reading the sensors; nothing recorded, nothing compared with a learned normal",
@@ -1148,7 +1021,6 @@ COMMANDS = {
             "still apply). The model is kept",
     "detect": "from IDLE, back to DETECTING with the model there is",
     "train": "make the model again from the recordings there are, without recording more: TRAINING, then DETECTING",
-    "revert_model": "back to the model that was in use before the last one sent in (POST /model, POST /model/patch)",
     "press": "the same as pressing the button: starts a recording from nothing (as record with keep false), or "
              "stops the recording and trains (a recording under 2 minutes carries on); does nothing while training",
     "clear_history": "forget what the device remembers of past vibration, sound and heat: the trends, and which "

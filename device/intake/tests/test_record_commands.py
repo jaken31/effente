@@ -55,33 +55,7 @@ def test_fixing_a_machine_idle_then_more_recording_and_the_model_is_made_again()
         k = 4 ** (2 * 0.5 - 1)  # a dashboard's own sum for sudden_impact at the default, against the device's
         mine = max((1 + 1 / k) * 10 ** info["learned"]["highest_while_learning"]["vib_peak_g_log10"], 0.05)
         assert abs(mine - app.fires_at()["one_moment"]["sudden_impact"]["fires_at"]) < 1e-3
-        # a model sent in (a dashboard's LLM, say): checked, put in use, and undone
-        was = app.model_version
-        out = app.patch_model({"threshold": d["threshold"] * 0.8, "baseline.levels.vib_total_g": 0.5}, note="more sensitive")
-        assert out["was"] == was and app.model_version == out["model_version"] != was and out["changed"] == ["baseline.levels.vib_total_g", "threshold"]
-        assert abs(app.watcher.m.threshold - d["threshold"] * 0.8) < 1e-9 and app.safety.levels["vib_total_g"] == 0.5
-        for bad, why in (({"no_such_key": 1}, "nothing called"), ({"threshold": "low"}, "send a number"),
-                         ({"threshold": -1}, "above 0"), ({"residual_scale": [1.0]}, "same length"),
-                         ({"baseline.levels": 3}, "same kind")):
-            try:
-                app.patch_model(bad)
-                raise AssertionError(bad)
-            except ValueError as e:
-                assert why in str(e), (bad, str(e))
-        assert app.model_version == out["model_version"]  # the refused ones changed nothing
-        whole = app.model_info(full=True)["model_file"]
-        other = dict(whole, features_version="0000")
-        try:
-            app.set_model(other)
-            raise AssertionError("a model for other readings was taken")
-        except ValueError as e:
-            assert "other readings" in str(e)
-        app.set_model(dict(whole, threshold=whole["threshold"] * 2), note="sent whole")
-        assert abs(app.watcher.m.threshold - d["threshold"] * 1.6) < 1e-9
-        app.command("revert_model", {})
-        assert abs(app.watcher.m.threshold - d["threshold"] * 0.8) < 1e-9  # one step back
         c = app.controls()
-        assert "change_values" in c["model"] and "revert_model" in c["commands"]
         assert {"record", "stop", "idle", "detect", "press", "clear_history"} <= set(c["commands"])
         assert c["now"]["state"] == "DETECTING" and len(c["now"]["recordings_in_model"]) == 2 and "TRAINING" in c["states"]
 
