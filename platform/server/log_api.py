@@ -4,6 +4,9 @@ receiver_server.py calls each function as `fn(request, query, *ids)`: see
 scan_api.py for what `request` offers. The log store is `request.server.store.partlog`.
 The answer that names a part (section 8.6) needs no route here: it comes in on
 the alarm answer route and reaches the log store through its `alarm_answered` hook.
+
+The three routes of section 9 (part readings) are stubs at the end: each answers
+400 "not built yet".
 """
 
 from log_store import DEFAULT_LOG_LIMIT, ENTRY_KINDS
@@ -63,3 +66,28 @@ def get_machine_log(request, query, machine_id):
 def get_machine_log_csv(request, query, machine_id):
     """GET /api/machines/<machine_id>/log.csv"""
     request.send_bytes(200, _log(request).machine_csv(machine_id, **_filters(query)), "text/csv; charset=utf-8")
+
+
+# ---- section 9: part readings. Stubs. ------------------------------------
+
+NOT_BUILT = "not built yet"
+
+
+def _not_built(request):
+    request.discard_body()  # unread bytes would be taken as the next request
+    raise BadRequest(NOT_BUILT)
+
+
+def put_probe(request, query, machine_id):
+    """PUT /api/machines/<machine_id>/probe (section 9.1)"""
+    _not_built(request)
+
+
+def get_part_readings(request, query, part_id):
+    """GET /api/parts/<part_id>/readings (section 9.3)"""
+    _not_built(request)
+
+
+def get_normal_spectrum(request, query, machine_id):
+    """GET /api/machines/<machine_id>/normal-spectrum (section 9.4)"""
+    _not_built(request)
