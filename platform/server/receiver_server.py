@@ -1,5 +1,6 @@
 """HTTP side of the effente receiver: API routes, the event stream and the
-dashboard's static files. Routes follow platform/CONTRACT.md sections 1 to 7.
+dashboard's static files. Routes follow platform/CONTRACT.md sections 1 to 8.
+The routes of section 8 are in scan_api.py and log_api.py.
 """
 
 import http.server
@@ -13,10 +14,13 @@ import threading
 import traceback
 import urllib.parse
 
+import log_api
+import scan_api
 from receiver_store import DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT, QUIET_AFTER_S, BadRequest, Store, parse_time
 
 KEEPALIVE_S = 5.0
 MAX_BODY_BYTES = 32 * 1024 * 1024
+FILE_CHUNK_BYTES = 64 * 1024  # how much of a file upload or download is in memory at once
 STREAM_QUEUE_SIZE = 2000  # events a slow stream client may fall behind before it is dropped
 
 CONTENT_TYPES = {
@@ -167,6 +171,61 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError as e:
             raise BadRequest(f"body is not valid JSON: {e}")
 
+    # What scan_api.py and log_api.py use: the same plumbing under public names,
+    # and two calls for bodies and replies too big to hold in memory.
+    def read_json(self):
+        return self._body()
+
+    def send_json(self, status, obj):
+        self._json(status, obj)
+
+    def send_bytes(self, status, body, content_type):
+        self._send(status, body, content_type)
+
+    def discard_body(self):
+        self._discard_body()
+
+    def read_body_to_file(self, path, max_bytes):
+        """Write the request's body to `path` as it arrives, never holding it in
+        memory. Returns its size. Content-Length is required, from 1 to
+        `max_bytes`. A refused or cut-off upload closes the connection, and what
+        was written of it is removed."""
+        self.close_connection = True  # until the whole body is read
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+            raise BadRequest("chunked uploads are not supported; send Content-Length")
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            raise BadRequest("Content-Length is required")
+        if not 1 <= length <= max_bytes:
+            raise BadRequest(f"body must be between 1 and {max_bytes} bytes")
+        left = length
+        try:
+            with open(path, "wb") as f:
+                while left:
+                    chunk = self.rfile.read(min(left, FILE_CHUNK_BYTES))
+                    if not chunk:
+                        raise BadRequest("the upload ended before the whole body arrived")
+                    f.write(chunk)
+                    left -= len(chunk)
+        except BaseException:
+            if os.path.exists(path):
+                os.remove(path)
+            raise
+        self.close_connection = False
+        return length
+
+    def send_file(self, path, content_type):
+        """Send the file at `path` as the reply, a piece at a time."""
+        with open(path, "rb") as f:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            while chunk := f.read(FILE_CHUNK_BYTES):
+                self.wfile.write(chunk)
+
     def _discard_body(self):
         """Read and drop a body no route will read. On a keep-alive connection,
         unread bytes would be taken as the start of the next request. A body
@@ -217,6 +276,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (("machines", None, "records"), {"GET": self.get_machine_records}),
             (("machines", None, "agent-runs"), {"GET": self.get_machine_runs}),
             (("machines", None, "alarms"), {"GET": self.get_machine_alarms}),
+            # Section 8. Each of these is a function in scan_api.py or log_api.py.
+            (("hello",), {"GET": self._api(scan_api.get_hello)}),
+            (("machines", None, "scans"), {"POST": self._api(scan_api.post_scan), "GET": self._api(scan_api.get_machine_scans)}),
+            (("scans", None), {"GET": self._api(scan_api.get_scan)}),
+            (("scans", None, "model.glb"), {"GET": self._api(scan_api.get_scan_model)}),
+            (("scans", None, "file"), {"GET": self._api(scan_api.get_scan_file)}),
+            (("machines", None, "parts"), {"POST": self._api(log_api.post_part), "GET": self._api(log_api.get_machine_parts)}),
+            (("parts", None), {"PUT": self._api(log_api.put_part)}),
+            (("machines", None, "log"), {"POST": self._api(log_api.post_entry), "GET": self._api(log_api.get_machine_log)}),
+            (("machines", None, "log.csv"), {"GET": self._api(log_api.get_machine_log_csv)}),
         ]
         for pattern, methods in routes:
             if len(pattern) != len(parts):
@@ -233,6 +302,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 handler = methods.get(method)
                 return (handler, args) if handler else (None, 405)
         return None, 404
+
+    def _api(self, function):
+        """A route handler that calls `function(request, query, *ids)` in scan_api.py or log_api.py."""
+        return lambda query, *ids: function(self, query, *ids)
 
     def do_GET(self):
         self._route("GET")
@@ -428,6 +501,7 @@ class Receiver:
     def stop(self):
         self._stop.set()
         self.hub.close()
+        self.store.close()
         if self._serving is not None:
             self.httpd.shutdown()
             self._serving.join(timeout=5)

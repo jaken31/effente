@@ -20,6 +20,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 
 REQUIRED_RECORD_FIELDS = ("device_id", "machine_id", "model_version", "at", "diagnosis")
 REQUIRED_CHECK_IN_FIELDS = ("machine_id", "mode", "at")
@@ -214,6 +215,36 @@ class Store:
         self.last_minutes = {}  # machine_id -> abnormal_minutes of the open alarm's newest record
         self.next_seq = 1
         self._load()
+        # Section 8. Made after the load, so each can read what is already stored.
+        # Imported here because both modules import BadRequest from this one.
+        from log_store import LogStore
+        from scan_store import ScanStore
+
+        self.scans = ScanStore(self)
+        self.partlog = LogStore(self)
+
+    def close(self):
+        """The receiver is stopping."""
+        self.scans.close()
+        self.partlog.close()
+
+    def _hook(self, hook, *args):
+        """Tell the log store something happened. Caller holds the lock. A hook
+        that fails is logged and skipped: it must never stop what the device or
+        a person sent from being stored. BadRequest passes, for `alarm_answered`."""
+        try:
+            hook(*args)
+        except BadRequest:
+            raise
+        except Exception:
+            traceback.print_exc()
+
+    def _alarm_event(self, alarm):
+        """Send the `alarm` event and tell the log store. Caller holds the lock. Returns the copy sent."""
+        copy = _alarm_copy(alarm)
+        self.emit("alarm", copy)
+        self._hook(self.partlog.alarm_changed, alarm)
+        return copy
 
     # ---- start-up -------------------------------------------------------
 
@@ -470,6 +501,7 @@ class Store:
                 self._note_readings(device, record)
                 self._note_sensitivity(device, record.get("sensitivity"))
                 self._track_alarm(record)
+                self._hook(self.partlog.record_stored, record)
             reply = {"ok": True, "stored": len(batch), "need_model": need_model}
             return self._reply_settings(reply, batch[-1]["device_id"]) if batch else reply
 
@@ -558,7 +590,7 @@ class Store:
             self.machine_alarms.setdefault(machine_id, []).append(alarm)
             self.open_alarms[machine_id] = alarm
             if emit:
-                self.emit("alarm", _alarm_copy(alarm))
+                self._alarm_event(alarm)
             return
         changed = record["diagnosis"] != alarm["diagnosis"]
         alarm["diagnosis"] = record["diagnosis"]
@@ -571,14 +603,14 @@ class Store:
         if record.get("simulated") is True:
             alarm["simulated"] = True
         if changed and emit:
-            self.emit("alarm", _alarm_copy(alarm))
+            self._alarm_event(alarm)
 
     def _close_alarm(self, alarm, emit):
         alarm["open"] = False
         self.open_alarms.pop(alarm["machine_id"], None)
         self.last_minutes.pop(alarm["machine_id"], None)
         if emit:
-            self.emit("alarm", _alarm_copy(alarm))
+            self._alarm_event(alarm)
 
     def _library_entry(self, model_version):
         entry = self.models.get(model_version, {}).get("library_entry")
@@ -617,12 +649,11 @@ class Store:
             answer["model_version"] = alarm["model_version"]
             answer["library_entry"] = alarm["library_entry"]
             answer["received_at"] = utc_now()
+            self._hook(self.partlog.alarm_answered, alarm, answer)
             self.answers_file.append([answer])
             alarm["answers"].append(answer)
             alarm["answer"] = answer
-            copy = _alarm_copy(alarm)
-            self.emit("alarm", copy)
-            return copy
+            return self._alarm_event(alarm)
 
     # ---- section 7: settings ----------------------------------------------
 
@@ -688,7 +719,7 @@ class Store:
                 newest = self._newest_first(history)
                 for alarm in newest[:ALARMS_PER_MACHINE] + [a for a in newest[ALARMS_PER_MACHINE:] if a["open"]]:
                     alarms[alarm["alarm_id"]] = _alarm_copy(alarm)
-            return {
+            reply = {
                 "ok": True,
                 "now": utc_now(),
                 "devices": devices,
@@ -696,6 +727,16 @@ class Store:
                 "machines": sorted(self.by_machine),
                 "alarms": alarms,
             }
+            # Section 8: each store adds its own keys, and the machines it knows of.
+            for part in (self.scans, self.partlog):
+                try:
+                    extra = dict(part.state_part())
+                except Exception:
+                    traceback.print_exc()  # the rest of the state must still be served
+                    continue
+                reply["machines"] = sorted(set(reply["machines"]) | set(extra.pop("machines", ())))
+                reply.update(extra)
+            return reply
 
 
 def _alarm_copy(alarm):

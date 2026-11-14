@@ -94,6 +94,54 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
 14. **More shortcuts, listed by `?`.** `app/shell/shortcuts.py` holds one table that registers the keys and fills the list: Esc, `[` and `]` for the machine, Ctrl+R, Ctrl+E, F11, `?` or F1, Ctrl+Q. Ctrl+K opens a search (`app/shell/search.py`) over the pages, the other machines and those actions. A page takes part in Ctrl+E by having `export_dialog()`; Ctrl+R calls the Agents page's `run_agent()`.
 15. **A launcher entry.** `python3 platform/desktop/install_launcher.py` adds effente to the Linux app launcher (`--remove` takes it out), with the icon `app/theme/effente.svg`. On macOS it writes two apps into `~/Applications` instead, `effente` and `effente (real device)` (`--no-sim`): each starts `main.py` with the PATH of the shell that installed it, and its output goes to `~/Library/Logs/effente.log`. A receiver that fails to start now also says so in a dialog, since a launcher start has no terminal.
 16. **The report's model runs on this laptop.** `app/data/model_server.py` runs llama.cpp's `llama-server` as a child on `127.0.0.1:8081` (`-m <file> --host --port --offline`), never a second one if the port already answers, and gives its state as a plain sentence: not installed, model file missing, failed to start, still loading, running. `app/data/model_settings.py` keeps the model folder (default `~/effente-models`) and the size, `small` or `large`, meaning `small.gguf` or `large.gguf` there, in the store from `app/settings.py`. On the state: `model_folder()`, `model_size()`, `set_model_folder()`, `set_model_size()`, `model_status()`, `start_model_server()`, `stop_model_server()`, and `model_changed()` when any of it moves. `start_agent("local")` first asks the server for its models and refuses with the reason when it does not answer. `stop()` stops a server the app started; one started elsewhere is left running. The Agents page shows all of it. Not checked: a real model file loading (none was at hand), so "still loading" rests on the server answering HTTP 503 meanwhile.
+17. **Two more pages, `machine` and `log`** ([docs/scan-and-log-plan.md](../../docs/scan-and-log-plan.md)). They come after the first seven, so shortcuts 1 to 7 are unchanged and the new ones are 8 and 9. Until its package exists under `app/pages/`, a page shows the "not built yet" placeholder. The Machine page's 3D view uses Qt Quick 3D, because QPainter cannot draw a textured model: the one named exception to the chart rule below. It is still not a web view, and every chart is still drawn with QPainter. In a window too short for nine nav items the nav scrolls with the wheel, so the smallest window stays 960x660.
+18. **`state.scans`** (`app/data/scans.py`, contract sections 8.2 to 8.4). A stub until built: reads are empty and actions report "not built yet" through `action_failed`.
+
+   | Kind | Name | Meaning |
+   |------|------|---------|
+   | signal | `scans_changed()` | A scan arrived or its status moved |
+   | signal | `model_ready(str)` | The converted file for this `scan_id` is on disk and can be shown |
+   | read | `current()` | The current machine's newest scan, or `None` |
+   | read | `all()` | The current machine's scans, newest first |
+   | read | `model_path(scan_id)` | Path of the converted file in the app's cache, or `None` while it is being fetched. Asking starts the fetch. |
+   | read | `qr_text(machine_id, name="")` | The line in contract section 8.2, with this laptop's address on the hotspot |
+   | action | `import_file(path)` | Send a USDZ or GLB file from this laptop's disk as a scan for the current machine. The fallback when the phone cannot upload. |
+
+19. **`state.log`** (`app/data/partlog.py`, contract sections 8.5 to 8.8). A stub until built, as `state.scans`.
+
+   | Kind | Name | Meaning |
+   |------|------|---------|
+   | signal | `parts_changed()` | A part was made, changed, or its state moved |
+   | signal | `entries_changed()` | An entry was added |
+   | signal | `selection_changed()` | Another part was selected |
+   | signal | `reviews_changed()` | A part review run started, moved or ended |
+   | read | `parts()` | The current machine's parts, without removed ones |
+   | read | `part(part_id)` | One part, or `None` |
+   | read | `entries(part_id=None, kind=None)` | The current machine's entries, newest first |
+   | read | `suspects(alarm)` | The parts whose `fault_types` hold this alarm's `diagnosis` |
+   | read | `waiting_alarms()` | The current machine's alarms that have no answer naming a part |
+   | read | `selected_part()` | The selected part's id, or `None` |
+   | read | `review(part_id)` | The newest part review run for this part, or `None` |
+   | read | `review_running(part_id)` | `True` while one runs |
+   | action | `select_part(part_id)` | Select a part. Both pages follow the selection. |
+   | action | `create_part(name, kind, position=None)` | Make a part on the current machine |
+   | action | `update_part(part_id, **fields)` | Change a part, including moving its pin |
+   | action | `add_entry(kind, text, part_id=None, needs_repair=None, alarm_id=None)` | Add an entry |
+   | action | `answer_alarm_for_part(alarm_id, verdict, part_id, finding=None, needs_repair=None)` | Answer an alarm and name the part |
+   | action | `start_review(part_id=None, mode="standin")` | Run the part review for one part, or for every part when `None`. `mode` is `standin` or `local`, as for the report agent. |
+   | action | `export_csv(path)` | Save the log as a CSV file |
+
+   Both objects send `by` from the state's existing `answerer()`. A failed action is reported through the state's existing `action_failed(str)`. The state passes both every snapshot (`apply_snapshot(snap)`) and every stream event (`apply_event(name, data)`).
+
+   The two pages talk only through `state.log`'s selection. The Machine page's "Open log" button calls `select_part` and then `navigate("log")`. The Log page's "Show on machine" button calls `select_part` and then `navigate("machine")`. Neither page imports the other.
+20. **Sample data in the fakes.** `FakeState().scans` is a `FakeScans` (`tests/fake_scans.py`) and `FakeState().log` a `FakeLog` (`tests/fake_partlog.py`), so both pages can be built before the real stores work. The sample is written by hand, not by real code:
+   - One machine: the fake state's own, `demo-fan-1`, so the sample's alarm links are to alarms the fake state has.
+   - One scan, `ready`, whose model is a small box written by code when the tests run. No binary file is committed.
+   - Four parts: "Drive roller" (`roller`, `needs_repair`), "Motor mount" (`mount`, `possible`), "Belt" (`belt`, `nothing_found`), and "Idle roller" (`roller`, `not_checked`, no pin).
+   - Six entries covering every `kind`, one of them made from an alarm answer.
+   - One finished part review for "Drive roller".
+   - Actions change only the fake. They do not work a part's state out again: `FakeLog.set_part_state` and `FakeScans.set_status` show another state.
+21. **General API calls.** `ApiClient.get(path, **query)`, `post(path, body, file=, content_type=, **query)`, `put(path, body)` and `get_bytes(path, to=)`, with `quote()` for ids put into a path, so `scans.py` and `partlog.py` need no further change to `api.py`. `post(file=...)` sends a file's raw bytes and `get_bytes(to=...)` writes a reply to a file, both a piece at a time.
 
 ## Rules
 

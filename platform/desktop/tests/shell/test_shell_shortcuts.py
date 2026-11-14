@@ -112,7 +112,7 @@ def test_question_mark_shows_the_list_and_escape_hides_it(window, qtbot, key, mo
 
 def test_the_list_shows_every_key_that_works(window):
     shown = [keys for keys, _ in window.shortcut_help.rows]
-    assert shown == ["1 to 7", *(a[1] for a in shortcuts.ACTIONS)]
+    assert shown == ["1 to 9", *(a[1] for a in shortcuts.ACTIONS)]
     for _, _, _, method in shortcuts.ACTIONS:
         assert callable(getattr(window, method))
 

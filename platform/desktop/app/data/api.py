@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import socket
 import threading
 import urllib.error
@@ -21,6 +22,7 @@ from PySide6.QtCore import QObject, Signal
 TIMEOUT_S = 5.0
 STREAM_READ_TIMEOUT_S = 15.0  # the receiver sends a comment every 5 s; three missed means it is gone
 RECONNECT_S = (0.5, 1.0, 2.0)  # waits between attempts, then 2 s for ever
+FILE_CHUNK_BYTES = 64 * 1024  # how much of a file upload or download is in memory at once
 RANGE_PAGE = 2000  # records per request when reading a range: the receiver's most
 
 
@@ -30,6 +32,26 @@ class ApiError(Exception):
 
 def _q(part: str) -> str:
     return urllib.parse.quote(part, safe="")
+
+
+quote = _q  # for callers of ApiClient.get, post, put and get_bytes
+
+
+def _query(query: dict) -> str:
+    """`?a=1&b=2` from the values that are not None, or nothing."""
+    pairs = [(k, "1" if v is True else "0" if v is False else str(v)) for k, v in query.items() if v is not None]
+    return "?" + urllib.parse.urlencode(pairs, quote_via=urllib.parse.quote) if pairs else ""
+
+
+def _error_text(e: urllib.error.HTTPError) -> str:
+    """The receiver's `error` sentence from a refused request, else the status."""
+    with e:
+        try:
+            reply = json.loads(e.read() or b"{}")
+        except ValueError:
+            reply = {}
+    message = reply.get("error") if isinstance(reply, dict) else None
+    return message or f"HTTP {e.code}"
 
 
 class ApiClient:
@@ -45,17 +67,14 @@ class ApiClient:
         req = urllib.request.Request(self.base + path, data=data, method=method)
         if data is not None:
             req.add_header("Content-Type", "application/json")
+        return self._reply(req)
+
+    def _reply(self, req) -> dict:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as e:
-            with e:
-                try:
-                    reply = json.loads(e.read() or b"{}")
-                except ValueError:
-                    reply = {}
-            message = reply.get("error") if isinstance(reply, dict) else None
-            raise ApiError(message or f"HTTP {e.code}") from None
+            raise ApiError(_error_text(e)) from None
         except (OSError, ValueError) as e:
             raise ApiError(f"receiver not reachable: {e}") from None
         try:
@@ -65,6 +84,49 @@ class ApiClient:
         if not isinstance(reply, dict) or reply.get("ok") is not True:
             raise ApiError(str(reply.get("error", "reply was not ok")) if isinstance(reply, dict) else "bad reply")
         return reply
+
+    # ---- general calls, for app/data/scans.py and app/data/partlog.py -----
+    #
+    # `path` starts at /api and is already quoted: use `quote()` on each id put
+    # into it. `query` values that are None are left out. All four raise ApiError.
+
+    def get(self, path: str, **query) -> dict:
+        """GET a JSON route. Returns the whole reply."""
+        return self._call("GET", path + _query(query))
+
+    def post(self, path: str, body=None, *, file=None, content_type: str | None = None, **query) -> dict:
+        """POST a JSON `body`, or with `file` (a path) that file's raw bytes, sent
+        a piece at a time with `content_type`. Returns the whole reply."""
+        if file is None:
+            return self._call("POST", path + _query(query), {} if body is None else body)
+        with open(file, "rb") as f:
+            headers = {"Content-Type": content_type or "application/octet-stream",
+                       "Content-Length": str(os.fstat(f.fileno()).st_size)}
+            req = urllib.request.Request(self.base + path + _query(query), data=f, method="POST", headers=headers)
+            return self._reply(req)
+
+    def put(self, path: str, body: dict, **query) -> dict:
+        """PUT a JSON body. Returns the whole reply."""
+        return self._call("PUT", path + _query(query), body)
+
+    def get_bytes(self, path: str, to=None, **query):
+        """GET a route that answers with a file. Returns its bytes, or with `to` (a path)
+        writes them there a piece at a time and returns how many there were."""
+        req = urllib.request.Request(self.base + path + _query(query), method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                if to is None:
+                    return resp.read()
+                size = 0
+                with open(to, "wb") as f:
+                    while chunk := resp.read(FILE_CHUNK_BYTES):
+                        f.write(chunk)
+                        size += len(chunk)
+                return size
+        except urllib.error.HTTPError as e:
+            raise ApiError(_error_text(e)) from None
+        except (OSError, ValueError) as e:
+            raise ApiError(f"receiver not reachable: {e}") from None
 
     # ---- section 5: reads -------------------------------------------------
 

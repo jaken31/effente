@@ -9,8 +9,10 @@ from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -30,6 +32,8 @@ NAV = [
     ("evidence", "Evidence", False),
     ("agent", "Agents", False),
     ("device", "Device & model", False),
+    ("machine", "Machine", False),
+    ("log", "Log", False),
 ]
 KEYS = [k for k, _, _ in NAV]
 LINE = 19  # 13px text at the mockup's line-height 1.45
@@ -223,6 +227,29 @@ class _RightElidedLabel(QLabel):
         p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), shown)
 
 
+class _NavScroll(QScrollArea):
+    """Holds the nav at its full height. Only in a window too short for all nine
+    items does it shrink, by up to the two items added after the first seven:
+    so the smallest window is still 960x660 and looks as it did. The wheel then
+    scrolls it, with no bar drawn, and the page shown is always scrolled into view."""
+
+    def __init__(self, nav: Nav, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWidget(nav)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+
+    def sizeHint(self) -> QSize:
+        return self.widget().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        hint = self.widget().sizeHint()
+        return QSize(hint.width(), hint.height() - 2 * (34 + 1))  # two top-level items and their gaps
+
+
 class DeviceCard(QWidget):
     """Device id with its dot, then label/value rows, under a hairline."""
 
@@ -309,7 +336,8 @@ class Sidebar(QWidget):
 
         self.nav = Nav(self)
         self.nav.navigate.connect(self.navigate)
-        lay.addWidget(self.nav)
+        self._nav_scroll = _NavScroll(self.nav, self)
+        lay.addWidget(self._nav_scroll)
         lay.addStretch(1)
 
         colours = QWidget(self)
@@ -373,6 +401,7 @@ class Sidebar(QWidget):
 
     def set_active(self, key: str) -> None:
         self.nav.set_active(key)
+        self._nav_scroll.ensureWidgetVisible(self.nav.items[key], 0, 0)
 
     def set_badge(self, key: str, text: str | None) -> None:
         self.nav.items[key].set_badge(text)

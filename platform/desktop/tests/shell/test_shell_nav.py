@@ -18,7 +18,7 @@ def test_sidebar_click_routes(window, qtbot):
 
 
 def test_shortcuts_follow_interface_order(window, qtbot):
-    assert KEYS == ["live", "spectrum", "thermal", "history", "evidence", "agent", "device"]
+    assert KEYS == ["live", "spectrum", "thermal", "history", "evidence", "agent", "device", "machine", "log"]
     window.activateWindow()
     qtbot.waitActive(window)
     for i, key in enumerate(KEYS):
