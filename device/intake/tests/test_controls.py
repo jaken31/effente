@@ -87,6 +87,23 @@ def test_press_is_the_button_and_unknown_commands_are_refused():
             stream.stop()
 
 
+def test_the_platforms_replies_can_carry_settings_and_commands():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        app, src, stream, _ = app_and_stream(d)
+        try:
+            app.platform_settings({"sensitivity": 0.6, "spike_sensitivity": 0.25, "no_such_setting": 1})
+            assert app.sensitivity == 0.6 and app.spike_sensitivity == 0.25
+            cmds = [{"id": "a1", "command": "clear_history"}, {"id": "a2", "command": "no_such_command"}, {"command": "press"}]
+            app.platform_commands(cmds)
+            assert app._clear_history is True and app.mode == "display"  # the one with no id is not done
+            app._clear_history = False
+            app.platform_commands(cmds)  # the platform repeats them: nothing is done twice
+            assert app._clear_history is False
+            assert json.loads((app.dir / "commands_done.json").read_text()) == ["a1", "a2"]
+        finally:
+            stream.stop()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

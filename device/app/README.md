@@ -140,6 +140,35 @@ MLX90640 ──I2C──> ESP32-S3 ──WiFi──> TCP 8767 (raw frames) ─�
 - **Checked:** the firmware compiles for the ESP32-S3 with and without `secrets.h`; the Linux side is tested against a fake ESP32 ([test_thermal_link.py](../intake/tests/test_thermal_link.py)).
 - **Unverified:** everything with the real camera: the pins, its settings (4 Hz, so 2 whole frames a second), whether WiFi disturbs the microphone, and the sketch's passing on of the address.
 
+## A faster Bridge line (13 Nov, on this board)
+
+The line between the microcontroller and the Linux side runs at 115200 baud by default, and the sensor's batches fill it to 65 %: the loop then spends so long sending that the sensor's FIFO overflowed about once every 4 seconds, and anything more on the line cost accelerometer samples. At 460800 baud that is gone.
+
+| Measured over a minute, on the board | Samples a second | FIFO overflows a second |
+|---|---|---|
+| 115200, no sound sets on the line | 992 | 0.25 |
+| 115200, one sound set a second on the line | about 975 | 0.5 |
+| 115200, sound by WiFi | 990 | 0.21 |
+| **460800, sound by WiFi** | **1,000** | **0** |
+
+Two things must match, or nothing arrives at all:
+
+1. **The sketch:** `BRIDGE_BAUD` (460800) in `Bridge.begin(BRIDGE_BAUD)`.
+2. **The board's router service:** a drop-in, `/etc/systemd/system/arduino-router.service.d/20-effente-baud.conf`, that starts `arduino-router` with `--serial-baudrate 460800` (the board's own setting is generated at each boot in `/run/systemd/generator/arduino-router.service.d/10-imola.conf`, with 115200; the drop-in in `/etc` wins). It needs `sudo`:
+
+```
+[Service]
+ExecStart=
+ExecStart=/usr/bin/arduino-router --unix-port /var/run/arduino-router.sock --serial-port /dev/ttyHS1 --serial-baudrate 460800 --after-ready '/usr/bin/gpioset -c /dev/gpiochip1 -t0 70=1'
+```
+
+then `sudo systemctl daemon-reload && sudo systemctl restart arduino-router`, and start the app.
+
+- **It is this board's setting, not the app's:** `deploy.sh` does not make the drop-in. On a board without it, set `BRIDGE_BAUD` back to 115200.
+- **Every other app on the board** that uses the Bridge at its default speed stops reaching the Linux side while the drop-in is there.
+- **To go back:** delete the drop-in, reload and restart the router as above, and set `BRIDGE_BAUD` to 115200. The sketch as it was is saved on the board as `~/sketch-115200-backup.ino`.
+- **Not tried:** faster than 460800, a reboot of the board with the drop-in in place, and a long run.
+
 ## Deploy, and connect to the stream
 
 **Starting at power-up:** on 13 Nov effente was set as the board's default app, so it starts by itself when the board is plugged in:

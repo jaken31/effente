@@ -129,6 +129,10 @@ class DeviceApp:
         self.latest, self.latest_t = None, None
         self.last_press = -math.inf
         self.history = History.load(self.dir / "history.npz")
+        try:  # the ids of the platform's commands already done
+            self._commands_done = [str(v) for v in json.loads((self.dir / "commands_done.json").read_text())][-200:]
+        except (OSError, ValueError):
+            self._commands_done = []
         self.settings_path = self.dir / "settings.json"
         self.sensitivity, self._settings_seen = SF.DEFAULT_SENSITIVITY, None
         self.spike_sensitivity = SF.DEFAULT_SENSITIVITY  # the second dial: single spikes only (added 13 Nov)
@@ -146,6 +150,7 @@ class DeviceApp:
         self._resume()
         if self.uploader is not None:
             self.uploader.on_settings = self.platform_settings
+            self.uploader.on_commands = self.platform_commands
             if self.watcher is not None:
                 self.uploader.announce(self.model_path, self.watcher.m.d, self.sensitivity)
         if self.stream is not None:
@@ -482,20 +487,53 @@ class DeviceApp:
         }
         return {"note": "settings stay until changed again and survive a restart; commands happen once. Nothing "
                         "else can be sent to the device. There is no password: anyone on the network can send these",
+                "two_ways_in": {
+                    "straight to the device": "POST to this server (port 8765), from a dashboard or any program on the "
+                                              "same network; a browser page may too (any origin is allowed)",
+                    "through the laptop platform": "when the device uploads to the platform (EFFENTE_PLATFORM_URL), the "
+                                                   "platform's replies may carry \"settings\": {...} and \"commands\": "
+                                                   "[{\"id\": \"...\", \"command\": \"clear_history\"}]; each id is "
+                                                   "done once. The device asks every few seconds, so this way is slower"},
                 "settings": {"send": 'POST /settings with a JSON object of the settings to change, e.g. {"sensitivity": 0.7}; '
                                      "GET /settings shows them and what they mean in numbers", **settings},
                 "commands": {"send": 'POST /command with {"command": "<name>"}', **COMMANDS}}
 
     def platform_settings(self, settings: dict) -> None:
-        """Settings in a reply from the platform (CONTRACT.md section 7): a sensitivity that differs
-        from the device's own is applied and saved, so it survives a restart."""
-        v = settings.get("sensitivity")
-        if v is None or v == self.sensitivity:
+        """Settings in a reply from the platform (CONTRACT.md section 7: sensitivity; the other settings are
+        taken the same way if the platform sends them): each that differs from the device's own is applied and
+        saved, so it survives a restart."""
+        now = self._dials()
+        changes = {k: v for k, v in settings.items() if k in SETTINGS and v != now.get(k)
+                   and not (v is None and k not in OVERRIDES)}  # any setting the dashboard has a value for
+        if not changes:
             return
         try:
-            self.settings({"sensitivity": v})
+            self.settings(changes)
         except ValueError as e:
             self.message = f"platform setting not used: {e}"[:80]
+
+    def platform_commands(self, commands: list) -> None:
+        """Commands in a reply from the platform: what the dashboard asked for, passed on. Each is
+        {"id": ..., "command": "clear_history"}; the platform repeats them in its replies until it sees them done,
+        so each id is done once (the ids done are remembered, the last 200, also across a restart). A "command"
+        event on the stream says what was done or why not."""
+        for c in commands[:20]:
+            if not isinstance(c, dict) or "id" not in c:
+                continue
+            cid = str(c["id"])[:64]
+            if cid in self._commands_done:
+                continue
+            self._commands_done.append(cid)
+            del self._commands_done[:-200]
+            try:
+                reply = self.command(str(c.get("command")), c)
+                self._event("command", {"id": cid, "from": "platform", **reply})
+            except ValueError as e:
+                self._event("command", {"id": cid, "from": "platform", "error": str(e)})
+        try:
+            (self.dir / "commands_done.json").write_text(json.dumps(self._commands_done))
+        except OSError:
+            pass
 
     def _assign(self, values: dict) -> None:
         """Set checked settings and apply the result everywhere it is used; a "settings" event says what changed."""

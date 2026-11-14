@@ -26,6 +26,11 @@ const int BUTTON_PIN = 9;  // D9 to GND (the board as wired, 13 Nov)
 const uint8_t GYRO_EVERY = 10;     // 1 kHz / 10 = 100 gyro samples a second
 const uint16_t MAX_BATCH = 30;     // samples per notification: 180 + 18 bytes, inside the 256-byte RPC buffer
 const uint32_t READ_EVERY_US = 25000;
+// The Bridge line's speed. The default is 115200, which the sensor's batches fill to 65 %, so anything more
+// costs accelerometer samples. A faster line needs the board's router started at the same speed: a drop-in
+// for arduino-router.service with --serial-baudrate (device/app/README.md, "A faster Bridge line"). The two
+// must match, or nothing arrives. Set to 115200 for a board whose router was not changed.
+const unsigned long BRIDGE_BAUD = 460800;
 
 // ------------------------------------------------------------------ MPU6050
 bool mpuWrite(uint8_t reg, uint8_t val) {
@@ -667,7 +672,7 @@ uint32_t lastSampleMs = 0;  // when the FIFO last gave a sample
 uint32_t sensorRestarts = 0;
 
 void setup() {
-  Bridge.begin();
+  Bridge.begin(BRIDGE_BAUD);
   Monitor.begin();
   Serial1.begin(115200);  // D0 (RX): the ESP32 microphone front end
   pinMode(BUTTON_PIN, INPUT_PULLUP);
