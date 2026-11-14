@@ -517,11 +517,11 @@ class DeviceApp:
                              training that failed, a setting not used) are never shown: they are in status
           "<header right>"   the time, hours and minutes
           "<tile>"           vib, peak, temp or hz: the reading that goes with what is wrong; else empty
-          "<speed>"          running speed in Hz, a whole number, or "--"
+          "<speed>"          running speed in Hz, a whole number; 0 when no speed is found (the user, 13 Nov)
         Vibration, peak and temperature (shown in F) come from the samples on the microcontroller, so they
         move at the screen's own rate; this changes only when the mode, the minute or what is wrong does."""
         r = readings(self.latest)
-        speed = f"{r['speed_hz']:.0f}" if r["speed_hz"] else "--"
+        speed = f"{r['speed_hz']:.0f}" if r["speed_hz"] else "0"
         with self.lock:
             mode, problems = self.mode, list(self.problems)
             early_obj = getattr(self, "early", None)

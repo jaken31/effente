@@ -529,26 +529,6 @@ void outline(int x, int y, int w, int h) {  // a box with its corner pixels left
   for (int j = y + 1; j < y + h - 1; j++) { px(x, j, true); px(x + w - 1, j, true); }
 }
 
-// The strongest tone as a wave, in place of its number (the user, 13 Nov): a sine across the tile, more
-// cycles for a higher tone, on a log scale (1 cycle at 100 Hz or under, 7 at 8 kHz or over; in half-cycle
-// steps, so a tone that wobbles a little doesn't redraw the tile each time). It is drawn from the tone's
-// frequency: the sound's own waveform never reaches this board. Not animated: a moving wave would redraw
-// two screen pages every frame, on the bus the sensor shares.
-void toneWave(int bx, int by, float hz) {
-  float c = 1.0f + 6.0f * (logf(hz < 100.0f ? 100.0f : hz) - logf(100.0f)) / (logf(8000.0f) - logf(100.0f));
-  if (c > 7.0f) c = 7.0f;
-  c = floorf(c * 2.0f + 0.5f) / 2.0f;
-  const int x0 = bx + 2, w = 38, mid = by + 18, amp = 6;  // inside the outline, under the label
-  int prev = mid;
-  for (int i = 0; i < w; i++) {
-    int y = mid - (int)lroundf(amp * sinf(6.2831853f * c * i / (w - 1)));
-    int a = i ? prev : y, b = y;  // join each point to the one before, so steep parts stay a line
-    if (a > b) { int t = a; a = b; b = t; }
-    for (int j = a; j <= b; j++) px(x0 + i, j, true);
-    prev = y;
-  }
-}
-
 void composeTiles() {
   memset(fb, 0, sizeof fb);
   char left[24], val[6][12];
@@ -579,7 +559,7 @@ void composeTiles() {
   } else {
     strcpy(val[0], "--"); strcpy(val[1], "--"); strcpy(val[2], "--");
   }
-  strncpy(val[3], tmpl[3][0] ? tmpl[3] : "--", 11);  // the running speed, as the Linux side wrote it
+  strncpy(val[3], tmpl[3][0] ? tmpl[3] : "0", 11);  // the running speed, as the Linux side wrote it; 0 when none
   val[3][11] = 0;
   if (strlen(val[3]) > 3) {  // too wide for a tile: drop the decimals ("29.8" -> "29")
     char *dot = strchr(val[3], '.');
@@ -590,11 +570,9 @@ void composeTiles() {
   // negative, and nearer 0 when louder. Shown instead as a positive number that goes up with loudness:
   // dBFS + 120, the INMP441 datasheet's figure (94 dB SPL reads -26 dBFS). An estimate, not checked
   // against a sound meter (unverified).
-  bool wave = false;  // the tone tile shows a wave when there is a tone to show
   if (!micLines || millis() - micAt > 2000 || !micOk) {
     strcpy(val[4], "--"); strcpy(val[5], "--");
   } else {
-    wave = micToneHz > 0;
     float db = micDb + 120.0f;
     fnum(val[4], db < 0 ? 0 : db, 0);
     if (micToneHz >= 999.5f) { fnum(val[5], micToneHz / 1000, micToneHz < 9950 ? 1 : 0); units[5] = "k"; }
@@ -605,9 +583,8 @@ void composeTiles() {
     int bx = (i % 3) * 43, by = 8 + (i / 3) * 28;  // 42 wide, 28 high: y 8..35 and 36..63
     outline(bx, by, 42, 28);
     drawText(bx + 3, by + 2, labels[i], 1, true);
-    if (units[i][0] && !(i == 5 && wave)) drawText(bx + 40 - textWidth(units[i], 1), by + 2, units[i], 1, true);
-    if (i == 5 && wave) toneWave(bx, by, micToneHz);
-    else drawText(bx + 21 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
+    if (units[i][0]) drawText(bx + 40 - textWidth(units[i], 1), by + 2, units[i], 1, true);
+    drawText(bx + 21 - textWidth(val[i], 2) / 2, by + 11, val[i], 2, true);
   }
 }
 

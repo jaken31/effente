@@ -117,7 +117,6 @@ INMP441 ──I2S──> ESP32-S3 ──UART, 115200──> UNO Q D0 ──sketc
 - **What differs from a mic on the Linux side:** the window is 1.024 s (16,384 samples), not 1 s; samples are kept at 16 of the mic's 24 bits; a row usually gets the sound from 0.25 to 0.5 s before its vibration; no raw sound is recorded.
 - **Checked so far:** the maths against Python; the UNO Q's frame parser against a frame built the ESP32's way, on a computer; the firmware compiles for the ESP32-S3 (arduino-esp32 3.3.12); the sketch here runs on the board with the test firmware (text lines still arrive, the sensor still reads at about 992 a second).
 - **Unverified:** the full firmware on the ESP32 itself: the time one set takes (it must stay under 256 ms; its USB line prints it), and that the paced frames arrive whole.
-- **The tone tile is a wave** (the user, 13 Nov): a sine with more cycles for a higher tone, on a log scale from 100 Hz to 8 kHz, drawn from the tone's frequency (not the sound's own waveform), in place of the number.
 
 ## The thermal camera (13 Nov: written, not yet run with a camera)
 
