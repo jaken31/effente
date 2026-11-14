@@ -34,7 +34,7 @@ PROFILES_FILE = "machine_profiles.jsonl"
 SET_BY_PLATFORM = ("machine_id", "confirmed", "choice")  # never taken from a client's body
 
 
-def _profile_from(machine_id, body):
+def _profile_from(machine_id, body, entries_dir):
     """The profile a PUT body stores, checked (contract 10.1). Raises BadRequest."""
     if not isinstance(body, dict):
         raise BadRequest("machine profile must be a JSON object")
@@ -47,8 +47,10 @@ def _profile_from(machine_id, body):
     run_id = body.get("run_id")
     if run_id is not None and (not isinstance(run_id, str) or not run_id):
         raise BadRequest("machine profile 'run_id' must be the setup run's id, or null if filled by hand")
-    profile = {"machine_id": machine_id, **lookup.five_fields(body), "confirmed": {"at": utc_now(), "by": by.strip()},
-               "run_id": run_id}
+    five = lookup.five_fields(body)
+    # The lookup runs again here, whatever the app showed: this choice counts (contract 10.4).
+    profile = {"machine_id": machine_id, **five, "confirmed": {"at": utc_now(), "by": by.strip()},
+               "run_id": run_id, "choice": lookup.choose(five, entries_dir)}
     # Unknown fields (the lifecycle doc's other five among them) are stored and passed on.
     skip = (*lookup.FIELDS, "by", "run_id", *SET_BY_PLATFORM)
     profile.update((k, v) for k, v in body.items() if k not in skip)
@@ -59,6 +61,7 @@ class SetupStore:
     def __init__(self, store):
         self.store = store
         self.file = JsonLines(os.path.join(store.data_dir, PROFILES_FILE))
+        self.entries_dir = lookup.ENTRIES_DIR  # the library the lookup reads; only read, never written
         self.profiles = {}  # machine_id -> its newest profile
         for profile in self.file.load():
             if isinstance(profile.get("machine_id"), str):
@@ -68,12 +71,21 @@ class SetupStore:
 
     def put_profile(self, machine_id, body):
         """Store a confirmed profile in place of the machine's last one. Returns it."""
-        profile = _profile_from(machine_id, body)
+        profile = _profile_from(machine_id, body, self.entries_dir)
         with self.store.lock:
             self.file.append([profile])
             self.profiles[machine_id] = profile
             self.store.emit("profile", profile)
         return profile
+
+    def lookup(self, body):
+        """What the lookup would pick for these fields (contract 10.2). Stores and sends nothing."""
+        if not isinstance(body, dict):
+            raise BadRequest("lookup body must be a JSON object")
+        problems = lookup.field_problems(body)
+        if problems:
+            raise BadRequest(f"lookup: {problems[0]}")
+        return lookup.choose(lookup.five_fields(body), self.entries_dir)
 
     def get_profile(self, machine_id):
         with self.store.lock:

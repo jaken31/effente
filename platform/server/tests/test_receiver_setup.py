@@ -1,8 +1,10 @@
 """Machine profiles in the receiver (platform/CONTRACT.md section 10.1, plan section 16 row U1)."""
 
 import json
+import shutil
 
 import pytest
+from setup_store import lookup
 
 PROFILE = "/api/machines/conveyor-07/profile"
 FIVE = {"machine_type": "conveyor", "drive": "belt", "speed_rpm": None, "mounting": "rigid", "sensor_location": None}
@@ -103,3 +105,57 @@ def test_the_platform_sets_who_confirmed_and_which_machine_never_the_client(clie
     profile = reply["profile"]
     assert profile["machine_id"] == "conveyor-07"
     assert profile["confirmed"]["by"] == "Sam" and profile["confirmed"]["at"] != "2020-01-01T00:00:00Z"
+
+
+# ---- the lookup (contract 10.2, plan row U2) ---------------------------------
+
+LOOKUP = "/api/library/lookup"
+
+
+def library_copy(tmp_path):
+    """A copy of the real library's manifests, to break."""
+    root = tmp_path / "library"
+    for entry_id in lookup.entry_ids():
+        (root / entry_id).mkdir(parents=True)
+        shutil.copy(lookup.ENTRIES_DIR / entry_id / "manifest.json", root / entry_id / "manifest.json")
+    return root
+
+
+def test_the_lookup_route_answers_the_choice_and_stores_nothing(client, open_stream):
+    stream = open_stream(client.port)
+    status, reply = client.json("POST", LOOKUP, {"machine_type": "conveyor", "drive": "belt"})
+    assert status == 200 and reply == {"ok": True, "choice": lookup.choose({"machine_type": "conveyor"})}
+    assert reply["choice"]["library_entry"] == "conveyor"
+    assert client.json("POST", LOOKUP, {})[1]["choice"]["library_entry"] == "generic_rotating"
+    assert client.json("GET", PROFILE)[1]["profile"] is None
+    _, state = client.json("GET", "/api/state")
+    assert state["profiles"] == {}
+    with pytest.raises(AssertionError):
+        stream.next("profile", timeout=0.5)
+
+
+@pytest.mark.parametrize("body,error", [({"machine_type": "press"}, "'machine_type' must be one of"),
+                                        ({"speed_rpm": -1}, "'speed_rpm' must be"), ([], "must be a JSON object")])
+def test_the_lookup_route_refuses_a_value_outside_its_list(client, body, error):
+    status, reply = client.json("POST", LOOKUP, body)
+    assert status == 400 and error in reply["error"]
+
+
+def test_a_stored_profile_carries_the_lookups_choice_never_the_clients(client):
+    sent = {"library_entry": "conveyor", "reason": "the agent said so"}
+    _, reply = put(client, {"machine_type": "fan", "by": "Sam", "choice": sent})
+    choice = reply["profile"]["choice"]
+    assert choice == client.json("POST", LOOKUP, {"machine_type": "fan"})[1]["choice"]
+    assert choice["library_entry"] == "generic_rotating"
+
+
+def test_with_no_readable_library_entry_nothing_is_stored(make_receiver, tmp_path):
+    receiver, client = make_receiver()
+    root = library_copy(tmp_path)
+    (root / "generic_rotating" / "manifest.json").write_text("{")
+    receiver.store.setup.entries_dir = root
+    status, reply = put(client, {"machine_type": "pump", "by": "Sam"})
+    assert status == 500 and "generic_rotating" in reply["error"] and reply["ok"] is False
+    assert client.json("POST", LOOKUP, {"machine_type": "pump"})[0] == 500
+    assert client.json("GET", PROFILE)[1]["profile"] is None
+    assert put(client, {"machine_type": "conveyor", "by": "Sam"})[1]["profile"]["choice"]["library_entry"] == "conveyor"
