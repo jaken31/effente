@@ -10,7 +10,7 @@ An iPhone app with one job: scan a machine, build the 3D model on the phone, sen
 |------|------|
 | `EffenteScan/EffenteScan/EffenteScan.xcodeproj` | The Xcode project. Open this. |
 | `EffenteScan/EffenteScan/EffenteScan/` | Apple's sample "Scanning objects using Object Capture", renamed. It does the guided capture and the build. |
-| `EffenteScan/EffenteScan/EffenteScan/Effente/` | Our screens: pair, send, done, and the QR reader. |
+| `EffenteScan/EffenteScan/EffenteScan/Effente/` | Our part: the home screen with the kept scans, pairing, sending, the QR reader, and the theme. |
 | `EffenteScan/ScanKit/` | A Swift package with the parts that need no camera: reading the QR line, building the requests, reading the replies. Its tests run on a Mac. |
 | `EffenteScan/LICENSE.txt` | Apple's licence for the sample. Keep it. |
 | `tools/fake_receiver.py` | A stand-in for the laptop, to test the phone alone. |
@@ -32,15 +32,21 @@ xcodebuild -project EffenteScan.xcodeproj -scheme EffenteScan \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-## The five screens
+## How it works
 
-1. **Pair.** Read the QR code on the laptop's New scan screen, or paste the line under it. The app calls `GET /api/hello` and shows the machine's name and "Laptop found", or a plain reason why not. The last pairing is remembered.
-2. **Capture.** Apple's guided capture, unchanged. Object mode suits the demo conveyor. Area mode is still there for machines too big to walk around.
-3. **Build.** The model is built on the phone into one USDZ file, at the sample's default detail.
-4. **Send.** The file's raw bytes go to `POST /api/machines/<machine_id>/scans`. Each scan has one `client_id`, kept across retries, so a retry stores nothing twice. A 400 shows the laptop's own `error` text. The file stays on the phone until the laptop answers 200, also if the app is closed in between.
-5. **Done.** Shows that it arrived, and offers to scan another or to delete the photos and the model from the phone.
+Scanning needs no laptop. Pairing comes later, when there is something to send.
 
-Screens 4 and 5 have a share button. That is the fallback: AirDrop the USDZ to a Mac or copy it by cable, then use "Import scan file" on the laptop.
+1. **Scan.** "New scan" on the home screen starts Apple's guided capture, unchanged. Object mode suits the demo conveyor. Area mode is still there for machines too big to walk around.
+2. **Build.** The model is built on the phone into one USDZ file, at the sample's default detail.
+3. **Keep.** The scan joins the list on the home screen, with its photo count, build time and file size. It stays on the phone until it is deleted. Each scan's menu can view the model, share the file, rename it or delete it.
+4. **Pair.** Read the QR code on the laptop's New scan screen, or paste the line under it. The app calls `GET /api/hello` and shows the machine's name and "Laptop found", or a plain reason why not. The last pairing is remembered. "Unpair" forgets it.
+5. **Send.** Tap the scans to send, then "Send N to <machine>". They go one after another as raw bytes to `POST /api/machines/<machine_id>/scans`, for the machine in the pairing. A 400 shows the laptop's own `error` text. A scan that fails stays picked, so "Send" again retries it without a new scan.
+
+Each scan carries one `client_id` per machine, kept across retries, so a retry stores nothing twice. Sending the same scan to a second machine uses a new `client_id`.
+
+This differs from section 8 of the plan in one way: the plan pairs first and sends each scan as soon as it is built. Here the scan comes first and the person chooses what to send. The requests to the laptop are the same.
+
+"Share file" in a scan's menu is the fallback: AirDrop the USDZ to a Mac or copy it by cable, then use "Import scan file" on the laptop.
 
 The app makes requests to the `base` address in the QR line and nowhere else. No account, no analytics, no third-party package.
 
@@ -69,16 +75,17 @@ It prints the pairing line to paste into the app and says where it puts the file
 
 Not done yet. Tick these when they are, with the date and the phone model.
 
+- [ ] With no pairing: scan the conveyor, build, and see the scan in the list.
+- [ ] Close the app and open it: the list is the same.
 - [ ] Pair with the QR code. Pair by pasting the line.
-- [ ] Scan the conveyor, build, send, and see the model on the desktop app's Machine page.
-- [ ] With the laptop off: a clear message, and the file still there. Turn the laptop on, "Try again" sends it without a new scan.
-- [ ] Close the app with a scan not sent. Open it: the Send screen is back with the same scan.
-- [ ] Share the file by AirDrop and import it on the laptop.
+- [ ] With two scans in the list, pick one, send it, and see only that one on the desktop app's Machine page.
+- [ ] With the laptop off: a clear message on the scan, and the file still there. Turn the laptop on, send again, and it arrives without a new scan.
+- [ ] Share a file by AirDrop and import it on the laptop.
 - [ ] On the team's hotspot, including when the scanning phone is the hotspot.
 
 ## First scan: numbers to write down
 
-The plan asks for these from the first real scan, because they decide the upload limit and whether a live scan fits on stage. The Send screen shows all three.
+The plan asks for these from the first real scan, because they decide the upload limit and whether a live scan fits on stage. Each scan in the list shows all three.
 
 | Object | Photos | Build time | File size | Phone |
 |--------|--------|------------|-----------|-------|
@@ -89,8 +96,9 @@ Do not commit the USDZ file if it is more than a few megabytes. `.gitignore` her
 ## What was changed in Apple's sample
 
 - Renamed `GuidedCaptureSample` to `EffenteScan`. iPhone only, and the iPad tutorial videos are removed.
-- The capture no longer starts with the app. It starts from the Pair screen (`AppDataModel.beginCapture()`), and when a capture ends or is cancelled the app goes back to the Pair screen.
-- When the build finishes, the file goes to the Send screen instead of Apple's model viewer. `ModelView.swift` is removed. "Look at the model" on the Send screen opens the same Quick Look viewer.
+- The capture no longer starts with the app. It starts from the home screen (`AppDataModel.beginCapture()`), and when a capture ends or is cancelled the app goes back to the home screen.
+- When the build finishes, the scan joins the list on the home screen instead of opening Apple's model viewer. `ModelView.swift` is removed. "View model" in a scan's menu opens the same Quick Look viewer.
+- The whole app is shown in dark mode, and it has the effente icon and accent colour.
 - `Info.plist` and the build settings: a camera description, a local network description, `NSAllowsLocalNetworking`, and the URL scheme `effente`.
 - Every edit inside Apple's files is marked with a comment that starts `effente:`.
 
@@ -109,6 +117,6 @@ Unverified, because nothing has run on a phone yet:
 - The QR reader.
 - The upload from iOS: the local network prompt, plain HTTP to an IP address with `NSAllowsLocalNetworking`, and the progress bar.
 - Whether the system camera opens the app from an `effente://` QR code.
-- Sending while the app is in the background. Expect it to fail and need "Try again". The screen is kept on while the app is open.
+- Sending while the app is in the background. Expect it to fail and need another "Send". The screen is kept on while the app is open.
 - The real receiver. The routes in section 5 of the plan did not exist when this was written, so the app has only met stand-ins.
 - Which detail levels can be built on the phone. The app uses the sample's default.

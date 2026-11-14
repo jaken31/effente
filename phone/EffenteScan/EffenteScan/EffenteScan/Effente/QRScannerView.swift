@@ -1,6 +1,6 @@
 /*
-effente scan: reads a QR code with the camera. Used only on the pairing screen,
-and stopped before the capture starts, because the capture needs the camera too.
+effente scan: reads a QR code with the camera. Used only to pair with the laptop,
+and stopped before a capture starts, because the capture needs the camera too.
 */
 
 import AVFoundation

@@ -20,7 +20,7 @@ struct ReconstructionPrimaryView: View {
 
     var body: some View {
         if completed && !cancelled {
-            // effente: the model is handed to the Send screen when it is built
+            // effente: the model joins the list on the home screen when it is built
             // (see .processingComplete below), so there is nothing to show here.
             ProgressView()
         } else {
@@ -149,7 +149,7 @@ struct ReconstructionProgressView: View {
                         if !gotError {
                             completed = true
                             appModel.state = .viewing
-                            // effente: keep the file for the Send screen, then close the capture.
+                            // effente: keep the scan in the list on this phone, then close the capture.
                             if let folders = appModel.captureFolderManager {
                                 ScanFlowModel.instance.modelBuilt(file: outputFile,
                                                                   captureFolder: folders.captureFolder,

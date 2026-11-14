@@ -94,7 +94,7 @@ class AppDataModel: Identifiable {
 
     // Postpone creating ObjectCaptureSession and PhotogrammetrySession until necessary.
     // effente: the capture does not start with the app. It starts when the person
-    // asks for it on the pairing screen, with beginCapture().
+    // asks for it on the home screen, with beginCapture().
     private init() {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(handleAppTermination(notification:)),
@@ -117,7 +117,7 @@ class AppDataModel: Identifiable {
         state = .completed
     }
 
-    /// effente: starts a capture from the pairing screen. Does nothing while one is under way.
+    /// effente: starts a capture from the home screen. Does nothing while one is under way.
     func beginCapture() {
         guard state == .notSet else { return }
         state = .ready
@@ -271,7 +271,7 @@ extension AppDataModel {
         currentFeedback = []
         messageList.removeAll()
         captureMode = .object
-        // effente: back to the pairing screen, not straight into a new capture.
+        // effente: back to the home screen, not straight into a new capture.
         state = .notSet
         isSaveDraftEnabled = false
         tutorialPlayedOnce = false

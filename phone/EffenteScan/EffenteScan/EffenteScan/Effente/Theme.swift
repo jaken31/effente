@@ -54,9 +54,9 @@ struct BrandBar: View {
     }
 }
 
-/// Where the person is in the five steps.
+/// Where the person is in a run of steps. Not used on the home screen.
 struct StepBar: View {
-    static let names = ["Pair", "Scan", "Build", "Send", "Done"]
+    static let names = ["Scan", "Build", "Keep", "Pair", "Send"]
     /// 1 to 5.
     let step: Int
 
@@ -95,7 +95,8 @@ struct CapsLabel: View {
 /// One of our screens: the brand, the steps, a title, the content, and the
 /// main buttons held at the bottom where a thumb reaches them.
 struct Screen<Content: View, Actions: View>: View {
-    let step: Int
+    /// The step to show in the step bar, or nil for no bar.
+    let step: Int?
     let title: String
     @ViewBuilder var content: () -> Content
     @ViewBuilder var actions: () -> Actions
@@ -104,7 +105,7 @@ struct Screen<Content: View, Actions: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 BrandBar()
-                StepBar(step: step)
+                if let step { StepBar(step: step) }
                 Text(title)
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(Theme.text)

@@ -15,19 +15,12 @@ struct ContentView: View {
     @Environment(AppDataModel.self) var appModel
     @Environment(ScanFlowModel.self) var flow
 
-    // effente: the five screens. Pair, then Apple's capture and build, then send and done.
-    // A built scan that the laptop does not have yet always comes first, so it is
-    // still there after a failed send or after the app was closed.
+    // effente: the home screen with the kept scans, or Apple's capture and build
+    // while a scan is being made. Pairing and sending happen on the home screen.
     var body: some View {
         Group {
-            if let scan = flow.stored {
-                if scan.sentScanID != nil {
-                    DoneView(scan: scan)
-                } else {
-                    SendView(scan: scan)
-                }
-            } else if appModel.state == .notSet {
-                PairView()
+            if appModel.state == .notSet {
+                HomeView()
             } else {
                 PrimaryView()
             }
