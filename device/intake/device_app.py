@@ -50,7 +50,7 @@ from device.intake.recorder import Recorder
 MODES = ("display", "recording", "training", "watching")
 SCREEN_NAMES = {"display": "IDLE", "recording": "RECORDING", "training": "TRAINING",
                 "watching": "DETECTING"}  # what the screen calls each mode, and status's "state"
-LIVE_EVERY_S, LIVE_WINDOW_S = 0.1, 1.0  # start_live_screen: how often, and from how much vibration
+LIVE_EVERY_S, LIVE_WINDOW_S = 0.15, 1.0  # start_live_screen: how often (about 7 a second: 10 was a little too quick to read, the user), and from how much vibration
 SCREEN_EVERY_S = 0.2  # the layout goes to the screen with every row (4 a second): its arrival is the beat on which
 #                       all six tiles change (it was once a second, and the velocity and speed lagged the rest)
 HISTORY_SAVE_EVERY_S = 300.0
