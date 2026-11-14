@@ -61,9 +61,6 @@ def test_the_stubs_read_empty_and_say_not_built(make_host, make_state, qtbot):
     assert state.log.parts() == [] and state.log.entries() == [] and state.log.selected_part() is None
     assert state.log.review("part-0001") is None and state.log.review_running("part-0001") is False
     with qtbot.waitSignal(state.action_failed) as said:
-        state.log.create_part("Drive roller", "roller")  # state.log is built: test_data_partlog.py
-    assert said.args == ["Part not added: no machine is shown."]
-    with qtbot.waitSignal(state.action_failed) as said:
         state.scans.import_file("scan.usdz")
     assert said.args == ["Scans are not built yet."]
 
@@ -73,10 +70,6 @@ def test_the_general_api_calls(make_host, tmp_path, monkeypatch):
     api = ApiClient(host.url)
     assert api.get("/api/state")["ok"] is True
     assert api.put(f"/api/devices/{quote('effente 01')}/settings", {"sensitivity": 0.3})["settings"] == {"sensitivity": 0.3}
-    assert api.get("/api/machines/conveyor-07/log", part="part-0007", kind=None, limit=5)["entries"] == []
-    assert api.post("/api/machines/conveyor-07/parts", {"name": "Belt", "kind": "belt", "by": "Sam"})["part"]["name"] == "Belt"
-    with pytest.raises(ApiError, match="no such part: part-0007"):
-        api.put("/api/parts/part-0007", {"by": "Sam", "note": "x"})
     with pytest.raises(ApiError, match="not built yet"):
         api.get_bytes("/api/scans/scan-1/model.glb")
 
