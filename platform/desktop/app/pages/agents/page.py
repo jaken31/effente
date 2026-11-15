@@ -305,7 +305,9 @@ class AgentsPage(QWidget):
         sel = run.get("run_id") if run else None
         for row in view.run_rows(runs):
             w = _RunRow(row, row.run_id == sel)
-            w.clicked.connect(self.select_run)
+            # Queued: select_run rebuilds this list, which destroys the row, and a row
+            # destroyed while its own click is still being handled crashes the app.
+            w.clicked.connect(self.select_run, Qt.ConnectionType.QueuedConnection)
             v.addWidget(w)
             self.run_rows.append(w)
         if not self.run_rows:
