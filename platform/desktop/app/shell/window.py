@@ -127,16 +127,12 @@ class MainWindow(QMainWindow):
     `receiver_address` is shown on the device card, for example "0.0.0.0:8000".
     `settings` is a QSettings the window keeps its size, page and machine in, so the
     next run opens where this one closed; without it nothing is remembered.
-    `resettable` shows the Device page's reset button: the program that made the
-    window deletes the stored data and starts again when `reset_wanted` is set.
     """
 
     def __init__(self, state=None, *, pages: Mapping[str, QWidget] | None = None,
-                 placeholders: bool = False, receiver_address: str | None = None, settings=None,
-                 resettable: bool = False):
+                 placeholders: bool = False, receiver_address: str | None = None, settings=None):
         super().__init__()
         self.state = state
-        self.reset_wanted = False  # set by a confirmed reset, read after the window closes
         self.receiver_address = receiver_address
         self.settings = settings
         self.setWindowTitle("effente")
@@ -168,9 +164,6 @@ class MainWindow(QMainWindow):
             page.navigate.connect(self.navigate)
             if hasattr(page, "simulated_changed"):
                 page.simulated_changed.connect(self.refresh_sim_chip)
-            if resettable and hasattr(page, "reset_requested"):
-                page.reset_requested.connect(self.ask_reset)
-                page.set_resettable(True)
 
         self.sidebar.navigate.connect(self.navigate)
         self.topbar.navigate.connect(self.navigate)
@@ -228,7 +221,7 @@ class MainWindow(QMainWindow):
         run reads and writes to lives in this app, so quitting would cut it off."""
         s = self.state
         self._remember(GEOMETRY, self.saveGeometry())
-        if self.reset_wanted or self._closing_after_agent or s is None or not getattr(s, "own_agent_running", lambda: False)():
+        if self._closing_after_agent or s is None or not getattr(s, "own_agent_running", lambda: False)():
             event.accept()
             return
         choice = self.ask_about_agent()
@@ -260,39 +253,6 @@ class MainWindow(QMainWindow):
         box.setEscapeButton(cancel)
         box.exec()
         return {stop: self.STOP, wait: self.WAIT}.get(box.clickedButton(), self.CANCEL)
-
-    # reset
-    def ask_reset(self) -> None:
-        """The Device page's reset button. Once confirmed the window closes with
-        `reset_wanted` set; main.py then deletes the stored data and starts again."""
-        s = self.state
-        running = s is not None and getattr(s, "own_agent_running", lambda: False)()
-        if not self.confirm_reset(running):
-            return
-        if running:
-            s.stop_agent()
-        self.reset_wanted = True
-        self.close()
-        QApplication.quit()
-
-    def confirm_reset(self, agent_running: bool = False) -> bool:
-        """Whether to go ahead, from a dialog. Tests replace this."""
-        box = QMessageBox(self)
-        box.setContentsMargins(14, 12, 14, 10)
-        box.setWindowTitle("Reset stored data")
-        box.setText("Delete everything stored on this laptop and start again?")
-        box.setInformativeText(
-            "This deletes all readings, alarms and their answers, reports, parts, scans, "
-            "setup answers and stored models, for every machine. It cannot be undone.\n\n"
-            + ("A report is running and will be stopped.\n\n" if agent_running else "")
-            + "The app closes and opens again empty. The colour scheme and window layout are "
-            "kept. Nothing on the device itself is changed.")
-        reset = box.addButton("Delete and restart", QMessageBox.ButtonRole.DestructiveRole)
-        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(cancel)
-        box.setEscapeButton(cancel)
-        box.exec()
-        return box.clickedButton() is reset
 
     def _quit_if_agent_done(self) -> None:
         if self._closing_after_agent and not self.state.own_agent_running():
