@@ -108,3 +108,11 @@ def test_hover_text_reads_band_range_level_and_baseline():
     text = maths.hover_text(6, spec, base, EDGES)
     assert text == f"Band 7 · {EDGES[6]:.1f} to {EDGES[7]:.1f} Hz · level -2.93 · baseline -4.52 · {10 ** 1.59:.1f}× baseline"
     assert maths.hover_text(6, spec, None, None) == "Band 7 · range unknown · level -2.93"
+
+
+def test_a_wild_level_does_not_widen_the_axis_without_end():
+    # Found by a stress run: one band at 1e21 made the chart draw grid lines until the app ran out of memory.
+    lo, hi = maths.level_range([-5.0] * 19 + [1e21], [-1e300] + [-5.0] * 19)
+    assert (lo, hi) == (maths.LEVEL_FLOOR, maths.LEVEL_CEILING)
+    assert len(maths.level_ticks(lo, hi)) < 20
+    assert maths.level_ticks(-1e30, 1e30) == [] and maths.level_ticks(float("-inf"), 0.0) == []

@@ -62,6 +62,8 @@ def test_blender_on_the_path_is_found(tmp_path):
 
 
 def test_the_usual_windows_place_is_found_newest_first(tmp_path):
+    if os.path.isfile("/Applications/Blender.app/Contents/MacOS/Blender"):
+        pytest.skip("this Mac has Blender in the usual place, which is looked in first")
     for version in ("Blender 4.2", "Blender 5.2"):
         folder = tmp_path / "Blender Foundation" / version
         folder.mkdir(parents=True)

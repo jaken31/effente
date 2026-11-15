@@ -7,6 +7,7 @@ abnormal reading's dot and the limit line. Every label is drawn in the theme's t
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 
 from app.theme import fonts
@@ -24,6 +25,22 @@ UNIT_H = 14
 def _text(p: QPainter, rect: QRectF, flags, text: str, colour=t.MUTED) -> None:
     p.setPen(t.qcolor(colour))
     p.drawText(rect, int(flags), text)
+
+
+def grid_step(top: float) -> int:
+    """How far apart the mm/s grid lines are: 2 up to 14 mm/s, 5 above, and wider
+    still for a value far off the scale, so there are never more than about a
+    dozen lines however wild a reading is."""
+    if not math.isfinite(top):  # one line, at 0
+        return 1
+    step = 2 if top <= 14 else 5
+    for wider in (2, 2.5, 2):  # 5, 10, 25, 50, then tens of that
+        if top / step <= 12:
+            return step
+        step = int(step * wider)
+    while top / step > 12:
+        step *= 10
+    return step
 
 
 class _Chart(QWidget):
@@ -86,10 +103,10 @@ class VelocityChart(_Chart):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = self.plot()
         fm = self.fontMetrics()
-        step = 2 if self.top <= 14 else 5
+        step = grid_step(self.top)
         v = 0
         _text(p, QRectF(4, 0, LEFT + 40, UNIT_H), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "mm/s")
-        while v <= self.top:  # the mm/s grid
+        while v <= self.top and math.isfinite(self.top):  # the mm/s grid
             p.setPen(QPen(t.qcolor(t.GRID), 1))
             p.drawLine(QPointF(r.left(), self.y(v)), QPointF(r.right(), self.y(v)))
             _text(p, QRectF(0, self.y(v) - 8, LEFT - 8, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,

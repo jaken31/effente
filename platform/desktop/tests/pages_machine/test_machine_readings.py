@@ -232,3 +232,13 @@ def test_entry_rules():
     e = rd.entries([{"at": "2026-11-14T16:05:00Z", "kind": "finding", "text": "", "needs_repair": True,
                      "by": "Sam", "simulated": True}], UTC)[0]
     assert (e.head, e.text, e.simulated) == ("14 Nov 16:05 · Finding · Sam · simulated", "needs repair", True)
+
+
+def test_the_grid_never_has_more_than_about_a_dozen_lines():
+    # Found by a stress run: the grid was one line every 5 mm/s whatever the top, so a wild reading froze the window.
+    from app.pages.machine.charts import grid_step
+
+    assert grid_step(4.5) == 2 and grid_step(14) == 2 and grid_step(15) == 5 and grid_step(60) == 5
+    for top in (61, 130, 700, 5000, 1e9, 1e300):
+        assert top / grid_step(top) <= 12
+    assert grid_step(float("inf")) == 1 and grid_step(float("nan")) == 1

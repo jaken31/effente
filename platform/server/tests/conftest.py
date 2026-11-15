@@ -20,7 +20,8 @@ def make_receiver(tmp_path):
     def make(data_dir=None, web_dir=None, **kw):
         data_dir = str(data_dir or tmp_path / "data")
         web_dir = str(web_dir or tmp_path / "web")
-        receiver = Receiver("127.0.0.1", 0, data_dir, web_dir, log=lambda m: None, **kw)
+        kw.setdefault("log", lambda m: None)
+        receiver = Receiver("127.0.0.1", 0, data_dir, web_dir, **kw)
         receiver.start()
         started.append(receiver)
         return receiver, Client(receiver.port)

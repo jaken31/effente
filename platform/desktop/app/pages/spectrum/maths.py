@@ -72,21 +72,32 @@ def band_spans(edges: Sequence[float] | None, x0: float, width: float) -> list[t
     return list(pairwise(xs))
 
 
+# As far as the level axis ever widens. Levels are log10, so this is already far
+# beyond what the sensor can give; a wilder value is a fault in what was sent, and
+# its bar is clipped rather than the chart drawing grid lines without end.
+LEVEL_FLOOR = -12.1
+LEVEL_CEILING = 4.1
+
+
 def level_range(*series: Iterable[float] | None) -> tuple[float, float]:
     """The level axis: LEVEL_LO to LEVEL_HI, widened to whole steps if any value
-    falls outside, so no bar is ever clipped."""
+    falls outside, so no bar is clipped, but never past LEVEL_FLOOR and LEVEL_CEILING."""
     lo, hi = LEVEL_LO, LEVEL_HI
     for s in series:
         for v in s or ():
+            if not math.isfinite(v):
+                continue
             if v < lo:
-                lo = math.floor(v * 2) / 2 - 0.1
+                lo = max(LEVEL_FLOOR, math.floor(v * 2) / 2 - 0.1)
             if v > hi:
-                hi = math.ceil(v * 2) / 2 + 0.1
+                hi = min(LEVEL_CEILING, math.ceil(v * 2) / 2 + 0.1)
     return lo, hi
 
 
 def level_ticks(lo: float, hi: float) -> list[float]:
-    """Grid lines at -5.5, -4.5, ... inside the range."""
+    """Grid lines at -5.5, -4.5, ... inside the range (nothing for a range that is not one)."""
+    if not (math.isfinite(lo) and math.isfinite(hi)) or hi - lo > 100:
+        return []
     out, v = [], math.floor(lo) + 0.5
     while v <= hi:
         if v >= lo:
