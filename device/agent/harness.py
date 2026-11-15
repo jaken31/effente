@@ -16,14 +16,13 @@ from typing import Callable
 from .data import load_feature_table, load_log, load_model_version, newest_model_version
 from .report import build_report_schema, check_report
 from .run import Run
-from .tools import Tools
+from .tools import SEARCH_DISABLED, Tools, search_disabled  # noqa: F401  both are used from here by name
 
 LLM_URL = "http://127.0.0.1:8081"  # where we run llama-server; --llm-url or EFFENTE_LLM_URL replaces it
 # For the whole answer from the model. UNVERIFIED: not timed on any real model.
 TIMEOUT_SECONDS = 120.0
 LOOKUP_TIMEOUT_SECONDS = 5.0  # asking the server which model it has
 JSON_ONLY = {"type": "json_object"}  # for a server that cannot force the report schema
-SEARCH_DISABLED = "unavailable: disabled at this site"
 # Shown as the run's model when an injected `call` does not name itself with a
 # `model_name` attribute.
 INJECTED_MODEL = "injected (no model call)"
@@ -77,11 +76,6 @@ class AgentResult:
 Call = Callable[..., tuple[dict, dict]]
 
 
-def search_disabled(query: str) -> str:
-    """The parts lookup for a site where nothing may leave the building."""
-    return SEARCH_DISABLED
-
-
 def run_agent(
     machine_id: str,
     log_path: str | Path,
@@ -96,8 +90,8 @@ def run_agent(
     Never raises for network or API trouble: the result says why there is no
     report. The run is posted to the platform (platform/CONTRACT.md message 4)
     at `platform_url`, or EFFENTE_PLATFORM_URL; with neither, nothing is posted.
-    `search` replaces the Tavily parts lookup: `search_disabled` at a site with
-    no outside services, or a fake in tests.
+    `search` is the parts lookup. There is no outside search in this code: the
+    default is `search_disabled`, and a test may pass a fake.
     """
     call = call or call_local
     features = load_feature_table(model_path)
