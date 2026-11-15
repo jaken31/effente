@@ -195,7 +195,7 @@ Each hour file holds `X` (rows x 285), `t0`, `feature_names`, `feature_sensor`, 
 - `model.json`: a plain `effente-model-1` file, exactly as `effente.trainer.train_model` writes it. No added fields. A new key in the model file is a format change and needs all five people.
 - `manifest.json`: everything else about the entry.
 
-The two entries on master (`conveyor`, `generic_rotating`) use 79 of the 285 readings: the accelerometer and gyroscope ones. Sound and heat readings are left out, so faults that show only there are not caught.
+The two entries on master (`conveyor`, `generic_rotating`) use 79 of the 285 readings: the accelerometer and gyroscope ones. Sound and heat readings are left out, so faults that show only there are not caught. Two later entries, `fan` and `pump`, are also on master (`training/library/entries/`); this paragraph has not been checked against them.
 
 | Manifest field | Holds |
 |----------------|-------|
@@ -254,10 +254,10 @@ A fake-data generator and two simulators (`effente/simulate_conveyor.py`, `effen
 |-------|--------|
 | Held-out normal sessions, including re-attached ones | Share of periods that alarm |
 | Fault sessions | Alarm or not, time to alarm, fault type named |
-| Sensitivity sweep | Smallest detected imbalance |
-| NASA IMS run-to-failure data | Time between first alarm and failure. Reported on the branch: no false alarms in the 68 h after learning, first alarm 9.8 h before failure (MPU6050-like conversion) |
+| Sensitivity sweep | Smallest detected imbalance. Not run: it needs the physical rig (`training/validation/RERUN.md`) |
+| NASA IMS run-to-failure data | Time between first alarm and failure. Committed result (`training/validation/REPORT.md`, check 7, PCA default, test 2 bearing 1, MPU6050-like conversion): learned on 72 h, no false alarms in the 87.17 h before the first alarm, first alarm 4.67 h before failure. An earlier figure of 9.8 h (with 68 h free of false alarms) was reported on a branch and has no committed result; do not quote it |
 | A fault no type covers | `unrecognised_pattern` rather than a wrong name |
-| Detector comparison (`training/anomaly/bench.py`) | 8 detectors on simulated and public data |
+| Detector comparison (`training/anomaly/bench.py`) | 8 detectors on simulated and public data. The code is on master; no result is committed |
 | int8 runtime vs trained network | Score correlation |
 
 ## Repository layout
