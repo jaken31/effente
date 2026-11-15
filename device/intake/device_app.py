@@ -34,6 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
+from effente import attachment as AT
 from effente import features as F
 from effente import early_warning as EW
 from effente import safety as SF
@@ -112,14 +113,18 @@ ADD_MIN_S = 30.0  # the least recording worth adding to earlier ones, in seconds
 JOIN_MAX_ROWS = 400_000  # rows of several recordings joined in memory: about 4 days at one a second
 
 
-def _join_recordings(folders):
+def _join_recordings(folders, keep_of=None):
     """The rows of several recordings as one, for train_model: (t, X, names, period, the folders used). Each
     later recording is moved up in time to follow the one before by a second, so the time between them (an hour,
     a day) is not there to be split or summarised over; the rows themselves are unchanged. A recording made with
-    other features than the newest is left out."""
+    other features than the newest is left out. keep_of(folder, t), if given, says which of a recording's rows
+    to keep (the head on the machine: effente.attachment), before the recordings are joined."""
     loaded = []
     for f in folders:
         X, t, names = load_recording(f)
+        if keep_of is not None and len(t):
+            k = keep_of(f, t)
+            X, t = X[k], t[k]
         if len(t):
             loaded.append((f, np.asarray(t, float), X, list(names)))
     if not loaded:
@@ -186,6 +191,8 @@ class DeviceApp:
         self.early_on = True  # the early warning switched on (the "early_warning" setting)
         self.safety = SF.Safety(gravity_check=bool(getattr(getattr(source, "info", None), "accel_measures_gravity", True)))
         self.problems: list[dict] = []
+        # While recording: is the head still on the machine (effente.attachment)? None until a recording starts.
+        self.attach: AT.Attachment | None = None
         self.notes: list[str] = []
         self.notes_until = -math.inf
         self._load_settings()
@@ -286,6 +293,7 @@ class DeviceApp:
         self._resumed_training = False  # a recording someone started: if its training fails, keep recording
         self.recording = self.dir / "recordings" / time.strftime("rec-%Y%m%d-%H%M%S", time.localtime(self.clock()))
         self.record_started = self.clock()
+        self.attach = AT.Attachment()  # where the head is now is its place for this recording
         self.result, self.message = None, ""
         self.safety.set_baseline(None)  # relearning: the old normal no longer counts
         if self.early is not None:
@@ -332,11 +340,35 @@ class DeviceApp:
             folders = [] if self.fresh else [Path(p) for p in self.sessions
                                              if Path(p).exists() and Path(p) != self.recording]
             folders.append(self.recording)
+            # Rows read while the head was off the machine (fell, moved, rocking) are not learned from: each
+            # recording judged on its own, from its one-a-second rows (effente.attachment; unverified on a machine)
+            heads = {}
+
+            def head(f):
+                if f not in heads:
+                    try:
+                        ts, cols = load_columns(f, AT.COLUMNS)
+                        heads[f] = (ts, *AT.attached_rows(ts, cols))
+                    except Exception as e:  # noqa: BLE001  training works without it, on every row
+                        self._event("head_check_off", {"folder": f.name, "reason": str(e)[:200]})
+                        heads[f] = None
+                return heads[f]
+
+            def keep_of(f, t, period_s=None):
+                h = head(f)
+                if h is None:
+                    return np.ones(len(t), bool)
+                return AT.periods_kept(t, period_s, h[0], h[1]) if period_s else ~np.isin(t, h[0][~h[1]])
+
             if len(folders) == 1:
                 t, X, names, period = load_for_training(self.recording)
+                k = keep_of(self.recording, t, period)  # a long recording's rows are minutes: none with a cut second
+                t, X = t[k], X[k]
             else:  # several recordings, joined end to end (the gaps between them taken out)
-                t, X, names, period, used = _join_recordings(folders)
+                t, X, names, period, used = _join_recordings(folders, keep_of)
                 folders = used
+            cut = {f.name: {k: v for k, v in heads[f][2].items() if k not in ("warnings", "warnings_screen")}
+                   for f in folders if heads.get(f) and heads[f][2]["rows_cut"]}
 
             if not HIST.DECIDE_STOPPED and "trend_running" in names:
                 # the device no longer decides running or stopped: rows recorded while it still did (a whole
@@ -350,11 +382,19 @@ class DeviceApp:
             d, report = train_model(t, X, names, period=period, source=" + ".join(f.name for f in folders),
                                     progress=progress)
             report["recordings"] = [f.name for f in folders]
+            if cut:
+                report["head_off"] = cut
+            for f in folders:  # what the head check has to say goes with what was odd about the learning
+                for key in ("warnings", "warnings_screen"):
+                    for w in (heads[f][2][key] if heads.get(f) else []):
+                        if w not in d["baseline"].setdefault(key, []):
+                            d["baseline"][key].append(w)
             try:  # the more_impacts check's levels, from the recordings' one-a-second rows (an addition)
                 parts = [load_columns(f, SF.SPIKE_FEATURES_SHORT + SF.MOMENT_COLUMNS + ("trend_running",)) for f in folders]
                 ts = np.concatenate([p[0] for p in parts])
                 cols = {c: np.concatenate([p[1][c] for p in parts]) for c in parts[0][1]}
                 running = ~(cols["trend_running"] < 0.5) if HIST.DECIDE_STOPPED else np.ones(len(ts), bool)
+                running &= np.concatenate([keep_of(f, p[0]) for f, p in zip(folders, parts)])  # and the head was on
                 spikes = SF.learn_spike_levels(ts, cols, running)
                 if spikes:
                     d["baseline"]["spikes"] = spikes
@@ -464,6 +504,7 @@ class DeviceApp:
             mode, rec, watcher = self.mode, self.recorder, self.watcher
         if mode == "recording" and rec is not None:
             rec.on_window(t0, x)
+            self._head(t0, x, rec)
         elif self._last_history_save is None or t0 - self._last_history_save >= HISTORY_SAVE_EVERY_S:
             self.history.save(self.dir / "history.npz")  # while recording, the recorder saves it
             self._last_history_save = t0
@@ -1040,6 +1081,27 @@ class DeviceApp:
             except Exception:  # noqa: BLE001  the screen's quick numbers must never stop anything
                 pass
 
+    def _head(self, t0, x, rec):
+        """While recording: say so, once, when the head comes off the machine and when it is back. The rows are
+        still recorded; training leaves out the ones read while it was off (effente.attachment)."""
+        at = self.attach
+        if at is None:
+            return
+        was = at.state
+        now = at.update_row(t0, x)
+        if now == was:
+            return
+        if now == "on":
+            name, details = "head_back", {"after": was}
+        else:
+            name, details = "head_off", {"what": now, "meaning": AT.WHAT[now],
+                                         **({"angle_deg": round(at.angle, 1)} if math.isfinite(at.angle) else {})}
+        try:
+            rec.event(t0, name, **details)  # in the recording's events.jsonl
+        except Exception:  # noqa: BLE001  a recorder a command just closed: the stream still hears of it
+            pass
+        self._event(name, details)
+
     # ------------------------------------------------------------ what is shown
     def screen_lines(self) -> list[str]:
         """The screen's layout, design B (tiles): five lines the microcontroller draws as a header and six
@@ -1063,11 +1125,14 @@ class DeviceApp:
             mode, problems = self.mode, list(self.problems)
             early_obj = getattr(self, "early", None)
             early = early_obj.screen() if early_obj is not None and mode == "watching" else None
+            head_off = AT.SCREEN.get(self.attach.state) if mode == "recording" and self.attach is not None else None
         res = (self.result or {}) if mode == "watching" else None
         what = SF.verdict(res, problems)["what"]  # in plain words, the model's first, then the checks
         stale = self._row_at is not None and time.monotonic() - self._row_at > NO_DATA_S
         if stale:  # the sensors' rows have stopped: nothing is being judged, whatever the mode says
             left = "!NO DATA"
+        elif head_off:  # recording, and the head is not on the machine: put it back as it was
+            left = "!" + head_off
         elif what:
             left = "!" + SF.say(what)[0]
         elif mode == "watching" and early:
@@ -1079,7 +1144,9 @@ class DeviceApp:
         else:
             left = SCREEN_NAMES[mode]
         tile = ""
-        if what:
+        if head_off and not stale:
+            tile = "vib"
+        elif what:
             first = what[0]
             if first == "speed_changed":
                 tile = "hz"
@@ -1119,6 +1186,11 @@ class DeviceApp:
             s["you_can_read"] = "GET / and GET /latest list every address under \"you_can_read\""
             if self.mode == "recording" and self.record_started:
                 s["learning_s"] = round(self.clock() - self.record_started, 1)
+                if self.attach is not None:  # the head on the machine? "on", or fell, moved, loose, sensor
+                    s["head"] = {"state": self.attach.state, "checked": self.attach.checked,
+                                 **({"angle_deg": round(self.attach.angle, 1)} if math.isfinite(self.attach.angle) else {}),
+                                 **({"meaning": AT.WHAT[self.attach.state] + ": rows read now are not learned from; "
+                                     "put the head back as it was"} if self.attach.state != "on" else {})}
             if self.mode == "training":
                 s["training"] = {"stage": self.train_stage, "share": round(self.train_share, 2)}
             if self.model_path:

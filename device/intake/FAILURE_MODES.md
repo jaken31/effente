@@ -83,8 +83,9 @@ The history features look back 1 minute, 10 minutes, 1 hour, 6 hours, 24 hours, 
 | Clipping (range exceeded) | `vib_clip_frac`, `snd_clip_frac`; event `sensor_clipping` |
 | Sensor dead or stuck | No noise at all, silence, or identical thermal frames: event `sensor_stuck`; missing data: `sensor_lost` |
 | Device moved, dropped, re-mounted | `vib_gravity_*`, `vib_freefall_frac`, `trend_scene_match`; events `device_moved`, `device_dropped` |
+| Head off the machine while learning (fell, moved, rocking) | [effente/attachment.py](../../effente/attachment.py), from `vib_freefall_frac` and `vib_gravity_*`. While recording the screen says `HEAD FELL OFF`, `DEVICE MOVED` or `HEAD LOOSE`, status has `head`, and events `head_off` and `head_back` are logged. Training leaves those rows out, with 5 s either side, and the model's learning notes say how many. Starting values, simulated rows only: unverified on the real head |
 | Thermal camera blocked or dirty | `th_spread_c` collapses; `trend_scene_match` drops |
-| Mount loosening | Looks like machine looseness; tell them apart by gravity drift and gyro rocking |
+| Mount loosening | Looks like machine looseness. A head whose tilt wobbles 2 degrees or more is caught while learning (`loose`, the row above); a head rattling with no change of tilt is not told apart from the machine, and the gyroscope is not used for this yet |
 | Gaps and dropped data | Event `gap`; sequence numbers in the UNO Q source (to be written) |
 | People and other machines nearby | Learned as normal on site. A person walking past is not sudden heat (under 45 °C), and a repeating knock stops being logged after 3 in 10 minutes |
 
