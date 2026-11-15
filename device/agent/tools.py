@@ -10,8 +10,15 @@ import json
 from typing import Callable
 
 from .data import summarize_readings
-from .parts import search_parts as tavily_search_parts
 from .run import Run
+
+SEARCH_DISABLED = "unavailable: disabled at this site"
+
+
+def search_disabled(query: str) -> str:
+    """The parts lookup: there is none. Nothing may leave the site, so no outside search exists in
+    this code. A test may pass its own `search` to Tools."""
+    return SEARCH_DISABLED
 
 
 class Tools:
@@ -25,7 +32,7 @@ class Tools:
         self.records = records
         self.features = features
         self.run = run
-        self.search = search or tavily_search_parts
+        self.search = search or search_disabled
 
     def _record(self, name: str, tool_input: dict, output: str) -> str:
         if self.run is not None:

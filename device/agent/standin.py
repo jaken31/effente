@@ -3,8 +3,7 @@
 It is not a model and says so: its summary starts with "Stand-in report:" and
 the run is marked simulated with model "stand-in (no model call)". It reads
 the same summary the tools return, makes the same tool calls (except
-search_parts, so it never touches the network) and its report goes through
-the same checks as a real one.
+search_parts) and its report goes through the same checks as a real one.
 """
 
 from __future__ import annotations
