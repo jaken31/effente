@@ -91,3 +91,34 @@ def test_band_edges_clear_for_a_machine_without_a_model(qtbot):
     assert chart.edges() is not None
     chart.set_record(st.latest(), None)  # e.g. a historical machine with no device assigned now
     assert chart.edges() is None  # no Hz labels left over from the previous machine's model
+
+
+def checkin(st, at: str, level: float) -> None:
+    """The shown device stops watching and checks in with a spectrum (contract section 3)."""
+    dev = st.device_id()
+    st.push("device", {"device_id": dev, "connected": True, "mode": "display"})
+    st.push("readings", {"device_id": dev, "machine_id": st.current_machine(), "at": at,
+                         "readings": {}, "spectrum": [level] * 20})
+
+
+def test_waterfall_scrolls_on_check_in_spectra(page):
+    p, st = page
+    records, base = list(p.waterfall_records()), p.baseline()
+    checkin(st, "2099-01-01T00:00:01Z", -3.0)
+    checkin(st, "2099-01-01T00:00:01Z", -3.0)  # the same check-in seen again adds no row
+    checkin(st, "2099-01-01T00:00:02Z", -4.0)
+    rows = p.waterfall_records()
+    assert len(rows) == len(records) + 2
+    assert [r["spectrum"][0] for r in rows[-2:]] == [-3.0, -4.0]  # newest last, so drawn on top
+    assert p.chart.spectrum() == pytest.approx([-4.0] * 20)
+    assert p.baseline() == pytest.approx(base)  # check-ins are not part of the baseline
+
+
+def test_check_in_spectra_start_again_when_the_machine_changes(page):
+    p, st = page
+    checkin(st, "2099-01-01T00:00:01Z", -3.0)
+    checkin(st, "2099-01-01T00:00:02Z", -4.0)
+    assert len(p._checkins) == 2
+    p._machine = "another-machine"  # as if another machine had been shown until now
+    p.refresh()
+    assert [r["at"] for r in p._checkins] == ["2099-01-01T00:00:02Z"]  # only the one being shown now
