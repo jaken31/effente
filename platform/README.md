@@ -137,6 +137,7 @@ Needs pytest. The dashboard's logic tests also need `node` and are skipped witho
 
 - The receiver builds contract sections 6 (alarms and answers) and 7 (settings), and the simulated device takes the sensitivity, but the web dashboard shows neither. The desktop app will.
 - The maintenance agent (`device/agent`) does not read the safety checks' problems: whether it may cite them is open in the contract.
+- A report shown as checked passed these checks in code: cited readings moved in a fault window, the priority agrees with the diagnoses, the part reference is empty, and the text names no uncited reading, no fault type the records do not show (from a fixed word list) and no number the records do not back. Code does not read prose, so a cause in other words ("replace the motor") or unsound advice can still pass. The full list is in [docs/TRD.md](../docs/TRD.md), "Checks in code".
 
 ## Checked and not checked
 

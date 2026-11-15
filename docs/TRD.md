@@ -153,8 +153,12 @@ The harness is the code around the model call (`device/agent/harness.py`). Keep 
 - **Checks in code** (`check_report` in `device/agent/report.py`), for every report whoever wrote it:
     - the shape: the right keys and types, nothing extra
     - every cited reading moved in the records supplied, in a window diagnosed as a fault type
+    - the priority agrees with the diagnoses: `none` when no record shows a fault type or an unrecognised pattern, and not `none` while the newest record shows one
+    - the part reference is empty, unless a parts lookup in the same run returned that text (none runs today)
     - the free text names no reading that is not cited, unless that reading was switched off
-    - every number in the free text appears in the readings supplied
+    - the free text uses no word for a fault type or its usual causes (a fixed word list per fault type, `FAULT_WORDS`) unless the records were diagnosed as that type
+    - every number in the free text is a window count, a time or the unknown score from the records, or a value of a cited reading; a number given as a reading's movement ("7 spreads", "seven times its usual spread") must be a value of a cited reading
+- **What the checks cannot do:** code does not read prose. Not caught: a cause or a part named in words outside the list ("replace the motor"), a reading described in its own words with no number, a plain number that happens to equal a count, and whether the advice is sound. A person still has to read the summary and the recommended action.
 - **Failed checks:** one retry. If the report still fails, it is discarded and the run says why.
 - **Errors:** a timeout on every request. "No server running", "did not answer in time" and "answer was not a report" are reported separately.
 - **Logging:** save each request, tool call, response and token count to the agent log. The dashboard shows the tool calls live.
