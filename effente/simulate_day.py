@@ -13,7 +13,8 @@ Everything it writes is fake. There are no faults in it. Signal levels are
 plausible but unverified: nothing here was measured on a real pump.
 
 Simulated sensors:
-  MPU6050   accelerometer + gyroscope, 1 kHz, raw int16 counts
+  MPU6050   accelerometer + gyroscope, 1 kHz, raw int16 counts (the default; --imu MPU-6500
+            gives the device's own sensor instead, see IMUS below)
   INMP441   I2S microphone, 16 kHz, int16
   MLX90640  thermal camera (55 deg lens), 32x24 pixels, 4 frames/s, deg C
   BME280    room temperature and humidity, 1 reading/s
@@ -40,6 +41,7 @@ Needs Python 3 with NumPy and SciPy.
 Usage:
   python3 -m effente.simulate_day --out data/fake/normal-day-01
   python3 -m effente.simulate_day --out /tmp/effente-clip --start 05:44 --minutes 3
+  python3 -m effente.simulate_day --out /tmp/effente-clip --start 05:44 --minutes 3 --imu MPU-6500
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ import json
 import math
 import os
 import time
+from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -116,6 +119,36 @@ GYRO_BIAS_DPS = np.array([1.8, -2.4, 0.9])
 GYRO_DRIFT_DPS_PER_C = np.array([0.020, -0.015, 0.030])
 GYRO_ROCK_DPS = np.array([0.03, 0.05, 0.02])
 GYRO_NOISE_DPS = 0.15
+
+
+
+@dataclass(frozen=True)
+class Imu:
+    """The accelerometer the day is recorded with: its range, low-pass filter and noise."""
+    part: str
+    range_text: str
+    accel_lsb_per_g: int
+    dlpf_hz: float
+    accel_noise_g: float  # white noise before the low-pass filter
+
+
+def _white_noise_for(rms_g: float, dlpf_hz: float) -> float:
+    """The white-noise level before the low-pass filter that leaves `rms_g` after it."""
+    sos = signal.butter(2, dlpf_hz, fs=ACCEL_NOMINAL_HZ, output="sos")
+    kernel = signal.sosfilt(sos, np.r_[1.0, np.zeros(4095)])
+    return rms_g / float(np.sqrt(np.sum(kernel ** 2)))
+
+
+# The MPU6050 is the default and is exactly what this file always wrote. The MPU-6500 is the
+# device's sensor (TRD): +-8 g, and 3.5 mg rms of noise per axis after its low-pass filter, the
+# figure effente.simulate_conveyor's realistic mode uses. Its 218 Hz filter setting is the one
+# training/record/datasets/ottawa.py uses; the TRD has not checked it against the datasheet
+# (unverified). Only the accelerometer's range, filter and noise differ: the zero-g offsets, the
+# gyro and the clock error stay the MPU6050's figures.
+IMUS = {
+    "MPU6050": Imu("MPU6050", "+-2 g, +-250 deg/s", ACCEL_LSB_PER_G, DLPF_HZ, ACCEL_NOISE_G),
+    "MPU-6500": Imu("MPU-6500", "+-8 g, +-250 deg/s", 4096, 218, _white_noise_for(0.0035, 218)),
+}
 
 THERMAL_LABELS = [
     "background", "floor", "cabinet", "fan_cover", "motor",
@@ -234,8 +267,9 @@ def unit_noise(rng, n: int, sos, channels: int = 1) -> np.ndarray:
 class Day:
     """Everything that changes slowly, on a 10 Hz timeline for the whole day."""
 
-    def __init__(self, seed: int):
+    def __init__(self, seed: int, imu: str = "MPU6050"):
         self.seed = seed
+        self.imu = IMUS[imu]  # the accelerometer the day is recorded with
         rng = np.random.default_rng([seed, 0])
         n = DAY_S * CTRL_HZ + 2
         tc = np.arange(n) / CTRL_HZ
@@ -447,9 +481,9 @@ def person_columns(x0: float, width: float) -> np.ndarray:
 _DAY: Day | None = None
 
 
-def _init_worker(seed: int):
+def _init_worker(seed: int, imu: str = "MPU6050"):
     global _DAY
-    _DAY = Day(seed)
+    _DAY = Day(seed, imu)
 
 
 def ctrl_index(t: np.ndarray):
@@ -477,8 +511,8 @@ class HourRenderer:
         self.rng_th = np.random.default_rng([seed, 3, hour])
 
         fa, fs = ACCEL_NOMINAL_HZ, AUDIO_NOMINAL_HZ
-        self.dlpf_acc = Filter(signal.butter(2, DLPF_HZ, fs=fa, output="sos"), 3)
-        self.dlpf_gyr = Filter(signal.butter(2, DLPF_HZ, fs=fa, output="sos"), 3)
+        self.dlpf_acc = Filter(signal.butter(2, day.imu.dlpf_hz, fs=fa, output="sos"), 3)
+        self.dlpf_gyr = Filter(signal.butter(2, day.imu.dlpf_hz, fs=fa, output="sos"), 3)
         self.n_flow = Colored(signal.butter(2, [5, 400], "band", fs=fa, output="sos"), self.rng_acc, 3)
         self.n_res = Colored(signal.tf2sos(*signal.iirpeak(95, 15, fs=fa)), self.rng_acc, 3)
 
@@ -569,7 +603,7 @@ class HourRenderer:
             hit = np.zeros(n)
             hit[m] = ev["vib_g"] * np.exp(-dt[m] / 0.03) * np.sin(2 * np.pi * ev["vib_hz"] * dt[m])
             acc += weights * hit[None]
-        acc += self.rng_acc.standard_normal((3, n)) * ACCEL_NOISE_G
+        acc += self.rng_acc.standard_normal((3, n)) * d.imu.accel_noise_g
         acc = self.dlpf_acc(acc)
         acc += (GRAVITY + ACCEL_OFFSET_G)[:, None] + ACCEL_DRIFT_G_PER_C[:, None] * (dev - 25)[None]
 
@@ -581,7 +615,7 @@ class HourRenderer:
         gyr = self.dlpf_gyr(gyr)
         gyr += GYRO_BIAS_DPS[:, None] + GYRO_DRIFT_DPS_PER_C[:, None] * (dev - 25)[None]
 
-        acc_counts = np.clip(np.round(acc.T * ACCEL_LSB_PER_G), -32768, 32767).astype(np.int16)
+        acc_counts = np.clip(np.round(acc.T * d.imu.accel_lsb_per_g), -32768, 32767).astype(np.int16)
         gyr_counts = np.clip(np.round(gyr.T * GYRO_LSB_PER_DPS), -32768, 32767).astype(np.int16)
         t_us = np.round(t * 1e6).astype(np.int64)
         return acc_counts, gyr_counts, t_us
@@ -764,7 +798,7 @@ def render_hour(task):
         fan_rpm=round(NOMINAL_SPEED_HZ * 60, 1),  # machine is a pump; name kept from the format
         recorded_at=f"{DATE}T{hms(lo)}",
         # Additional fields. Nothing in the agreed format changes.
-        accel_t_us=np.concatenate(at_parts), accel_lsb_per_g=ACCEL_LSB_PER_G,
+        accel_t_us=np.concatenate(at_parts), accel_lsb_per_g=d.imu.accel_lsb_per_g,
         gyro=np.concatenate(gyr_parts), gyro_lsb_per_dps=GYRO_LSB_PER_DPS,
         audio=np.concatenate(aud_parts), audio_t_us=np.concatenate(bt_parts),
         audio_block_len=AUDIO_BLOCK, audio_rate_hz=AUDIO_NOMINAL_HZ, audio_gain_db=AUDIO_GAIN_DB,
@@ -838,9 +872,9 @@ def write_meta(day: Day, out: Path, seed: int):
             "schedule": [{"start": hms(s), "stop": hms(e), "kind": k} for s, e, k in day.runs],
         },
         "sensors": {
-            "imu": {"part": "MPU6050", "range": "+-2 g, +-250 deg/s", "nominal_rate_hz": ACCEL_NOMINAL_HZ,
-                    "true_rate_hz": round(ACCEL_TRUE_HZ, 3), "dlpf_hz": DLPF_HZ,
-                    "accel_lsb_per_g": ACCEL_LSB_PER_G, "gyro_lsb_per_dps": GYRO_LSB_PER_DPS,
+            "imu": {"part": day.imu.part, "range": day.imu.range_text, "nominal_rate_hz": ACCEL_NOMINAL_HZ,
+                    "true_rate_hz": round(ACCEL_TRUE_HZ, 3), "dlpf_hz": day.imu.dlpf_hz,
+                    "accel_lsb_per_g": day.imu.accel_lsb_per_g, "gyro_lsb_per_dps": GYRO_LSB_PER_DPS,
                     "axes": "x radial horizontal, y axial (along the shaft), z radial vertical (up)",
                     "mounting": "on top of the motor, slightly tilted"},
             "microphone": {"part": "INMP441", "nominal_rate_hz": AUDIO_NOMINAL_HZ,
@@ -872,6 +906,7 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--start", default="00:00", help="start time HH:MM[:SS] (default 00:00)")
     ap.add_argument("--minutes", type=float, default=24 * 60, help="how much to render (default a full day)")
+    ap.add_argument("--imu", choices=sorted(IMUS), default="MPU6050", help="the accelerometer (default MPU6050)")
     ap.add_argument("--workers", type=int, default=max(1, min(6, (os.cpu_count() or 2) - 1)))
     args = ap.parse_args()
 
@@ -881,7 +916,7 @@ def main():
     t_to = min(DAY_S, t_from + args.minutes * 60)
 
     t0 = time.time()
-    day = Day(args.seed)
+    day = Day(args.seed, args.imu)
     write_truth(day, out)
     write_events(day, out)
     write_meta(day, out, args.seed)
@@ -891,7 +926,7 @@ def main():
     hours = range(int(t_from // 3600), int(math.ceil(t_to / 3600)))
     tasks = [(h, t_from, t_to, str(out)) for h in hours]
     ctx = get_context("spawn")
-    with ctx.Pool(min(args.workers, len(tasks)), initializer=_init_worker, initargs=(args.seed,)) as pool:
+    with ctx.Pool(min(args.workers, len(tasks)), initializer=_init_worker, initargs=(args.seed, args.imu)) as pool:
         total = 0
         for name, secs, size in pool.imap_unordered(render_hour, tasks):
             total += size

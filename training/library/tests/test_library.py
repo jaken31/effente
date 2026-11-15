@@ -19,8 +19,8 @@ from effente import trainer as TR
 from effente.model_input import Prep, _transform_raw
 from training.library.catalog import ENTRIES, Entry, FaultCheck
 from training.library import load as L
-from training.library.sources import (DEVICE_SENSORS, MPU6050, MPU6500, PublicSet, Recording, SimConveyor, SimPump,
-                                      SimServerRack)
+from training.library.sources import (DEVICE_SENSORS, FAULT_S, LEAD_IN_S, MPU6050, MPU6500, PublicSet, Recording,
+                                      SimConveyor, SimPump, SimServerRack)
 
 MANIFEST_FIELDS = ["entry_id", "version", "normal_model", "features_version", "sources", "heldout_score_quantiles",
                    "scorecard", "status", "built", "model_sha1", "calibration"]
@@ -336,9 +336,35 @@ def test_only_mpu6500_sources_may_train():
 
 
 def test_the_pump_simulator_gives_rows():
-    rows = SimPump("pump", minutes=1).load_rows(0)  # minutes: the pump is evaluation only and short
+    pump = SimPump("pump", minutes=1)  # as the simulator is: an MPU6050, so evaluation only
+    rows = pump.load_rows(0)
+    assert pump.sensor == MPU6050 and pump.used_for == "evaluation"
     assert rows.X.shape == (60, F.N_FEATURES) and rows.names == list(F.FEATURE_NAMES)
     assert 25 < np.nanmedian(rows.X[:, F.INDEX["vib_speed_hz"]]) < 31  # a 4-pole motor on 60 Hz mains
+    assert np.isnan(rows.X[:, F.INDEX["snd_level_db"]]).all()  # the IMU alone, as every source
+
+
+def test_the_pump_and_the_rack_can_be_mpu6500_sources():
+    """What the pump and fan entries train on: the same simulators through the MPU-6500."""
+    from effente import simulate_day as SD
+    pump = SimPump("pump", used_for="training", imu=MPU6500, start_h=8.0, minutes=62)  # across an hour's end
+    rows = pump.load_rows(0)
+    assert pump.sensor == MPU6500 and pump.hours == 62 / 60
+    assert rows.X.shape == (62 * 60, F.N_FEATURES) and np.all(np.diff(rows.t) > 0)
+    assert 25 < np.nanmedian(rows.X[:, F.INDEX["vib_speed_hz"]]) < 31
+    old, new = SD.IMUS["MPU6050"], SD.IMUS["MPU-6500"]
+    assert (new.accel_lsb_per_g, new.dlpf_hz) == (4096, 218) and new.accel_noise_g < old.accel_noise_g
+    assert (old.accel_lsb_per_g, old.dlpf_hz, old.accel_noise_g) == (16384, 260, 0.0085)  # the default, unchanged
+
+    rack = SimServerRack("rack", used_for="training", mpu6500=True, hours=2 / 60)
+    quiet, loud = rack.load_rows(0, faults=("fan3_bearing",)), SimServerRack("rack", hours=2 / 60).load_rows(0)
+    assert rack.sensor == MPU6500 and rack.can_fault
+    col = F.INDEX["vib_rms_x"]  # less accelerometer noise: a lower level on the same rack
+    assert np.nanmedian(quiet.X[:, col]) < np.nanmedian(loud.X[:, col])
+    t_fault, X_fault = quiet.faults["fan3_bearing"]
+    assert len(t_fault) == LEAD_IN_S + FAULT_S and t_fault[0] >= quiet.t[-1]
+    for entry_id in ("fan", "pump"):  # and the build takes them as training sources
+        assert all(s.sensor == MPU6500 for s in ENTRIES[entry_id].sources if s.used_for == "training")
 
 
 def test_a_device_recording_can_replace_the_simulator():
@@ -366,7 +392,7 @@ def test_a_device_recording_can_replace_the_simulator():
 # ----------------------------------------------------------------- the committed entries
 
 def test_the_committed_entries_are_the_catalogs():
-    assert set(ENTRIES) == {"generic_rotating", "conveyor"}
+    assert set(ENTRIES) == {"generic_rotating", "conveyor", "fan", "pump"}
     assert sorted(p.name for p in B.ENTRIES_DIR.iterdir()) == sorted(ENTRIES)
     for entry, path, m in committed():
         assert sorted(p.name for p in path.parent.iterdir()) == ["manifest.json", "model.json"]
@@ -378,10 +404,16 @@ def test_the_committed_entries_are_the_catalogs():
         assert json.loads(path.read_text())["trained_on"] == f"library entry {entry.entry_id} {entry.version}"
     assert ENTRIES["conveyor"].status == "demo"
     assert {s.kind for s in ENTRIES["conveyor"].sources} == {"simulated"}  # the simulator alone, for now
-    for entry, _, m in committed():  # the server rack: listed as the wrong machine, never trained on, not run
-        rack = [s for s in m["sources"] if s["name"] == "sim_server_rack"]
-        assert rack == [{"name": "sim_server_rack", "kind": "simulated", "used_for": "evaluation", "evaluated": False,
-                         "note": "wrong machine: a server rack, for the fit check"}]
+    for entry, _, m in committed():  # the wrong machine: listed, never trained on, not run
+        name, what = (("sim_conveyor", "a conveyor") if entry.entry_id in ("fan", "pump") else
+                      ("sim_server_rack", "a server rack"))
+        wrong = [s for s in m["sources"] if s["name"] == name and s["used_for"] == "evaluation"]
+        assert wrong == [{"name": name, "kind": "simulated", "used_for": "evaluation", "evaluated": False,
+                          "note": f"wrong machine: {what}, for the fit check"}]
+    for entry_id in ("fan", "pump"):  # simulated only, so never more than unverified
+        assert ENTRIES[entry_id].status == "unverified"
+        assert {s.kind for s in ENTRIES[entry_id].sources if s.used_for == "training"} == {"simulated"}
+        assert all(s.sensor == MPU6500 for s in ENTRIES[entry_id].sources if s.used_for == "training")
     generic = [s for s in ENTRIES["generic_rotating"].sources if s.used_for == "training"]
     assert len(generic) >= 2 and len({(s.speed, s.load, s.turn_deg, s.gain) for s in generic}) == len(generic)
 
