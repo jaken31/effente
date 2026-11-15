@@ -103,13 +103,18 @@ def _number(v) -> bool:
 
 
 def new_frames(got, after: str) -> list[dict]:
-    """The usable images of a `GET /heat` reply taken after `after`, oldest first: each {at, min_c, step_c, data}."""
+    """The usable images of a `GET /heat` reply taken after `after`, oldest first: each {at, min_c, step_c, data}.
+
+    A device whose newest image is older than `after` has started its clock again (a restart with no
+    network time): all its images count as new, or none would until this link is started again."""
     if not isinstance(got, dict) or not isinstance(got.get("frames"), list):
         return []
-    new = sorted((f for f in got["frames"] if isinstance(f, dict) and isinstance(f.get("at"), str)
-                  and f["at"] > after and isinstance(f.get("data"), str)
-                  and _number(f.get("min_c")) and _number(f.get("step_c"))), key=lambda f: f["at"])
-    return [{k: f[k] for k in ("at", "min_c", "step_c", "data")} for f in new]
+    usable = sorted((f for f in got["frames"] if isinstance(f, dict) and isinstance(f.get("at"), str)
+                     and isinstance(f.get("data"), str)
+                     and _number(f.get("min_c")) and _number(f.get("step_c"))), key=lambda f: f["at"])
+    if usable and usable[-1]["at"] >= after:
+        usable = [f for f in usable if f["at"] > after]
+    return [{k: f[k] for k in ("at", "min_c", "step_c", "data")} for f in usable]
 
 
 def heat_of(value):
