@@ -105,6 +105,18 @@ Buyer: small and mid-size manufacturers, and maintenance contractors who serve t
 | A fault no type covers | It says "unrecognised pattern" instead of forcing a wrong name |
 | Comparison of 8 detectors on simulated and public data | Why the model is the one we chose |
 
+What is committed so far (`training/validation/REPORT.md`, from `training/validation/results/`). Every figure below is from simulated machines or public data. None is from our own device, so none may be presented as a measurement of it.
+
+| Evidence | Status | Committed figure |
+|----------|--------|------------------|
+| Held-out normal, sensor re-attached | Simulated. Re-attaching the sensor is not simulated | A later 30-minute session alarms in 2.9 % of periods with `conveyor` (0 to 14.6 % across 5 machines) and 0.8 % with `generic_rotating` |
+| Library entry against a model trained on the machine alone | Not in the validation results | None |
+| Fault sessions | Simulated | Faults at severity 1 that alarmed: 45 % with `conveyor` (55 faults), 25 % with `generic_rotating` (20 faults) |
+| Sensitivity sweep | Not run. Needs the physical rig | None |
+| NASA IMS run to failure | Public data, converted to what an MPU6050 would record | No false alarms in 87.17 h, first alarm 4.67 h before the failure. Not 9.8 h, which has no committed result |
+| A fault no type covers | Simulated | All alarmed. 60 % (`conveyor`) and 50 % (`generic_rotating`) of them were shown as `unrecognised_pattern`; the rest were given a fault name |
+| Comparison of 8 detectors | Code only | No result committed |
+
 The pitch presents early warning as the motivation and the run-to-failure result as the evidence. The conveyor demo shows detection and explanation, not prediction.
 
 ## Judging fit
