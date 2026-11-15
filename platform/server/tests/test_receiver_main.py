@@ -107,7 +107,9 @@ def test_a_receiver_on_every_interface_also_listens_on_ipv6(tmp_path):
 
     def get(host, port):
         with urllib.request.urlopen(f"http://{host}:{port}/api/state", timeout=5) as reply:
-            return json.load(reply)
+            state = json.load(reply)
+        state.pop("now")  # the receiver's clock at the reply: two requests can fall in different milliseconds
+        return state
 
     receiver = Receiver("0.0.0.0", 0, str(tmp_path / "d"), str(tmp_path / "w"), log=lambda m: None)
     if receiver.httpd6 is None:
