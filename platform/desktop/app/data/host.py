@@ -136,6 +136,33 @@ class ReceiverHost:
         if self.usb:
             self.usb_link = paths.usb_link_module().UsbLink(self.url, log=self.usb_log).start()
 
+    def connect_device(self, device_url: str) -> None:
+        """Read the device at `device_url` (its own port) from now on, in place of the one
+        read before. For a board on the same network, picked while the app runs."""
+        if self.receiver is None:
+            raise RuntimeError("the receiver is not running")
+        self.disconnect_device()
+        self.device_url = device_url
+        self.link = paths.link_module().DeviceLink(device_url, self.url, log=self.log).start()
+
+    def disconnect_device(self) -> None:
+        """Stop reading the device picked by address. A board on USB is left alone."""
+        link, self.link, self.device_url = self.link, None, None
+        if link is not None:
+            # stop() waits for a request in flight, up to seconds when the board does not answer.
+            threading.Thread(target=link.stop, name="effente-device-link-stop", daemon=True).start()
+
+    def device_link(self) -> dict:
+        """What is read by address and over USB, for the Device page.
+        `reachable` is None until the first answer or failure."""
+        link, usb = self.link, self.usb_link
+        return {
+            "url": self.device_url or "",
+            "reachable": link.device_reachable if link is not None else None,
+            "message": link.last_message if link is not None else "",
+            "usb": sorted(usb.links) if usb is not None else [],
+        }
+
     def _start_sim(self) -> None:
         sim_device = paths.sim_modules()[0]
         args = sim_device.parse_args([

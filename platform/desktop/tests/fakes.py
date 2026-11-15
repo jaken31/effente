@@ -44,6 +44,7 @@ for _path in (str(DESKTOP), str(Path(__file__).resolve().parent)):  # `app`, and
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from app.data import device_address as addresses
 from app.data import logic, model_server, paths
 from app.data.state import StateReads
 from fake_partlog import FakeLog
@@ -157,6 +158,8 @@ class FakeState(StateReads):
             logic.set_history(self._s, machine, built["records"], slim=False)
         logic.add_runs(self._s, built["runs"])
         self._sim = FakeSim() if with_sim else None
+        self._link = dict(addresses.NO_LINK)
+        self._address = ""
         self.started_agents = []  # modes start_agent was called with
         self.own_agent_alive = False  # set True to act as if this app's report run is going
         self.stopped_agents = 0  # how many times stop_agent was called
@@ -222,6 +225,30 @@ class FakeState(StateReads):
 
     def stop_model_server(self) -> None:
         self._model_status_is(model_server.Status(model_server.STOPPED, "Not running."))
+
+    def device_link(self) -> dict:
+        return dict(self._link)
+
+    def device_address(self) -> str:
+        return self._address
+
+    def connect_device(self, address) -> bool:
+        """No link is started: the address is shown as being tried, with no answer yet."""
+        url, why = addresses.device_url(address)
+        if not url:
+            self.action_failed.emit(why)
+            return False
+        self._address = str(address).strip()
+        self.set_device_link(url=url)
+        return True
+
+    def disconnect_device(self) -> None:
+        self.set_device_link()
+
+    def set_device_link(self, url: str = "", reachable=None, message: str = "", usb=()) -> None:
+        """Show the link to a device in any state, for page tests."""
+        self._link = {"url": url, "reachable": reachable, "message": message, "usb": list(usb)}
+        self.link_changed.emit()
 
     def set_model_status(self, state: str, message: str, ours: bool = False, model: str = "") -> None:
         """Show the model server in any state, for page tests."""

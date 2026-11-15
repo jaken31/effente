@@ -251,6 +251,43 @@ def test_device_page_shows_the_model_and_pauses_the_log(qtbot, state):
     assert page.log.row_model.rowCount() == before + 1
 
 
+def test_device_page_connects_a_board_by_address(qtbot, state):
+    from app.pages.device import DevicePage
+    from app.pages.device import view as device
+
+    page = make(qtbot, DevicePage, state)
+    assert page.link_button.text() == device.CONNECT
+    assert page.link_status.text() == "No board connected by address."
+    with qtbot.waitSignal(state.action_failed, timeout=1000):  # nothing typed: refused with the reason
+        page.link_button.click()
+    assert state.device_link()["url"] == ""
+    page.address.setText("192.168.43.20")
+    qtbot.keyClick(page.address, Qt.Key.Key_Return)
+    assert state.device_link()["url"] == "http://192.168.43.20:8765"
+    assert page.link_button.text() == device.DISCONNECT
+    assert page.address.isReadOnly()
+    assert page.link_status.text() == "Trying http://192.168.43.20:8765."
+    state.set_device_link("http://192.168.43.20:8765", reachable=False)
+    assert page.link_status.text().startswith("No answer from http://192.168.43.20:8765.")
+    state.set_device_link("http://192.168.43.20:8765", reachable=True, usb=["ABC123"])
+    assert page.link_status.text() == "Reading the board at http://192.168.43.20:8765." + device.TWICE
+    page.link_button.click()
+    assert state.device_link()["url"] == ""
+    assert page.link_button.text() == device.CONNECT
+    assert not page.address.isReadOnly()
+    assert page.address.text() == "192.168.43.20"  # kept, to connect again
+    state.set_device_link(usb=["ABC123"])
+    assert page.link_status.text() == "No board connected by address. Reading 1 board over USB."
+
+
+def test_device_page_starts_with_the_address_used_last(qtbot, state):
+    from app.pages.device import DevicePage
+
+    state.connect_device("192.168.43.20")
+    state.disconnect_device()
+    assert make(qtbot, DevicePage, state).address.text() == "192.168.43.20"
+
+
 # ---- the RED rule ---------------------------------------------------------
 
 

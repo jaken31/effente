@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, Signal
 
+from . import device_address as addresses
 from . import logic, model_server, paths
 from .api import ApiClient, ApiError, StreamReader
 from .model_settings import ModelSettings
@@ -85,6 +86,8 @@ class StateReads(QObject):
     range_loaded = Signal()
     # The local model's folder or size was changed, or its server's state moved.
     model_changed = Signal()
+    # A device was connected or disconnected by address, or what its link says moved.
+    link_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -378,6 +381,27 @@ class StateReads(QObject):
             self._model_status = status
             self.model_changed.emit()
 
+    # ---- a device picked by address -------------------------------------------
+
+    def device_link(self) -> dict:
+        """What is read from a device's own port: {"url": the address being read or "",
+        "reachable": True, False, or None before the first answer, "message": the link's
+        newest words, "usb": the boards read over USB}."""
+        return dict(addresses.NO_LINK)
+
+    def device_address(self) -> str:
+        """The address last connected to, as it was typed. "" when there was none."""
+        return ""
+
+    def connect_device(self, address) -> bool:
+        """Read the board at `address` on the network from now on (its port 8765 unless
+        the address names another). Returns whether a link started; action_failed says
+        why not. Whether the board answers shows in device_link(), after link_changed."""
+        return False
+
+    def disconnect_device(self) -> None:
+        """Stop reading the board picked by address."""
+
     # ---- settings -----------------------------------------------------------
 
     def sensitivity(self) -> dict:
@@ -394,6 +418,8 @@ class StateReads(QObject):
 MODES = ("standin", "local")
 NO_SERVER_HINT = "Start the model server, or run the stand-in."
 MODEL_POLL_MS = 2000
+LINK_POLL_MS = 1000
+NO_HOST = "This window reads a receiver it did not start, so it cannot connect a device."
 
 
 class DashboardState(StateReads):
@@ -420,6 +446,12 @@ class DashboardState(StateReads):
         self._model_changes = 0  # starts and stops so far: an answer asked for before one is out of date
         self.api = api if isinstance(api, ApiClient) else ApiClient(api)
         self.host = host
+        self._settings_store = settings
+        self._address = ""  # for this run, when there is no store
+        self._link = self._read_link()
+        self._link_poll = QTimer(self)
+        self._link_poll.setInterval(LINK_POLL_MS)
+        self._link_poll.timeout.connect(self._refresh_link)
         self.report_script = str(report_script or paths.REPORT_SCRIPT)
         self.reader = StreamReader(self.api, self)
         self.reader.connected.connect(self._on_connected, Qt.QueuedConnection)
@@ -440,12 +472,56 @@ class DashboardState(StateReads):
         self.reader.start()
         self._model_poll.start()
         self.refresh_model_status()
+        if self.host is not None:
+            self._link_poll.start()
 
     def stop(self) -> None:
         self._model_poll.stop()
+        self._link_poll.stop()
         self.reader.stop()
         self.stop_agent()
         self.models.stop()
+
+    # ---- a device picked by address ------------------------------------------
+
+    def _read_link(self) -> dict:
+        read = getattr(self.host, "device_link", None)
+        return read() if callable(read) else dict(addresses.NO_LINK)
+
+    def _refresh_link(self) -> None:
+        link = self._read_link()
+        if link != self._link:
+            self._link = link
+            self.link_changed.emit()
+
+    def device_link(self) -> dict:
+        return dict(self._link)
+
+    def device_address(self) -> str:
+        store = self._settings_store
+        value = store.value(addresses.ADDRESS_KEY, "") if store is not None else self._address
+        return value.strip() if isinstance(value, str) else ""
+
+    def connect_device(self, address) -> bool:
+        url, why = addresses.device_url(address)
+        if not url:
+            self.action_failed.emit(why)
+            return False
+        if self.host is None or getattr(self.host, "receiver", None) is None:
+            self.action_failed.emit(NO_HOST)
+            return False
+        self.host.connect_device(url)
+        typed = str(address).strip()
+        if self._settings_store is not None:
+            self._settings_store.setValue(addresses.ADDRESS_KEY, typed)
+        self._address = typed
+        self._refresh_link()
+        return True
+
+    def disconnect_device(self) -> None:
+        if self.host is not None:
+            self.host.disconnect_device()
+        self._refresh_link()
 
     # ---- background work --------------------------------------------------
 

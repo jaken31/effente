@@ -7,9 +7,16 @@ from app.pages.agents.levels import Levels
 from app.pages.evidence.table_model import Column, RowTable
 from app.theme import fonts
 from app.theme import tokens as t
-from app.widgets import Panel, Toggle
+from app.widgets import Button, Panel, Toggle
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from . import view
 
@@ -42,6 +49,38 @@ class DevicePage(QWidget):
             Column("Model version", mono=True),
         ])
         self.devices_panel.add(self.devices, 1)
+
+        self.link_panel = Panel("Connect over WiFi", "a board on the same network, by its address", padded=True)
+        link_box = QWidget()
+        lv = QVBoxLayout(link_box)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(8)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(10)
+        self.address = QLineEdit()
+        self.address.setFont(fonts.body())
+        self.address.setPlaceholderText(view.ADDRESS_HINT)
+        self.address.setMaxLength(200)
+        self.address.returnPressed.connect(self.toggle_link)
+        self.link_button = Button(view.DISCONNECT)
+        self.link_button.setMinimumWidth(self.link_button.sizeHint().width())  # room for the longer word
+        self.link_button.setText(view.CONNECT)
+        self.link_button.clicked.connect(self.toggle_link)
+        row.addWidget(self.address, 1)
+        row.addWidget(self.link_button)
+        self.link_status = QLabel()
+        self.link_status.setProperty("role", "strong")
+        self.link_status.setFont(fonts.body())
+        self.link_status.setWordWrap(True)
+        self.link_why = QLabel(view.LINK_WHY)
+        self.link_why.setProperty("role", "muted")
+        self.link_why.setFont(fonts.body())
+        self.link_why.setWordWrap(True)
+        lv.addLayout(row)
+        lv.addWidget(self.link_status)
+        lv.addWidget(self.link_why)
+        self.link_panel.add(link_box)
 
         self.model_panel = Panel("Model", padded=True)
         box = QWidget()
@@ -79,9 +118,10 @@ class DevicePage(QWidget):
         self.log_panel.add(self.log, 1)
 
         grid.addWidget(self.devices_panel, 0, 0, 1, 2)
-        grid.addWidget(self.model_panel, 1, 0)
-        grid.addWidget(self.log_panel, 1, 1)
-        grid.setRowStretch(1, 1)
+        grid.addWidget(self.link_panel, 1, 0, 1, 2)
+        grid.addWidget(self.model_panel, 2, 0)
+        grid.addWidget(self.log_panel, 2, 1)
+        grid.setRowStretch(2, 1)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
@@ -92,6 +132,9 @@ class DevicePage(QWidget):
         state.record_added.connect(self.refresh)
         state.alarms_changed.connect(self.refresh_log)
         state.runs_changed.connect(self.refresh_log)
+        state.link_changed.connect(self.refresh_link)
+        self.address.setText(state.device_address())
+        self.refresh_link()
         self.refresh()
 
     def _snapshot(self) -> None:
@@ -110,6 +153,24 @@ class DevicePage(QWidget):
             if not initial and did in self._versions and version and version != self._versions[did] and at:
                 self.seen.append(view.model_event(at, models.get(version) or {"model_version": version}))
             self._modes[did], self._versions[did] = mode, version
+
+    def toggle_link(self) -> None:
+        """Connect to the typed address, or disconnect from the one being read."""
+        if self.state is None:
+            return
+        if self.state.device_link().get("url"):
+            self.state.disconnect_device()
+        else:
+            self.state.connect_device(self.address.text())
+
+    def refresh_link(self) -> None:
+        if self.state is None:
+            return
+        link = self.state.device_link()
+        on = bool(link.get("url"))
+        self.address.setReadOnly(on)  # the address being read stays as typed until Disconnect
+        self.link_button.setText(view.DISCONNECT if on else view.CONNECT)
+        self.link_status.setText(view.link_status(link))
 
     def _paused(self, on: bool) -> None:
         if not on:
