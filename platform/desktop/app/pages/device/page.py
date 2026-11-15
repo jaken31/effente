@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import view
+from .find import FindBoards
 
 PROT_KEYS = ("Fit check", "Calibrated")
 
@@ -67,8 +68,12 @@ class DevicePage(QWidget):
         self.link_button.setMinimumWidth(self.link_button.sizeHint().width())  # room for the longer word
         self.link_button.setText(view.CONNECT)
         self.link_button.clicked.connect(self.toggle_link)
+        self.find_button = Button(view.FIND, "ghost")
+        self.find_button.clicked.connect(self.find_boards)
+        self.finder = None  # the Find boards window while it is open
         row.addWidget(self.address, 1)
         row.addWidget(self.link_button)
+        row.addWidget(self.find_button)
         self.link_status = QLabel()
         self.link_status.setProperty("role", "strong")
         self.link_status.setFont(fonts.body())
@@ -162,6 +167,20 @@ class DevicePage(QWidget):
             self.state.disconnect_device()
         else:
             self.state.connect_device(self.address.text())
+
+    def find_boards(self) -> None:
+        """Open the Find boards window. The board picked there is connected to."""
+        if self.state is None:
+            return
+        self.finder = FindBoards(self.state, self.window())
+        self.finder.picked.connect(self.connect_to)
+        self.finder.finished.connect(lambda _code: setattr(self, "finder", None))
+        self.finder.open()
+
+    def connect_to(self, address: str) -> None:
+        """Connect to `address`, in place of whatever is read by address now."""
+        if self.state is not None and self.state.connect_device(address):
+            self.address.setText(address)
 
     def refresh_link(self) -> None:
         if self.state is None:

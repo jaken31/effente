@@ -200,3 +200,56 @@ def link_status(link: dict | None) -> str:
     else:
         text = f"Trying {url}."
     return text + (TWICE if usb else "")
+
+
+# ---- boards found without typing an address -------------------------------------
+
+FIND = "Find boards"
+FIND_TITLE = "Boards this laptop can reach"
+SEARCH_AGAIN = "Search again"
+SEARCHING = "Searching: a board on USB, then the addresses near this laptop."
+FIND_WHY = ("Tried: the WiFi address of a board plugged in by USB, and the addresses near this laptop's own and "
+            "near the one connected to last. On a large network (a university's) a board elsewhere is not found "
+            "this way: plug it in by USB, or type its address.")
+NOT_FROM_HERE = "does not answer from this laptop's network"
+NO_ANSWER = "no answer"  # in the table, where there is little room
+
+
+def board_rows(found: dict | None) -> list[list[str]]:
+    """Device, machine, mode, address, found by: one row a board, boards that answer first.
+    The first three are the board's own words, a dash when it did not answer."""
+    rows = []
+    for b in sorted((found or {}).get("boards") or [], key=lambda b: (not b.get("answers"), b.get("address") or "")):
+        how = "USB" if b.get("how") == "usb" else "network search"
+        if not b.get("answers"):
+            how += " · " + NO_ANSWER
+        rows.append([b.get("device_id") or "–", b.get("machine_id") or "–", logic.mode_name(b.get("mode")) or "–",
+                     b.get("address") or "", how])
+    return rows
+
+
+def board_addresses(found: dict | None) -> list[tuple[str, bool]]:
+    """(address, answers) for each row of board_rows, in its order."""
+    boards = sorted((found or {}).get("boards") or [], key=lambda b: (not b.get("answers"), b.get("address") or ""))
+    return [(b.get("address") or "", bool(b.get("answers"))) for b in boards]
+
+
+def find_status(found: dict | None) -> str:
+    """One sentence on the search. Counts only what it tried and what answered."""
+    found = found or {}
+    boards = found.get("boards") or []
+    n = sum(1 for b in boards if b.get("answers"))
+    count = f"{n} board{'' if n == 1 else 's'}"
+    if found.get("searching"):
+        return SEARCHING + (f" {count} so far." if n else "")
+    tried = found.get("tried")
+    if tried is None:
+        return "Not searched yet." if not boards else f"Search stopped. {count} found."
+    if tried == 0:
+        near = "This laptop has no ordinary local address on its network, so there were no nearby addresses to try."
+    else:
+        near = f"Tried {tried} nearby address{'' if tried == 1 else 'es'}."
+    silent = len(boards) - n
+    usb = (f" {silent} board{'' if silent == 1 else 's'} on USB {NOT_FROM_HERE}: "
+           "it is on another network than this laptop.") if silent else ""
+    return (f"Found {count}. " if n else "No board answered. ") + near + usb
