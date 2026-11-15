@@ -87,7 +87,7 @@ The simulated device and a real one can run at the same time. The dashboard show
 | PLATFORM CONNECTION LOST | The receiver stopped | Start `run.py` again. The page reconnects by itself and history is kept. |
 | "Not live" and "Problems: not known while the device is not live" | Nothing heard from the device for 5 seconds. Its problems were cleared with the reason "device quiet". | As for DEVICE DISCONNECTED. Problems still on come back as new when it returns. |
 | "No device log yet" from `report.py` | `run.py` was not started first, or was started with `--no-sim` | With a real device, run the agent on the device: see `device/agent/README.md` |
-| Old readings in history | Stored from an earlier run | Start with `--fresh`. In the desktop app: **Reset stored data…** on the Device & model page |
+| Old readings in history | Stored from an earlier run | Start with `--fresh` |
 
 ## What is where
 

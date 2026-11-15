@@ -7,14 +7,13 @@ from app.pages.agents.levels import Levels
 from app.pages.evidence.table_model import Column, RowTable
 from app.theme import fonts
 from app.theme import tokens as t
-from app.widgets import Button, Panel, Toggle
+from app.widgets import Panel, Toggle
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from . import view
 
 PROT_KEYS = ("Fit check", "Calibrated")
-RESET = "Reset stored data…"
 
 
 class DevicePage(QWidget):
@@ -22,7 +21,6 @@ class DevicePage(QWidget):
     title = "Device & model"
     subtitle = "mode, library model, calibration and events"
     navigate = Signal(str)
-    reset_requested = Signal()  # the window asks before anything is deleted
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,12 +42,6 @@ class DevicePage(QWidget):
             Column("Model version", mono=True),
         ])
         self.devices_panel.add(self.devices, 1)
-        # Hidden until the window says there is stored data this app may delete.
-        self.reset_button = Button(RESET, "ghost", small=True)
-        self.reset_button.setToolTip("Delete everything stored on this laptop and start again")
-        self.reset_button.clicked.connect(self.reset_requested)
-        self.reset_button.hide()
-        self.devices_panel.header_end.addWidget(self.reset_button)
 
         self.model_panel = Panel("Model", padded=True)
         box = QWidget()
@@ -101,10 +93,6 @@ class DevicePage(QWidget):
         state.alarms_changed.connect(self.refresh_log)
         state.runs_changed.connect(self.refresh_log)
         self.refresh()
-
-    def set_resettable(self, on: bool) -> None:
-        """Show the reset button: the window calls this when it can do the reset."""
-        self.reset_button.setVisible(on)
 
     def _snapshot(self) -> None:
         self._watch_devices()
