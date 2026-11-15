@@ -88,7 +88,7 @@ class ThermalPage(QWidget):
         self._view: dict | None = None
         self._arrived = 0.0  # monotonic seconds the shown record arrived
         self._index = -1  # shown frame
-        self._prev_frame: dict | None = None  # the frame shown before this one
+        self._recent: list[dict] = []  # the frames shown before this one, oldest first, the last RECENT_MS
         self._rate: float | None = None
         self._hover: tuple[int, int] | None = None
         self._timer = QTimer(self)
@@ -228,7 +228,7 @@ class ThermalPage(QWidget):
             self._show_empty(view)
             return
         if self._view is not None and self._index >= 0 and self._view["frames"]:
-            self._prev_frame = self._view["frames"][self._index]
+            self._shown(self._view["frames"][self._index])
         self._view = view
         self._arrived = time.monotonic()
         self._index = -1
@@ -236,9 +236,18 @@ class ThermalPage(QWidget):
         self._fill_summary()
         self._tick()
 
+    def _shown(self, frame: dict) -> None:
+        """Keep a frame that was on screen, for "Fastest change" (the image a second before the newest)."""
+        if self._recent and self._recent[-1] is frame:
+            return
+        self._recent = [*self._recent[-11:], frame]
+        at = frame.get("at_ms")
+        if stats._num(at):
+            self._recent = [f for f in self._recent if stats._num(f.get("at_ms")) and 0 <= at - f["at_ms"] <= stats.RECENT_MS]
+
     def _show_empty(self, view: dict | None) -> None:
         self._timer.stop()
-        self._view, self._index, self._prev_frame = None, -1, None
+        self._view, self._index, self._recent = None, -1, []
         self.empty_label.setText(empty_message(view))
         self._set_empty(True)
 
@@ -259,7 +268,7 @@ class ThermalPage(QWidget):
         due = logic.frame_at(view["frames"], (time.monotonic() - self._arrived) * 1000)
         if due["index"] != self._index:
             if self._index >= 0:
-                self._prev_frame = view["frames"][self._index]
+                self._shown(view["frames"][self._index])
             self._index = due["index"]
             if self.isVisible():  # a hidden page redraws when shown
                 self._redraw()
@@ -290,7 +299,7 @@ class ThermalPage(QWidget):
         if frame is not None:
             fs = stats.frame_stats(frame["pixels"], bg)
             self.image.set_image(frame["pixels"], stats.W, stats.H, lo, hi, (fs.hot_row, fs.hot_col, fs.hot_c))
-            self._rate = stats.fastest_change(self._prev_frame, frame)
+            self._rate = stats.change_over_second(self._recent, frame)
             self._fill_frame_kpis(fs)
         else:
             vals = [bg + c for c in view["cells"]]

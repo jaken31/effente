@@ -72,6 +72,32 @@ def fastest_change(a, b) -> float | None:
     return max(abs(x - y) for x, y in zip(a["pixels"], b["pixels"])) / dt
 
 
+# "Fastest change" compares the newest image with the one taken a second before it. The camera gives about
+# 2 images a second, so that is the image two back; images arrive in pairs, so the gap is allowed some slack.
+SECOND_MS = 1000.0
+SECOND_SLACK_MS = 500.0
+RECENT_MS = SECOND_MS + SECOND_SLACK_MS  # how far back shown images are worth keeping
+
+
+def change_over_second(earlier, frame) -> float | None:
+    """Biggest change of any pixel over one second, in degC per second: `frame` against the image in
+    `earlier` taken nearest to a second before it (between 0.5 and 1.5 s before; the difference is
+    divided by the real gap). None when there is no such image.
+
+    Not against the image just before: at 2 images a second that gap is short, and dividing the
+    camera's pixel noise by it made the number large when nothing was changing."""
+    if frame is None or not _num(frame.get("at_ms")):
+        return None
+    best = None
+    for old in earlier:
+        gap = frame["at_ms"] - old["at_ms"] if old is not None and _num(old.get("at_ms")) else None
+        if gap is None or abs(gap - SECOND_MS) > SECOND_SLACK_MS:
+            continue
+        if best is None or abs(gap - SECOND_MS) < abs(frame["at_ms"] - best["at_ms"] - SECOND_MS):
+            best = old
+    return fastest_change(best, frame)
+
+
 def cells_mean(cells: Sequence[float] | None) -> float | None:
     """Mean of the 48 block averages, which is the image mean above background."""
     return sum(cells) / len(cells) if cells else None
