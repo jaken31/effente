@@ -121,8 +121,11 @@ Not checked yet: the conversion has only run against a stand-in for Blender in t
 ## Tests
 
 ```
-python3 -m pytest platform device
+.venv/bin/python -m pytest device platform --ignore=platform/desktop
+for d in platform/desktop/tests/*/; do QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest "$d" -q || break; done
 ```
+
+Use the Python that has the packages (the virtual environment at `.venv` in the repo root); a `python3` without pytest fails with "No module named pytest". The desktop app's tests are run a folder at a time: run as one process (`pytest platform`) they crashed with a segmentation fault in pytest-qt's teardown, in 2 of 2 runs on one laptop. Every folder passes on its own. The cause is not found.
 
 Needs pytest. The dashboard's logic tests also need `node` and are skipped without it. The desktop app's tests need `pip install -r platform/desktop/requirements.txt`; without pytest-qt they are skipped without a word.
 
