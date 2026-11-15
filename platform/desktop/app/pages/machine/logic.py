@@ -324,6 +324,8 @@ NO_QR_TEXT = ("No pairing code: the phone could not reach this laptop. The lapto
 CODE_ANYWAY_TEXT = ("This code may not work: no address was found at which the phone reaches this laptop, so the "
                     "code carries the nearest one there is. If the phone app cannot connect, join the WiFi the "
                     "phone is on, or import a scan file.")
+SAME_CODE_TEXT = ("Looked again: this laptop's address has not changed, so the code is the same. If the phone "
+                  "app cannot connect, put the phone on the WiFi this laptop is on, or import a scan file.")
 
 
 def machine_id_problem(text) -> str:

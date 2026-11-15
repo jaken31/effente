@@ -38,6 +38,9 @@ IMPORT = "Import file"
 IMPORT_NOTE = "A USDZ or GLB file on this laptop, for when the phone cannot send its scan."
 TRY_AGAIN = "Try again"
 TRY_AGAIN_NOTE = "Look for this laptop's address again, after joining the WiFi the phone is on."
+REFRESH = "Refresh code"
+REFRESH_NOTE = ("Look for this laptop's address again and draw the code from it. For when the phone app could "
+                "not connect.")
 SHOW_ANYWAY = "Show code anyway"
 SHOW_ANYWAY_NOTE = ("Show a pairing code although no address was found at which the phone reaches this laptop. "
                     "The phone may not be able to connect with it.")
@@ -216,7 +219,7 @@ class ScanPanel(QFrame):
 
     changed = Signal()  # the machine id or the name was typed
     import_file = Signal()
-    retry = Signal()  # Try again was pressed: look for this laptop's address again
+    retry = Signal()  # Try again or Refresh code was pressed: look for this laptop's address again
     show_anyway = Signal()  # Show code anyway was pressed: draw a code although the phone may not reach the laptop
     closed = Signal()
 
@@ -321,7 +324,7 @@ class ScanPanel(QFrame):
     def show_code(self, text: str, note: str, can_close: bool, can_retry: bool = False,
                   can_show_anyway: bool = False) -> None:
         """`text` is the pairing line, or "" when there is none to show. `note` says why, or how to use it.
-        `can_retry` offers Try again: the laptop has no address a phone reaches. `can_show_anyway` offers
+        `can_retry` offers Refresh code beside a code, and Try again where there is none. `can_show_anyway` offers
         Show code anyway: there is no line for that reason, and the person may ask for one all the same."""
         self.code.set_text(text)
         self.code.setVisible(bool(self.code.squares()))
@@ -332,6 +335,8 @@ class ScanPanel(QFrame):
             self.copy_button.setText(COPY)
         self.line.setVisible(bool(text))
         self.copy_button.setVisible(bool(text))
+        self.retry_button.setText(REFRESH if text else TRY_AGAIN)
+        self.retry_button.setToolTip(REFRESH_NOTE if text else TRY_AGAIN_NOTE)
         self.retry_button.setVisible(can_retry)
         self.anyway_button.setVisible(can_show_anyway)
         self.close_button.setVisible(can_close)

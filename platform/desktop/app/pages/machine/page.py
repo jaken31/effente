@@ -96,6 +96,7 @@ class MachinePage(QWidget):
         self._scan_wanted = None  # the New scan panel: True or False once the person chose, else by itself
         self._code_anyway = False  # Show code anyway was pressed: draw a code the phone may not reach
         self._line_shown = ("", False)  # the pairing line the panel shows, and whether it was asked for anyway
+        self._same_line = ""  # the line Refresh code was pressed on and found unchanged: the panel says so
         # The laptop can join another network while the app runs. Nothing tells the page, so it asks.
         self._network_timer = QTimer(self)
         self._network_timer.setInterval(NETWORK_CHECK_MS)
@@ -150,7 +151,7 @@ class MachinePage(QWidget):
         self.scan_panel = ScanPanel()
         self.scan_panel.changed.connect(self._draw_scan_panel)
         self.scan_panel.import_file.connect(self.import_dialog)
-        self.scan_panel.retry.connect(self._draw_scan_panel)
+        self.scan_panel.retry.connect(self.refresh_code)
         self.scan_panel.show_anyway.connect(self.show_code_anyway)
         self.scan_panel.closed.connect(self.toggle_scan_panel)
         self.stage.set_overlay(self.scan_panel)
@@ -342,6 +343,11 @@ class MachinePage(QWidget):
             return
         if self._pairing_line(machine_id) != self._line_shown:
             self._draw_scan_panel()
+
+    def refresh_code(self) -> None:
+        """Refresh code or Try again was pressed: look for the laptop's address again now. The line holds
+        nothing else that changes, so with the same address the code is the same, and the panel says so."""
+        self._draw_scan_panel(pressed=True)
 
     def show_code_anyway(self) -> None:
         """Draw a pairing code although no address was found at which the phone reaches this laptop."""
@@ -654,22 +660,30 @@ class MachinePage(QWidget):
         ev.sim_chip.setVisible(bool(record and record.get("simulated") is True) or bool(spectrum and spectrum.simulated))
         return any(not chip.isHidden() for chip in (col.head.sim_chip, panel.sim_chip, ev.sim_chip))
 
-    def _draw_scan_panel(self, *_args) -> None:
+    def _draw_scan_panel(self, *_args, pressed: bool = False) -> None:
         if self.state is None:
             return
         machine_id = self.scan_panel.machine_id()
         note = logic.machine_id_problem(machine_id)
+        before = self._line_shown
         text, anyway = self._line_shown = ("", False) if note else self._pairing_line(machine_id)
         if not note:
             if text and not anyway:
                 self._code_anyway = False  # a real line is back: the next time there is none, ask again
             if text != self._qr_checked[0]:  # worked out once for each line, not on every redraw
                 self._qr_checked = (text, qr.problem(text))
+            if pressed and text and not anyway and (text, anyway) == before:
+                self._same_line = text
+            elif text != self._same_line:
+                self._same_line = ""  # another line, or none: the note about the old one goes
+            other = logic.other_machine_note(machine_id, self.state.current_machine())
+            same = logic.SAME_CODE_TEXT if text and text == self._same_line else ""
             note = (logic.NO_QR_TEXT if not text else
                     self._qr_checked[1] or (logic.CODE_ANYWAY_TEXT if anyway else "")
-                    or logic.other_machine_note(machine_id, self.state.current_machine()) or SCAN_HOW)
+                    or " ".join(part for part in (same, other) if part) or SCAN_HOW)
+        # Offered beside a code too: the phone may have failed to connect with a code that drew fine.
         self.scan_panel.show_code(text, note, can_close=self.scan() is not None or self.part() is not None,
-                                  can_retry=note == logic.NO_QR_TEXT or anyway,
+                                  can_retry=not logic.machine_id_problem(machine_id),
                                   can_show_anyway=note == logic.NO_QR_TEXT)
 
     # ---- keys -------------------------------------------------------------

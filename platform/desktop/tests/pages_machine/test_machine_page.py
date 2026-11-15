@@ -564,10 +564,10 @@ def test_the_code_follows_the_laptop_onto_another_network(qtbot, page, state, mo
     monkeypatch.setattr(type(state.scans), "qr_text", real)
     click(qtbot, page.scan_panel.retry_button)  # Try again finds it without waiting for the timer
     assert page.scan_panel.line.toPlainText() == real(state.scans, state.current_machine())
-    assert not page.scan_panel.retry_button.isVisible()
+    assert page.scan_panel.retry_button.text() == side.REFRESH  # beside a code the same button refreshes it
     monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="": "")
     page._network_timer.timeout.emit()
-    assert page.scan_panel.retry_button.isVisible()
+    assert page.scan_panel.retry_button.isVisible() and page.scan_panel.retry_button.text() == side.TRY_AGAIN
 
     monkeypatch.setattr(type(state.scans), "qr_text", real)
     page._network_timer.timeout.emit()
@@ -580,6 +580,34 @@ def test_the_code_follows_the_laptop_onto_another_network(qtbot, page, state, mo
     assert not page.scan_panel.line.isVisible() and page.scan_panel.note.text() == logic.NO_QR_TEXT
     page.hide()
     assert not page._network_timer.isActive()
+
+
+def test_refresh_code_looks_again_and_says_when_the_code_is_the_same(qtbot, page, state, monkeypatch):
+    """The phone failed to connect with a code that drew fine: the person can ask for the code again."""
+    real = type(state.scans).qr_text
+    click(qtbot, page.stage.scan_button)
+    panel = page.scan_panel
+    line = real(state.scans, state.current_machine())
+    assert panel.code.isVisible() and panel.line.toPlainText() == line and panel.note.text() == side.SCAN_HOW
+    assert panel.retry_button.isVisible() and panel.retry_button.text() == side.REFRESH
+    assert panel.retry_button.toolTip() == side.REFRESH_NOTE
+
+    click(qtbot, panel.retry_button)  # the same address: the same code, and the panel says so
+    assert panel.line.toPlainText() == line and panel.note.text() == logic.SAME_CODE_TEXT
+    page.refresh()  # the note stays while the line does
+    assert panel.note.text() == logic.SAME_CODE_TEXT
+
+    other = line.replace("machine=", "machine=x-")  # the laptop's address changed: a new code, the usual note
+    monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="", anyway=False: other)
+    click(qtbot, panel.retry_button)
+    assert panel.line.toPlainText() == other and panel.note.text() == side.SCAN_HOW
+    monkeypatch.setattr(type(state.scans), "qr_text", real)
+    page._network_timer.timeout.emit()  # back on the first line by itself: not said again
+    assert panel.line.toPlainText() == line and panel.note.text() == side.SCAN_HOW
+
+    panel.machine.setText("")  # no machine id: nothing to refresh
+    panel.changed.emit()
+    assert not panel.retry_button.isVisible()
 
 
 def test_show_code_anyway_draws_a_code_the_phone_may_not_reach(qtbot, page, state, monkeypatch):
@@ -602,7 +630,7 @@ def test_show_code_anyway_draws_a_code_the_phone_may_not_reach(qtbot, page, stat
 
     monkeypatch.setattr(type(state.scans), "qr_text", real)  # the laptop joins a network: the real line
     page._network_timer.timeout.emit()
-    assert panel.note.text() == side.SCAN_HOW and not panel.retry_button.isVisible()
+    assert panel.note.text() == side.SCAN_HOW and panel.retry_button.text() == side.REFRESH
     monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="", anyway=False: "")
     page._network_timer.timeout.emit()  # and leaves it: no code until it is asked for again
     assert not panel.code.isVisible() and panel.note.text() == logic.NO_QR_TEXT and panel.anyway_button.isVisible()
