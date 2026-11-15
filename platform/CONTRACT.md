@@ -16,6 +16,7 @@ Additions only. A version 3.4 device, dashboard or phone app keeps working. It i
 - Simulated history: the simulator writes weeks of readings through the same routes, only to a separate sample machine with the fixed id `sample-machine`, and the `simulated` mark follows them into everything worked out from them (section 9.6).
 - A part review may carry `trend`, copied by code from the projection (section 9.7).
 - `GET /api/state` gains `probe`, and each part gains `reading`. The stream gains the events `probe` and `reading`.
+- Added after section 9 was agreed, and not yet agreed by the team: the pick also ends when the device says `device_moved` after judging in place, a clear may carry a `reason`, and a reading leaves out `device_moved` records when enough others remain (9.1 Moved, 9.1 From the handheld, 9.3). The first and third change what 9.1 and 9.3 did before; the second is an addition.
 - Setup (section 10): a machine profile of five fields with routes to store and read it, a lookup in code that picks the library entry, a `setup` agent that fills the profile and never picks the model, the chosen entry sent to the device as a wanted `library_entry` in `settings`, and a local profile on the laptop that fills `by`.
 
 ## Changes from version 3.3
@@ -819,7 +820,7 @@ The handheld does not know which part it sits on, and it is not changed. A perso
 {"part_id": "part-0007", "by": "Sam"}
 ```
 
-`{"part_id": null, "by": "Sam"}` clears it. Reply:
+`{"part_id": null, "by": "Sam"}` clears it. A clear may also carry `reason`, text of at most 200 characters, which goes out as the `probe` event's `reason`. Reply:
 
 ```json
 {"ok": true, "probe": {"machine_id": "conveyor-07", "part_id": "part-0007", "since": "2026-11-14T16:01:30Z", "by": "Sam"}}
@@ -834,14 +835,16 @@ After clearing, `"probe": null`.
 | Stamping | While a selection is set, the platform adds its `part_id` to each record of that machine before storing it. A stored record's `part_id` never changes afterwards. |
 | Catching up | A record whose `at` is more than 60 seconds before the selection's `since` is not stamped. It was measured before the person picked, and arrived late after a dropout. The 60 seconds allow for the device's clock and the laptop's differing (starting value). |
 | When it ends | When a person changes or clears it, or when the platform has stored no record from that machine for 5 minutes (starting value), counted from `since` if none came at all. The platform then clears it itself. This stops an old pick from stamping a later visit to another part. |
-| A restart | The selection is kept across a platform restart, and the 5 minute rule still applies. |
+| Moved | The platform also clears it when the device says it was moved. A record counts as saying so when its `diagnosis_this_minute`, or its `diagnosis` when that field is missing, is `device_moved`. The pick is cleared only if a record stamped under it earlier said something other than `stopped`, `warming_up` or `device_moved`: the device was judging in place, and then its tilt changed. That record and the ones after it get no part. A pick that has not yet been judged in place is kept, so a part that sits at another tilt than the device learned at can still be picked; such a pick is never cleared by this rule. Not tried on the real device. |
+| From the handheld | The handheld may end the pick itself by sending the clear above with its `device_id` as `by` and `"reason": "stopped on the handheld"`. Nothing new is needed on the platform. The handheld does not do this yet (track 1). |
+| A restart | The selection is kept across a platform restart, and the 5 minute rule still applies. The Moved rule starts again: the pick must be judged in place once more before a move clears it. |
 | Already stamped | A record that arrives carrying `part_id` keeps it, if that part belongs to the record's machine. Otherwise the record is a 400. Only the simulator and imports do this (section 9.6). The handheld never sends it. |
 
 **Records with no part.** A record stored while no part is picked has no `part_id`. Nothing else about it changes: it is stored, shown in the machine's history, and counts for alarms (section 6) and for part state (section 8.7) exactly as in version 3.4. It belongs to no visit and no reading. The platform never gives it a part later, and never guesses one. The app says so while records arrive with no part picked.
 
 **What the stamp means.** It is where a person said the probe was. It is not proof, and it does not say the fault is in that part: the rule in 8.5 still holds, that a part is a suspect only because a person linked a fault type to it. If two devices report on one machine at once, both are stamped with the same part. That case is not handled in version 3.5.
 
-`GET /api/state` gains `"probe": {"conveyor-07": {"...": "the selection"}}`, holding only machines with a selection. The stream gains the event `probe`, with `{"machine_id": "conveyor-07", "probe": {"...": "the selection, or null"}, "reason": ""}` as data, sent when a selection is set, changed or cleared. `reason` is `no records for 5 minutes` when the platform cleared it, empty otherwise.
+`GET /api/state` gains `"probe": {"conveyor-07": {"...": "the selection"}}`, holding only machines with a selection. The stream gains the event `probe`, with `{"machine_id": "conveyor-07", "probe": {"...": "the selection, or null"}, "reason": ""}` as data, sent when a selection is set, changed or cleared. `reason` is `no records for 5 minutes` or `device moved` when the platform cleared it, the clear's own `reason` when it carried one, and empty otherwise. The desktop app shows a reason that is not empty next to "Probe on no part".
 
 ### 9.2 Velocity on every record
 
@@ -877,6 +880,7 @@ The device sends one record a second. A part's chart needs one point per visit. 
 - A part's stamped records are taken in order of `at`. A gap of more than 10 minutes between two neighbours starts a new visit (starting value).
 - Records with `diagnosis` `stopped`, or with no velocity, are left out: a machine that is not running would pull the number down.
 - A visit with at least 10 records left makes a reading (starting value). A shorter one makes none.
+- Records that say `device_moved` (as in the Moved rule of 9.1) are then left out too, if at least 10 other records remain: the probe was being placed or lifted. If fewer remain they are kept, because a part at another tilt than the device learned at says `device_moved` for the whole visit. Records with a `knocking` or `repeated_jolts` problem are never left out: they may be the machine's own fault. Not tried on real visits.
 - The reading's velocity is the median of those records' `readings.vib_velocity_mm_s`. A median, so a knock while the probe is being placed does not move it.
 - The reading's score is the median of the same records' `unknown_score`, leaving out the records where it is `null` (the model is still `warming_up`). This is the number the projection fits (9.5).
 - Readings are worked out, never stored, and worked out again from the stored records when the platform starts. This is how alarms already work.
@@ -1301,7 +1305,7 @@ So that a person does not type their name into every answer, entry and pick, the
 - Whether the agent may cite problems in its report, as it cites readings in `cited_features`. Open for track 5.
 - Whether a problem should open an alarm, and be answerable like one. Open for track 5.
 - Giving a part to records after they are stored, or correcting a wrong pick. A wrong pick stays in that part's history.
-- The device knowing its part, or clearing the pick when it feels itself moved (its `device_moved` fault type). Open for tracks 1 and 5.
+- The device knowing its part. Open for tracks 1 and 5. The platform now clears the pick when a record says `device_moved` (9.1 Moved); a stop on the handheld itself is described in 9.1 and is open for track 1.
 - A projection against the device's own `vibration_above_normal` line. It needs the learned levels in message 1, which is a device change. Open for all five.
 - A projection of anything but the model's score: velocity, temperature, sound.
 - A normal spectrum in mm/s, and any use of records from alarms answered as false alarms to widen the normal.

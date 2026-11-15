@@ -93,6 +93,15 @@ def test_a_pick_the_platform_clears_is_followed(page, state):
     assert page.probe_text.text() == rd.NO_PROBE
 
 
+def test_the_page_says_why_the_platform_cleared_the_pick(page, state):
+    state.log.set_probe_part(BELT)
+    state.log._probe, state.log._cleared = None, "device moved"
+    state.log.probe_changed.emit()  # as the receiver does when the device says device_moved
+    assert page.probe_text.text() == f"The pick was cleared: device moved. {rd.NO_PROBE}"
+    state.log.set_probe_part(BELT)
+    assert page.probe_text.text().startswith("Probe on: Belt")
+
+
 # ---- the three states of the drawing -----------------------------------------------------------------------
 
 

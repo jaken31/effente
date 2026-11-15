@@ -284,6 +284,10 @@ class FakeLog(PartLog):
     def probe(self):
         return dict(self._pick) if self._pick and self._here() else None
 
+    def probe_cleared(self) -> str:
+        """Set `_cleared` by hand, with `_probe = None`, to stand in for a clear by the platform."""
+        return getattr(self, "_cleared", "") if self._here() and not self._probe else ""
+
     def readings(self, part_id, since=None):
         """The whole reply at once: nothing is fetched. None for a part the sample does not have."""
         if not self._here() or part_id not in self._readings:
@@ -323,7 +327,7 @@ class FakeLog(PartLog):
             self.state.action_failed.emit(f"Probe part not set: no such part: {part_id}")
             return
         if part_id != self._probe:
-            self._probe = part_id
+            self._probe, self._cleared = part_id, ""
             self._pick = None if part_id is None else {
                 "machine_id": self.machine, "part_id": part_id, "since": self._now(), "by": self.state.answerer()}
             self.probe_changed.emit()

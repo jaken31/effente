@@ -21,6 +21,7 @@ MIN_RECORDS = 10  # a visit needs this many usable records to make a reading
 OPEN_FOR_S = 10 * 60  # a reading is open while its newest record is younger than this
 NOT_ABNORMAL = ("normal", "stopped", "warming_up")  # as in section 6; any other diagnosis is abnormal
 STOPPED = "stopped"
+MOVED = "device_moved"  # the fault type the device names when its tilt changed
 VELOCITY = "vib_velocity_mm_s"
 
 
@@ -46,6 +47,12 @@ def _number(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value if math.isfinite(value) else None
+
+
+def said(record):
+    """What the device said of the record's own period: `diagnosis_this_minute`
+    while abnormal (`diagnosis` then holds the stretch's commonest type), else `diagnosis`."""
+    return record.get("diagnosis_this_minute") or record.get("diagnosis")
 
 
 def velocity(record):
@@ -81,6 +88,12 @@ def reading(visit, alarm_of, now):
     used = [r for r in visit if r.get("diagnosis") != STOPPED and velocity(r) is not None]
     if len(used) < MIN_RECORDS:
         return None
+    # Records the device called `device_moved` (the probe being placed or lifted) are left out
+    # when enough others remain. A visit that is nearly all `device_moved` keeps them: the part
+    # may sit at another tilt than the one the device learned at. Unverified on real visits.
+    steady = [r for r in used if said(r) != MOVED]
+    if len(steady) >= MIN_RECORDS:
+        used = steady
     first, newest = visit[0], visit[-1]
     scores = [s for s in (_number(r.get("unknown_score")) for r in used) if s is not None]
     abnormal = [r for r in visit if r.get("diagnosis") not in NOT_ABNORMAL]
