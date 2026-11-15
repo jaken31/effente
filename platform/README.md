@@ -49,6 +49,8 @@ llama-server -m ~/effente-models/small.gguf --host 127.0.0.1 --port 8081 --offli
 python3 platform/report.py
 ```
 
+The report is written from what the receiver has stored: the machine's records, and the feature table the device announced for the model they were judged with. That holds for the simulator, a board that sends by itself and a board read through the link. `--machine ID` names the machine; without it the report is on the only machine stored, or the one a connected device is on. When the receiver has no announced model for the records, the simulator's session files in `platform/server/data` (`device.jsonl`, `model.json`) are read instead. Reading from the receiver is **unverified on the board**: it was run with the stand-in against a receiver holding the simulator's records, in the tests.
+
 `--llm-url URL` names a model server somewhere else on the site. The desktop app starts and stops the server itself: Agents page, Start model server. No reading and no report leaves the site.
 
 **A report from a real model has never been run.** Read [device/agent/README.md](../device/agent/README.md) first: it has the steps and a list of open points. Try it well before the demo and keep the stand-in as the fallback. If the model server does not answer, the dashboard shows "agent unavailable" and the reason; detection is unaffected.
@@ -73,7 +75,7 @@ Find boards, beside Connect, lists boards without an address typed: a board on U
 
 With the board plugged into the laptop by USB, the desktop app needs no address: started any way but `--device` or `--fake`, it asks `adb` every 2 seconds which boards are attached, forwards a local port to each board's port 8765 and reads it ([platform/link/usb_link.py](link/usb_link.py)). Unplugging stops that, plugging in again starts it. It needs `adb` on the laptop (macOS: `brew install android-platform-tools`); `--no-usb` turns it off. Run against the board on 14 Nov while it was watching: found by itself, and its records and model reached the receiver. Unplugging and plugging in again is **unverified on the board** (run only against a stand-in for adb). If the board also sends by itself (`EFFENTE_PLATFORM_URL` set), every message arrives twice: use `--no-usb` then. `platform/run.py` does not do this.
 
-[platform/link/device_link.py](link/device_link.py) reads the device's `/latest` twice a second and sends the receiver the contract's messages for it. Run against the board on 13 Nov while it was idle: the dashboard showed it connected, in display mode. Records while watching are **unverified on the board**: they were run against the device app on a laptop with simulated sensors (recording, training, watching, a fault added), where diagnoses and alarms reached the receiver. The device's port carries no fault type texts and no model file, so the dashboard shows fault type names without their sentences and the report agent has nothing to read. Setting `EFFENTE_PLATFORM_URL` on the board has neither gap.
+[platform/link/device_link.py](link/device_link.py) reads the device's `/latest` twice a second and sends the receiver the contract's messages for it. Run against the board on 13 Nov while it was idle: the dashboard showed it connected, in display mode. Records while watching are **unverified on the board**: they were run against the device app on a laptop with simulated sensors (recording, training, watching, a fault added), where diagnoses and alarms reached the receiver. The device's port carries no fault type texts, so the dashboard shows fault type names without their sentences. Setting `EFFENTE_PLATFORM_URL` on the board does not have that gap. The report agent reads the stored records and the announced feature table either way (see below).
 
 What the device must send and expect back is in [CONTRACT.md](CONTRACT.md). [sim/README.md](sim/README.md) walks through it from the device's side, and `sim/tests/sim_fake_platform.py` is a small checker a device implementation can be pointed at.
 
@@ -90,7 +92,9 @@ The simulated device and a real one can run at the same time. The dashboard show
 | DEVICE DISCONNECTED, readings greyed out | Nothing heard from the device for 5 seconds | Check the simulator terminal is still running, or the device's WiFi and `EFFENTE_PLATFORM_URL` |
 | PLATFORM CONNECTION LOST | The receiver stopped | Start `run.py` again. The page reconnects by itself and history is kept. |
 | "Not live" and "Problems: not known while the device is not live" | Nothing heard from the device for 5 seconds. Its problems were cleared with the reason "device quiet". | As for DEVICE DISCONNECTED. Problems still on come back as new when it returns. |
-| "No device log yet" from `report.py` | `run.py` was not started first, or was started with `--no-sim` | With a real device, run the agent on the device: see `device/agent/README.md` |
+| "No device log yet" from `report.py` | The receiver is not running, or has no record for that machine yet | Start `run.py` (or the desktop app) and wait for the device to send records while watching |
+| "no feature table for model ..." from `report.py` | The receiver has records but the device never announced that model (message 1) | Restart the device or the link so it announces its model, then run the report again |
+| "the receiver knows several machines" from `report.py` | No `--machine` was given and more than one is stored | `python3 platform/report.py --machine <id>` |
 | Old readings in history | Stored from an earlier run | Start with `--fresh`. The old history is moved to `platform/server/kept/`, with a real device's records in it |
 
 ## What is where
