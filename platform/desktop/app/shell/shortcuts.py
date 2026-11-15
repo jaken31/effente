@@ -29,6 +29,10 @@ ACTIONS: list[tuple[tuple[str, ...], str, str, str]] = [
     (("Ctrl+R",), f"{MOD} R", "Run the report agent", "run_report"),
     (("Ctrl+E",), f"{MOD} E", "Export CSV, on Live and History", "export_page"),
     (("F11",), "F11", "Full screen", "toggle_full_screen"),
+    # A new size shows by starting the app again: see app/zoom.py.
+    (("Ctrl+=", "Ctrl++", "Ctrl+Shift++"), f"{MOD} +", "Make everything larger", "zoom_in"),
+    (("Ctrl+-",), f"{MOD} -", "Make everything smaller", "zoom_out"),
+    (("Ctrl+0",), f"{MOD} 0", "Back to the normal size", "zoom_reset"),
     (("?", "Shift+?", "F1"), "?", "Show or hide this list", "toggle_shortcut_help"),
     (("Ctrl+Q",), f"{MOD} Q", "Quit", "close"),
 ]
