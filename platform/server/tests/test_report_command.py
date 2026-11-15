@@ -144,6 +144,20 @@ def test_the_simulators_session_files_are_still_read_when_the_receiver_has_no_mo
     assert result["ok"] is True and result["simulated"] is True
 
 
+def test_a_real_machine_is_never_reported_on_from_the_simulators_session_files(make_receiver, report, capfd):
+    """Left over from an earlier simulated run: they hold demo-fan-1's readings, not this machine's."""
+    receiver, client = make_receiver()
+    client.json("POST", "/api/records", sample(MACHINE, BOARD))  # no announcement
+    report.DATA.mkdir()
+    (report.DATA / "device.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sample()))
+    (report.DATA / "model.json").write_text(json.dumps(sim_model.model_file()))
+
+    code, result, err = run(report, capfd, receiver.port, "--machine", MACHINE)
+
+    assert code == 1 and result is None and "no feature table" in err
+    assert client.json("GET", f"/api/machines/{MACHINE}/agent-runs")[1]["runs"] == []
+
+
 def test_a_long_history_is_read_page_by_page(make_receiver, report, monkeypatch):
     receiver, client = make_receiver()
     records = sample(MACHINE, BOARD)

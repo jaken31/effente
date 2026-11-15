@@ -149,7 +149,10 @@ def main(argv: list[str] | None = None) -> int:
             # The session files the simulator writes: all there was before the receiver was read.
             log, model_file = DATA / "device.jsonl", DATA / "model.json"
             # Not when the receiver answered and there was no telling which machine is meant.
-            if not log.exists() or not model_file.exists() or (why and not machine and not unreachable):
+            # And never for another machine: the session files hold the simulator's readings, which
+            # would be reported on under a real machine's name.
+            if (not log.exists() or not model_file.exists() or (why and not machine and not unreachable)
+                    or machine not in ("", SIM_MACHINE)):
                 print(_no_report(machine, records, why, unreachable), file=sys.stderr)
                 return 1
             machine = machine or SIM_MACHINE
