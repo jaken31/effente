@@ -16,7 +16,7 @@ Then open http://localhost:8000.
 
 That starts the receiver and the simulated device. The simulated device takes over the terminal: `1` normal, `2` unbalance, `3` looseness, `4` unrecognised pattern, `5` stopped, `6` warming up, `h` too hot (a limit), `v` vibration above normal, `m` next mode, `t` heat source (camera, IMU only, none), `p` pause (send nothing), `q` quit. Quitting stops the receiver too. [sim/README.md](sim/README.md) has the details.
 
-Options: `--fresh` deletes stored history first, `--port N`, `--case unbalance` to start in a case, `--no-sim` for a real device.
+Options: `--fresh` starts with no stored history (the old history is moved to `platform/server/kept/`, not deleted), `--port N`, `--case unbalance` to start in a case, `--no-sim` for a real device.
 
 **Everything the simulated device sends is made up.** The dashboard shows a SIMULATED DATA banner the whole time it is in use. The spectra are illustrative shapes, not measurements.
 
@@ -91,7 +91,7 @@ The simulated device and a real one can run at the same time. The dashboard show
 | PLATFORM CONNECTION LOST | The receiver stopped | Start `run.py` again. The page reconnects by itself and history is kept. |
 | "Not live" and "Problems: not known while the device is not live" | Nothing heard from the device for 5 seconds. Its problems were cleared with the reason "device quiet". | As for DEVICE DISCONNECTED. Problems still on come back as new when it returns. |
 | "No device log yet" from `report.py` | `run.py` was not started first, or was started with `--no-sim` | With a real device, run the agent on the device: see `device/agent/README.md` |
-| Old readings in history | Stored from an earlier run | Start with `--fresh` |
+| Old readings in history | Stored from an earlier run | Start with `--fresh`. The old history is moved to `platform/server/kept/`, with a real device's records in it |
 
 ## What is where
 

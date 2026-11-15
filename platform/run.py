@@ -16,12 +16,23 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "server" / "data"
+
+
+def set_aside(data: Path) -> Path:
+    """Move the stored history out of the way and give its new place. Nothing is deleted: --fresh
+    used to remove the folder, which also held a real device's records, scans and alarm answers."""
+    kept = data.parent / "kept"
+    kept.mkdir(exist_ok=True)
+    place = Path(tempfile.mkdtemp(prefix=time.strftime("%Y%m%d-%H%M%S-"), dir=kept)) / "data"
+    shutil.move(str(data), str(place))
+    return place
 
 
 def wait_until_up(url: str, server: subprocess.Popen, seconds: float = 10.0) -> bool:
@@ -43,7 +54,7 @@ def main() -> int:
     parser.add_argument("--no-sim", action="store_true", help="receiver only, for a real device")
     parser.add_argument("--device", metavar="URL",
                         help="read a real device from its own port, for example http://10.110.213.214:8765")
-    parser.add_argument("--fresh", action="store_true", help="delete stored history first")
+    parser.add_argument("--fresh", action="store_true", help="start with no stored history; the old history is moved to platform/server/kept/, not deleted")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     args = parser.parse_args()
 
@@ -54,7 +65,7 @@ def main() -> int:
             signal.signal(getattr(signal, name), lambda *_: sys.exit(0))
 
     if args.fresh and DATA.exists():
-        shutil.rmtree(DATA)
+        print(f"Stored history moved to {set_aside(DATA)}")
     DATA.mkdir(parents=True, exist_ok=True)
     url = f"http://localhost:{args.port}"
     server_log = DATA / "receiver.log"

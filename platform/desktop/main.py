@@ -20,12 +20,24 @@ import os
 import shutil
 import signal
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PLATFORM = HERE.parent
 REPO = PLATFORM.parent
 DATA = PLATFORM / "server" / "data"
+
+
+def set_aside(data: Path) -> Path:
+    """Move the stored history out of the way and give its new place. Nothing is deleted: --fresh
+    used to remove the folder, which also held a real device's records, scans and alarm answers."""
+    kept = data.parent / "kept"
+    kept.mkdir(exist_ok=True)
+    place = Path(tempfile.mkdtemp(prefix=time.strftime("%Y%m%d-%H%M%S-"), dir=kept)) / "data"
+    shutil.move(str(data), str(place))
+    return place
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
@@ -41,7 +53,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                              "(platform/link); no simulated device")
     parser.add_argument("--no-usb", action="store_true",
                         help="do not look for a board plugged into this laptop (platform/link/usb_link.py)")
-    parser.add_argument("--fresh", action="store_true", help="delete stored history first")
+    parser.add_argument("--fresh", action="store_true", help="start with no stored history; the old history is moved to platform/server/kept/, not deleted")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     parser.add_argument("--fake", action="store_true", help="no receiver: show fixed sample data (tests/fakes.py)")
     parser.add_argument("--no-motion", action="store_true", help="no animations (as EFFENTE_REDUCE_MOTION=1)")
@@ -138,7 +150,7 @@ def main(argv=None) -> int:
         address = None
     else:
         if args.fresh and DATA.exists():
-            shutil.rmtree(DATA)
+            log.info("stored history moved to %s", set_aside(DATA))
         DATA.mkdir(parents=True, exist_ok=True)
         from app.data.host import ReceiverHost
         from app.data.state import DashboardState
@@ -186,7 +198,7 @@ def main(argv=None) -> int:
             host.stop()
     if window.restart_wanted:
         settings.store().sync()  # the size, and the window's place and page, before this process is replaced
-        restart([a for a in argv if a != "--fresh"])  # --fresh already deleted the history once
+        restart([a for a in argv if a != "--fresh"])  # --fresh already set the history aside once
     return code
 
 
