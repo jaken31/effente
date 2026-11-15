@@ -18,7 +18,15 @@ import urllib.parse
 import log_api
 import scan_api
 import setup_api
-from receiver_store import DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT, QUIET_AFTER_S, BadRequest, Store, parse_time
+from receiver_store import (
+    DEFAULT_HISTORY_LIMIT,
+    MAX_HISTORY_LIMIT,
+    QUIET_AFTER_S,
+    BadRequest,
+    Store,
+    loads_finite,
+    parse_time,
+)
 
 KEEPALIVE_S = 5.0
 MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -113,6 +121,9 @@ def _drain_and_close(q):
 class ReceiverHTTPServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # The default of 5 resets new connections when a device, a dashboard and a
+    # phone all connect in the same moment.
+    request_queue_size = 128
 
     def __init__(self, address, store, hub, web_dir, keepalive=KEEPALIVE_S, handler=None):
         self.store = store
@@ -153,7 +164,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _error(self, status, message):
         self._json(status, {"ok": False, "error": message})
 
-    def _body(self):
+    def _body(self, measured=False):
+        """The request's JSON body. `measured` is for what a device measured
+        (messages 1 to 3): there NaN and Infinity are read as null. Anywhere
+        else they are refused."""
         if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
             self.close_connection = True
             raise BadRequest("chunked uploads are not supported; send Content-Length")
@@ -169,9 +183,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not raw.strip():
             raise BadRequest("body is empty; expected JSON")
         try:
-            return json.loads(raw)
+            return loads_finite(raw, refuse=not measured)
         except ValueError as e:
             raise BadRequest(f"body is not valid JSON: {e}")
+        except RecursionError:
+            raise BadRequest("body is not valid JSON: nested too deeply")
 
     # What scan_api.py, log_api.py and setup_api.py use: the same plumbing under public names,
     # and two calls for bodies and replies too big to hold in memory.
@@ -334,14 +350,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # ---- API routes -------------------------------------------------------
 
     def post_model(self, query):
-        self.server.store.announce_model(self._body())
+        self.server.store.announce_model(self._body(measured=True))
         self._json(200, {"ok": True})
 
     def post_records(self, query):
-        self._json(200, self.server.store.add_records(self._body()))
+        self._json(200, self.server.store.add_records(self._body(measured=True)))
 
     def post_check_in(self, query, device_id):
-        self._json(200, self.server.store.check_in(device_id, self._body()))
+        self._json(200, self.server.store.check_in(device_id, self._body(measured=True)))
 
     def put_settings(self, query, device_id):
         settings = self.server.store.put_settings(device_id, self._body())
@@ -494,7 +510,12 @@ class Receiver:
 
     def _watch(self):
         while not self._stop.wait(0.25):
-            self.store.check_quiet()
+            try:
+                self.store.check_quiet()
+            except Exception:
+                # Keep watching: if this thread ended, a device that went away
+                # would be shown as connected for good.
+                traceback.print_exc()
 
     def start(self):
         """Serve in a background thread."""

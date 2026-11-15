@@ -85,6 +85,52 @@ def _parse_time(text):
     return float("-inf") if value is None else value
 
 
+def _finite(text):
+    value = float(text)
+    return value if math.isfinite(value) else None
+
+
+def _refuse_constant(name):
+    raise ValueError(f"{name} is not a JSON number")
+
+
+def _refuse_overflow(text):
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} is too big for a number")
+    return value
+
+
+def loads_finite(raw, refuse=False):
+    """json.loads that never returns NaN or Infinity (nor a number too big for
+    a float, which reads as Infinity). Python senders write those by default,
+    json.dumps writes them back out, and no browser can read the result: one
+    such record would break /api/state and the stream for every dashboard
+    until the data was deleted.
+
+    They become null, the contract's "no reading", so the rest of what a
+    device measured is kept. With `refuse` they are a ValueError instead:
+    for what a person or a program asks for, where null means something else
+    (a null sensitivity clears the setting)."""
+    if refuse:
+        return json.loads(raw, parse_constant=_refuse_constant, parse_float=_refuse_overflow)
+    return json.loads(raw, parse_constant=lambda name: None, parse_float=_finite)
+
+
+def _never_raises(log):
+    """`log`, made safe to call while a message is half handled: a log line that
+    cannot be written (a closed terminal, a name that cannot be encoded) must
+    not turn a stored record into an error."""
+
+    def say(message):
+        try:
+            log(message)
+        except Exception:
+            pass
+
+    return say
+
+
 def _number(value):
     """`value` if it is a finite number (not a bool), else None."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -145,8 +191,8 @@ class JsonLines:
             if not raw.strip():
                 continue
             try:
-                item = json.loads(raw)
-            except ValueError:
+                item = loads_finite(raw)
+            except (ValueError, RecursionError):
                 bad += 1
                 continue
             if isinstance(item, dict):
@@ -193,7 +239,7 @@ class Store:
         self.data_dir = data_dir
         self.emit = emit or (lambda name, data: None)
         self.quiet_after = quiet_after
-        self.log = log
+        self.log = _never_raises(log)
         self.lock = threading.Lock()
         self.records_file = JsonLines(os.path.join(data_dir, RECORDS_FILE))
         self.models_file = JsonLines(os.path.join(data_dir, MODELS_FILE))

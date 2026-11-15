@@ -552,7 +552,7 @@ class LogStore:
             row = dict(entry, part=names.get(entry.get("part_id"), ""))
             row["needs_repair"] = {True: "yes", False: "no"}.get(entry.get("needs_repair"), "")
             out.writerow(["" if row.get(c) is None else row[c] for c in CSV_COLUMNS])
-        return ("﻿" + text.getvalue()).encode("utf-8")
+        return ("﻿" + text.getvalue()).encode("utf-8", "replace")  # a half character in a name must not fail the export
 
     # ---- hooks, called by the Store with its lock held ---------------------
 
