@@ -33,6 +33,8 @@ class Tools:
         self.features = features
         self.run = run
         self.search = search or search_disabled
+        # What parts lookups found in this run: check_report lets part_reference hold only text from here.
+        self.parts_found: list[str] = []
 
     def _record(self, name: str, tool_input: dict, output: str) -> str:
         if self.run is not None:
@@ -51,4 +53,9 @@ class Tools:
             output = self.search(query)
         except Exception as error:  # an injected search must not break the loop either
             output = f"Parts lookup is unavailable ({type(error).__name__}). Leave part_reference empty."
+        try:
+            if isinstance(json.loads(output), dict):  # results; anything else is a sentence saying there are none
+                self.parts_found.append(output)
+        except ValueError:
+            pass
         return self._record("search_parts", {"query": query}, output)

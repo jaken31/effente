@@ -78,7 +78,8 @@ def test_check_rejects_a_feature_that_did_not_move():
 @pytest.mark.parametrize("diagnosis", ["normal", "stopped", "warming_up", "unrecognised_pattern"])
 def test_check_rejects_a_feature_that_moved_only_without_a_fault_type(diagnosis):
     problems = check_report(good_report(), [record(diagnosis=diagnosis, vib_1x=9.6)], FEATURES)
-    assert problems == ["cites feature that moved only in windows with no fault type: vib_1x"]
+    # The report also breaks the rules on priority and fault words (test_report_checks.py).
+    assert "cites feature that moved only in windows with no fault type: vib_1x" in problems
 
 
 def test_check_rejects_an_unverified_feature():

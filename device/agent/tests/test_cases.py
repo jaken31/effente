@@ -166,6 +166,26 @@ def test_old_four_argument_call_still_works_and_is_marked_simulated(tmp_path):
     assert entry["model"] == harness.INJECTED_MODEL
 
 
+def test_a_part_reference_passes_only_if_a_parts_lookup_in_this_run_gave_it(tmp_path):
+    found = json.dumps({"results": [{"title": "Balancing clip kit BK-A"}]})
+
+    def call(machine_id, records, features, schema, tools, look_up=True, part="Balancing clip kit BK-A"):
+        if look_up:
+            tools.search_parts("balancing clips")
+        return {"summary": "Imbalance.", "priority": "medium", "cited_features": ["vib_1x"],
+                "recommended_action": "Rebalance.", "part_reference": part}, {}
+
+    def run(search, **changes):
+        return run_agent("conveyor-07", LOGS / "imbalance.jsonl", LOGS / "model.json", tmp_path / "agent.jsonl",
+                         call=lambda *a, tools: call(*a, tools, **changes), search=search)
+
+    assert run(lambda query: found).ok
+    wrong = "part_reference must be empty: no parts lookup gave it"
+    assert run(lambda query: found, part="SKF 6205").problems == [wrong]
+    assert run(lambda query: found, look_up=False).problems == [wrong]
+    assert run(harness.search_disabled, part="disabled").problems == [wrong]  # a refusal is not a result
+
+
 def test_simulated_is_false_only_for_the_real_call_on_real_readings(tmp_path):
     log = tmp_path / "real.jsonl"
     rows = [json.loads(line) for line in (LOGS / "imbalance.jsonl").read_text().splitlines()]

@@ -1,8 +1,11 @@
 """The three checks every report must pass besides its citations: shape, names and numbers."""
 
+from pathlib import Path
+
 import pytest
 
-from device.agent.report import check_report
+from device.agent.data import load_log
+from device.agent.report import FAULT_WORDS, check_report
 
 FEATURES = ["vib_1x", "vib_harm_3_10"]
 
@@ -42,7 +45,7 @@ def check(candidate, records=RECORDS):
 
 def test_shape_passes_a_report_with_every_key_and_the_right_types():
     assert check(report()) == []
-    assert check(report(cited_features=[], priority="none")) == []
+    assert check(report(cited_features=[])) == []
 
 
 @pytest.mark.parametrize("key", ["summary", "priority", "cited_features", "recommended_action", "part_reference"])
@@ -124,10 +127,6 @@ def test_names_ignores_a_reading_name_inside_a_longer_word():
     assert check(report(summary="The temperature looks fine."), records) == []
 
 
-def test_names_does_not_check_part_reference():
-    assert check(report(cited_features=[], part_reference="vib_1x sensor bracket")) == []
-
-
 # 3. A number in the free text must be in the readings
 
 
@@ -176,5 +175,124 @@ def test_numbers_does_not_take_a_machine_id_from_another_machine():
     assert check(candidate) == ["summary has a number that is not in the readings: 12"]
 
 
-def test_numbers_does_not_check_part_reference():
-    assert check(report(part_reference="SKF 6204-2RS")) == []
+# 4. What the prose, the priority and the part reference may claim.
+# The first four are reports a reviewer found passing on the fake logs (15 Nov 2026).
+
+LOGS = Path(__file__).parent / "logs"
+FINDING = "unbalance_like"
+
+
+def log(name, machine_id="conveyor-07"):
+    return load_log(LOGS / name, machine_id)
+
+
+def test_rejects_an_invented_cause_and_a_movement_in_words_with_nothing_cited():
+    candidate = report(
+        summary="The gearbox bearing is cracked and the shaft is bent; the once per turn vibration rose to "
+        "seven times its usual spread. Motor current also doubled.",
+        cited_features=[],
+        recommended_action="Inspect the machine.",
+    )
+    problems = check(candidate, log("imbalance.jsonl"))
+    assert "summary names a fault the records do not show: bearing" in problems
+    assert "summary names a fault the records do not show: cracked" in problems
+    assert "summary gives a reading's movement that no cited reading has: seven" in problems
+
+
+def test_rejects_an_alarming_report_on_a_log_that_is_all_normal():
+    candidate = report(
+        summary="The drive bearing is failing and the motor is overheating.",
+        priority="high",
+        cited_features=[],
+        recommended_action="Shut the line down and replace the motor.",
+        part_reference="SKF 6205",
+    )
+    problems = check(candidate, log("healthy.jsonl"))
+    assert "priority must be none: no record shows a fault type or an unrecognised pattern" in problems
+    assert "part_reference must be empty: no parts lookup gave it" in problems
+    assert "summary names a fault the records do not show: bearing" in problems
+    assert "summary names a fault the records do not show: overheat" in problems
+
+
+@pytest.mark.parametrize("claim, number", [("vib_1x peaked at 2026 spreads.", "2026"), ("vib_1x moved 20 spreads.", "20")])
+def test_rejects_a_movement_made_of_a_timestamp_or_a_window_count(claim, number):
+    # 2026 is in every `at`, 20 is the window count: neither is a value of vib_1x.
+    problems = check(report(summary=claim), log("imbalance.jsonl"))
+    assert problems == [f"summary gives a reading's movement that no cited reading has: {number}"]
+
+
+def test_rejects_a_fault_type_the_log_was_not_diagnosed_with():
+    candidate = report(summary="Looseness of the motor mount confirmed by vib_1x.")
+    assert check(candidate, log("imbalance.jsonl")) == ["summary names a fault the records do not show: loose"]
+    looseness = report(summary="Looseness of the motor mount.", cited_features=["vib_harm_3_10"],
+                       recommended_action="Tighten the bolts.")
+    assert check(looseness, log("loose_mount.jsonl")) == []
+
+
+def test_priority_must_be_none_when_no_record_shows_a_finding():
+    quiet = [record("normal", vib_1x=0.2), record("stopped"), record("warming_up")]
+    calm = report(summary="No fault found.", cited_features=[], recommended_action="No action needed.")
+    assert check(dict(calm, priority="none"), quiet) == []
+    for priority in ("low", "medium", "high"):
+        assert check(dict(calm, priority=priority), quiet) == [
+            "priority must be none: no record shows a fault type or an unrecognised pattern"
+        ]
+
+
+@pytest.mark.parametrize("diagnosis", [FINDING, "unrecognised_pattern"])
+def test_priority_must_not_be_none_while_the_newest_record_shows_a_finding(diagnosis):
+    records = [record("normal", vib_1x=0.2), record(diagnosis, vib_1x=9.6)]
+    candidate = report(summary="Inspect it.", cited_features=[], recommended_action="Inspect the machine.")
+    assert check(dict(candidate, priority="none"), records) == [
+        f"priority must not be none: the newest record is diagnosed {diagnosis}"
+    ]
+    assert check(dict(candidate, priority="low"), records) == []
+
+
+def test_priority_is_free_once_a_finding_has_cleared():
+    records = [record(FINDING, vib_1x=9.6), record("normal", vib_1x=0.2)]
+    for priority in ("none", "low", "medium", "high"):
+        assert check(report(priority=priority), records) == []
+
+
+def test_part_reference_must_come_from_a_parts_lookup():
+    assert check(report(part_reference="SKF 6204-2RS")) == ["part_reference must be empty: no parts lookup gave it"]
+    found = '{"results": [{"title": "SKF 6204-2RS deep groove bearing"}]}'
+    assert check_report(report(part_reference="SKF 6204-2RS"), RECORDS, FEATURES, parts_found=found) == []
+    assert check_report(report(part_reference="FAG 6305"), RECORDS, FEATURES, parts_found=found) == [
+        "part_reference must be empty: no parts lookup gave it"
+    ]
+
+
+def test_movement_numbers_pass_only_for_a_cited_reading():
+    assert check(report(summary="vib_1x rose to 9.6 spreads, 9.6 times its usual spread, 9.6x normal.")) == []
+    uncited = report(summary="The rattle reading reached 0.24 spreads.")  # 0.24 is vib_harm_3_10's, not cited
+    assert check(uncited) == [
+        "summary names a fault the records do not show: rattl",
+        "summary gives a reading's movement that no cited reading has: 0.24",
+    ]
+
+
+def test_plain_numbers_pass_for_counts_times_and_cited_readings_only():
+    records = [record(vib_1x=9.6, vib_harm_3_10=0.7), record(vib_1x=-8.4, vib_harm_3_10=0.3)]
+    assert check(report(summary="2 windows on 2026-11-14 at 16:00, peak 9.6, unknown score 0.1."), records) == []
+    # 0.7 is a value of a reading that is not cited; 16 alone is a piece of a time, not a time.
+    assert check(report(summary="A peak of 0.7 after 16 windows."), records) == [
+        "summary has a number that is not in the readings: 0.7",
+        "summary has a number that is not in the readings: 16",
+    ]
+
+
+def test_fault_words_follow_the_diagnoses_in_the_records():
+    records = [record("bearing_defect_like", vib_1x=9.6), record("imbalance", vib_1x=9.6)]  # an older name
+    candidate = report(summary="Bearing wear and imbalance.", recommended_action="Replace the bearing, rebalance.")
+    assert check(candidate, records) == []
+    assert check(dict(candidate, recommended_action="Realign the coupling."), records) == [
+        "recommended_action names a fault the records do not show: realign",
+        "recommended_action names a fault the records do not show: coupling",
+    ]
+
+
+def test_every_fault_type_has_words():
+    fault_types = pytest.importorskip("effente.fault_types")  # needs numpy
+    assert set(FAULT_WORDS) == set(fault_types.NAMES)

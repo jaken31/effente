@@ -40,12 +40,19 @@ citation. If the readings show an unrecognised pattern, say so plainly and recom
 inspection: do not guess a cause.
 
 The summary and the recommended action are checked in code, and a report that \
-breaks either rule is thrown away. Write a reading's name (such as vib_1x) only if \
-you cite it. Write a number only if it appears in what get_readings returned, \
-copied exactly: do not round it, and do not repeat numbers from the feature \
-table's sentences (describe "3-10x running speed" as "harmonics" or "rattle").
+breaks a rule is thrown away:
+- Write a reading's name (such as vib_1x) only if you cite it.
+- Write a number only if it is a window count, a time or the unknown score from \
+get_readings, or a value of a reading you cite, copied exactly: do not round it. Say \
+how far a reading moved ("9.6 spreads") only with that cited reading's own value. Do \
+not repeat numbers from the feature table's sentences.
+- Name a fault or a cause (unbalance, looseness, a bearing, misalignment and so on) \
+only if get_readings lists that diagnosis. Do not mention the others, even to rule \
+them out.
 
-Set priority by how soon the machine needs attention. Leave part_reference empty."""
+Set priority by how soon the machine needs attention: none if every window is normal, \
+stopped or warming up, and not none while the last diagnosis is a fault type or an \
+unrecognised pattern. Leave part_reference empty."""
 
 
 class AgentUnavailable(Exception):
@@ -152,7 +159,7 @@ def _produce(call, machine_id, records, features, run, search) -> tuple[AgentRes
             report, usage = call(machine_id, records, features, schema)
     except AgentUnavailable as error:
         return AgentResult(ok=False, reason=f"agent unavailable: {error}"), {}
-    problems = check_report(report, records, list(features))
+    problems = check_report(report, records, list(features), parts_found="\n".join(tools.parts_found))
     if problems:
         return AgentResult(ok=False, problems=problems, reason="report failed checks"), usage
     return AgentResult(ok=True, report=report), usage
