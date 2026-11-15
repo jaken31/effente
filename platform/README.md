@@ -80,6 +80,9 @@ The simulated device and a real one can run at the same time. The dashboard show
 | You see | Cause | Fix |
 |---------|-------|-----|
 | "The receiver did not start" | Port 8000 is taken, usually by an earlier run | Close the other terminal, or use `--port 8001` and open that port instead |
+| Starting the desktop app a second time only brings the first window forward | One window for each port: the app is already open | Use that window. To show something else (the simulated device instead of a real one), close it first, or give the second one `--port 8001` |
+| "The desktop app needs PySide6" | The `python3` that ran it does not have it | `pip install -r platform/desktop/requirements.txt`, best into a virtual environment at `.venv` in the repo root: the app finds that one by itself whichever `python3` starts it |
+| The launcher (Dock, Spotlight) opens an old version | The launcher starts one checkout with one Python, the ones `install_launcher.py` was run from | Update that checkout, or run `python3 platform/desktop/install_launcher.py` again from the checkout you want |
 | DEVICE DISCONNECTED, readings greyed out | Nothing heard from the device for 5 seconds | Check the simulator terminal is still running, or the device's WiFi and `EFFENTE_PLATFORM_URL` |
 | PLATFORM CONNECTION LOST | The receiver stopped | Start `run.py` again. The page reconnects by itself and history is kept. |
 | "Not live" and "Problems: not known while the device is not live" | Nothing heard from the device for 5 seconds. Its problems were cleared with the reason "device quiet". | As for DEVICE DISCONNECTED. Problems still on come back as new when it returns. |
