@@ -9,7 +9,8 @@ from device.agent.bakeoff import AFTER_RETRY, FAILED, FIRST_TRY, NOT_ASKED
 
 from .test_local_call import FAILS_CHECKS, GOOD, PROBLEM, FakeModelServer, closed_port_url, record
 
-# Passes the checks on any log: cites nothing, names no reading, has no number.
+# Cites nothing, names no reading or fault, has no number. It passes the checks on a log with no
+# finding and on one whose finding has cleared; priority none fails while the newest record is a finding.
 CITES_NOTHING = json.dumps({
     "summary": "Nothing to report.",
     "priority": "none",
@@ -17,6 +18,7 @@ CITES_NOTHING = json.dumps({
     "recommended_action": "No action.",
     "part_reference": "",
 })
+CITES_NOTHING_LOW = CITES_NOTHING.replace('"none"', '"low"')  # passes while there is a finding
 
 
 @pytest.fixture(autouse=True)
@@ -94,11 +96,11 @@ def test_an_answer_that_is_not_a_report_fails_that_run_and_the_next_run_still_ha
 
 
 def test_a_passing_report_that_differs_from_the_expected_answer_is_pointed_out(logs):
-    with FakeModelServer([CITES_NOTHING]) as server:
+    with FakeModelServer([CITES_NOTHING_LOW]) as server:
         results = bakeoff.run_bakeoff(server.url, repeat=1, logs=logs, timeout=5.0)
     (run,) = fan_runs(results)
     assert run["outcome"] == FIRST_TRY
-    assert run["differs_from_expected"] == ["does not cite vib_1x", "priority is none, expected medium or high"]
+    assert run["differs_from_expected"] == ["does not cite vib_1x", "priority is low, expected medium or high"]
     assert "1 of 1 differ from the expected answer" in bakeoff.table(results)
 
 
@@ -144,7 +146,10 @@ def test_cli_runs_every_real_log_writes_one_json_file_and_prints_one_table(tmp_p
     assert all(len(entry["runs"]) == 2 for entry in results["logs"])
     outcomes = {entry["log"]: {run["outcome"] for run in entry["runs"]} for entry in results["logs"]}
     assert outcomes["wrong_machine"] == {NOT_ASKED}
-    assert all(seen == {FIRST_TRY} for log, seen in outcomes.items() if log != "wrong_machine")
+    # One fixed answer with priority none: it passes where no finding is the newest record.
+    assert all(seen in ({FIRST_TRY}, {FAILED}) for log, seen in outcomes.items() if log != "wrong_machine")
+    assert outcomes["healthy"] == outcomes["masked"] == outcomes["mixed_fix"] == {FIRST_TRY}
+    assert outcomes["imbalance"] == outcomes["loose_mount"] == outcomes["unknown"] == {FAILED}
     asked = sum(len(run["reports"]) for entry in results["logs"] for run in entry["runs"])
     assert asked == len(server.chats)
     for name in expected_logs:

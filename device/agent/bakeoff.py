@@ -52,14 +52,14 @@ class RecordingCall(LocalCall):
         super().__init__(url, timeout)
         self.attempts: list[dict] = []
         self._records: list[dict] = []
-        self._names: list[str] = []
+        self._names: dict[str, str] = {}
 
     def server_model(self) -> str:
         """The model name as the server reports it. Raises AgentUnavailable if it reports none."""
         return self._find_model()
 
     def __call__(self, machine_id, records, features, schema, tools=None):
-        self._records, self._names = records, list(features)
+        self._records, self._names = records, dict(features)
         return super().__call__(machine_id, records, features, schema, tools)
 
     def _ask(self, body, schema, usage):
