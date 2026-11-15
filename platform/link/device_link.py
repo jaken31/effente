@@ -14,6 +14,11 @@ When the thermal camera gave the heat, its newest images (all 24 x 32 pixels, at
 are read from the device's `GET /heat` and go out as `heat.frames` (contract section 2).
 A device without that address sends the summary alone.
 
+Those images reach a dashboard a message at a time, so up to a second after they were taken. A
+program that runs this link itself (the desktop app) can also be handed each image as soon as the
+device serves it: `DeviceLink(..., on_heat=...)` asks `GET /heat` four times a second on a thread of
+its own. Nothing about what the platform is sent changes.
+
 A sensitivity set on the dashboard comes back in the platform's reply and is
 passed to the device's `POST /settings`, as the uploader does on the board.
 
@@ -52,6 +57,8 @@ TIMEOUT_S = 2.0
 LOG_REPEAT_S = 30.0
 NO_HEAT_ADDRESS_S = 30.0  # a device whose port has no /heat is asked again this often
 MAX_FRAMES = 2  # images in one message (contract section 2)
+HEAT_POLL_S = 0.25  # on_heat: how often the device is asked for a new image (the camera gives 2 a second)
+HEAT_RETRY_S = 5.0  # on_heat: after no answer or no image, asked again this much later
 WALL_CLOCK_AFTER_S = 1e9  # as device/intake: above this, a device time is Unix time
 CHECK_IN_MODES = ("display", "calibrating", "recording", "training")
 QUIET = ("normal", "warming_up", "stopped")  # diagnoses that are not "something is wrong"
@@ -93,6 +100,16 @@ HEAT_BLOCKS = tuple(f"{r}{c}" for r in range(6) for c in range(8))
 
 def _number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def new_frames(got, after: str) -> list[dict]:
+    """The usable images of a `GET /heat` reply taken after `after`, oldest first: each {at, min_c, step_c, data}."""
+    if not isinstance(got, dict) or not isinstance(got.get("frames"), list):
+        return []
+    new = sorted((f for f in got["frames"] if isinstance(f, dict) and isinstance(f.get("at"), str)
+                  and f["at"] > after and isinstance(f.get("data"), str)
+                  and _number(f.get("min_c")) and _number(f.get("step_c"))), key=lambda f: f["at"])
+    return [{k: f[k] for k in ("at", "min_c", "step_c", "data")} for f in new]
 
 
 def heat_of(value):
@@ -255,15 +272,23 @@ def record(line: dict, status: dict, row=None, table=None) -> dict:
 
 
 class DeviceLink:
-    """Reads one device's port, sends the platform its messages. start() runs it on a thread."""
+    """Reads one device's port, sends the platform its messages. start() runs it on a thread.
+
+    `on_heat(machine_id, images)`, when given, is called from a second thread with each of the thermal
+    camera's images as soon as the device serves it (heat_step), oldest first, each as in `heat.frames`."""
 
     def __init__(self, device_url: str, platform_url: str, poll_s: float = POLL_S, timeout: float = TIMEOUT_S,
-                 log=None):
+                 log=None, on_heat=None, heat_poll_s: float = HEAT_POLL_S):
         self.device = device_url.rstrip("/")
         self.platform = platform_url.rstrip("/")
         self.poll_s, self.timeout = poll_s, timeout
         self.log = log or (lambda m: print(f"device link: {m}", flush=True))
         self.stats = {"check_ins": 0, "records": 0, "models": 0, "refused": 0, "settings": 0}
+        self.on_heat, self.heat_poll_s = on_heat, heat_poll_s
+        self.machine_id: str | None = None  # of the device's newest status
+        self._heat_at = ""  # `at` of the newest image handed to on_heat
+        self._heat_wait_until = 0.0  # on_heat: no answer or no image last time, not asked again before this
+        self._heat_thread: threading.Thread | None = None
         self.device_reachable: bool | None = None
         self.last_message = ""  # the newest thing said to the operator
         self._status_at = None
@@ -281,6 +306,9 @@ class DeviceLink:
         if self._thread is None:
             self._thread = threading.Thread(target=self.run, name="effente-device-link", daemon=True)
             self._thread.start()
+        if self.on_heat is not None and self._heat_thread is None:
+            self._heat_thread = threading.Thread(target=self.run_heat, name="effente-device-heat", daemon=True)
+            self._heat_thread.start()
         return self
 
     def stop(self) -> None:
@@ -288,6 +316,9 @@ class DeviceLink:
         if self._thread is not None:
             self._thread.join(self.timeout * 2 + 1.0)
             self._thread = None
+        if self._heat_thread is not None:
+            self._heat_thread.join(self.timeout + 1.0)
+            self._heat_thread = None
 
     def run(self) -> None:
         while not self._stop.is_set():
@@ -296,6 +327,29 @@ class DeviceLink:
             except Exception as e:  # noqa: BLE001  one odd reply must not end the link
                 self._say("step", f"{type(e).__name__}: {e}")
             self._stop.wait(self.poll_s)
+
+    def run_heat(self) -> None:
+        while not self._stop.wait(self.heat_poll_s):
+            try:
+                self.heat_step()
+            except Exception as e:  # noqa: BLE001  one odd reply or a failing listener must not end the thread
+                self._say("heat", f"{type(e).__name__}: {e}")
+
+    def heat_step(self) -> None:
+        """Hand on_heat the device's images it has not had yet. Asked only once the device's status has
+        named its machine; a device that does not answer `/heat`, or has no image, is asked again
+        HEAT_RETRY_S later."""
+        machine = self.machine_id
+        if self.on_heat is None or machine is None or time.monotonic() < self._heat_wait_until:
+            return
+        got = self._get(self.device + "/heat")
+        new = new_frames(got, self._heat_at)
+        if not new:
+            if not (isinstance(got, dict) and got.get("frames")):  # no answer, no camera, or its images are old
+                self._heat_wait_until = time.monotonic() + HEAT_RETRY_S
+            return
+        self._heat_at = new[-1]["at"]
+        self.on_heat(machine, new)
 
     def step(self) -> None:
         """Read the device once and send what is new."""
@@ -312,6 +366,7 @@ class DeviceLink:
         if not isinstance(status, dict) or not all(
                 isinstance(status.get(k), str) and status[k] for k in ("device_id", "machine_id", "at")):
             return self._say("status", "the device's status has no device_id, machine_id or at yet")
+        self.machine_id = status["machine_id"]
         line = latest.get("results")
         if status.get("mode") == "watching":
             if isinstance(line, dict) and line.get("at") and line["at"] != self._line_at:
@@ -356,12 +411,10 @@ class DeviceLink:
         if not isinstance(got, dict) or not isinstance(got.get("frames"), list):
             self._no_heat_until = time.monotonic() + NO_HEAT_ADDRESS_S  # an older device: the summary alone
             return self._frame_at
-        new = sorted((f for f in got["frames"] if isinstance(f, dict) and isinstance(f.get("at"), str)
-                      and f["at"] > self._frame_at and isinstance(f.get("data"), str)
-                      and _number(f.get("min_c")) and _number(f.get("step_c"))), key=lambda f: f["at"])[-MAX_FRAMES:]
+        new = new_frames(got, self._frame_at)[-MAX_FRAMES:]
         if not new:
             return self._frame_at
-        heat["frames"] = [{k: f[k] for k in ("at", "min_c", "step_c", "data")} for f in new]
+        heat["frames"] = new
         return new[-1]["at"]
 
     def _feature_table(self):

@@ -234,3 +234,23 @@ def test_the_page_keeps_the_frames_shown_in_the_last_second_and_a_half(page):
     assert p._rate == pytest.approx(1.5)  # against the frame at 2000
     p._show_empty(None)
     assert p._recent == []
+
+
+def test_the_boards_own_image_is_shown_at_once_and_a_record_does_not_go_back(page):
+    """state.heat_frames: an image read straight from the board is on screen as it comes; the record
+    that brings the same image up to a second later changes the summary only."""
+    p, st = page
+    rec = next_record(st)
+    st.push("record", rec)
+    assert p._index == 0 and p._live is None
+    live = dict(rec["heat"]["frames"][-1], at="2026-11-15T00:03:03.120Z")
+    st.heat_frames.emit("another-machine", [live])
+    assert p._live is None
+    st.heat_frames.emit(st.current_machine(), [live])
+    assert p._frame() is p._live and p._live["pixels"] == logic.decode_frame(live)["pixels"]
+    assert not p._timer.isActive()  # the record's second image is not played over it
+    st.push("record", next_record(st))
+    assert p._frame() is p._live
+    p._live_at -= 10  # the board's images stopped: the record's own play again
+    st.push("record", next_record(st))
+    assert p._live is None and p._index == 0 and p._frame() is p._view["frames"][0]

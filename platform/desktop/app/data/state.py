@@ -94,6 +94,10 @@ class StateReads(QObject):
     # What came of a command sent with send_command: one sentence, the board's own words
     # when it answered (done or refused), or that it did not answer.
     command_done = Signal(str)
+    # A linked board's thermal images, read straight from its own port as soon as it serves them:
+    # (machine_id, [images as in heat.frames, oldest first]). The same images also come later in a
+    # record or check-in. Only from a board this app links itself (by address or over USB).
+    heat_frames = Signal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -495,6 +499,8 @@ class DashboardState(StateReads):
         self.reader.snapshot.connect(self._on_snapshot, Qt.QueuedConnection)
         self.reader.event.connect(self._on_event, Qt.QueuedConnection)
         self._done.connect(self._run_done, Qt.QueuedConnection)
+        if hasattr(self.host, "on_heat"):  # from the link's thread to the Qt thread
+            self.host.on_heat = lambda machine, images: self._done.emit(lambda: self.heat_frames.emit(machine, images))
         self._loaded_machine = None
         self._loading = None  # machine whose history is being fetched
         self._agent = None  # QProcess of the agent run this app started

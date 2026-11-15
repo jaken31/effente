@@ -300,3 +300,34 @@ def test_images_are_asked_for_only_when_the_camera_gave_the_heat_and_the_device_
     link._add_frames(message)
     link._add_frames(message)
     assert asked == ["http://device/heat"] and "frames" not in message["heat"]  # an older device is not asked every time
+
+
+def test_each_image_is_handed_on_as_soon_as_the_device_serves_it():
+    got = []
+    link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None, on_heat=lambda m, f: got.append((m, f)))
+    served = {"frames": [frame("2026-11-15T00:03:02.584Z"), frame("2026-11-15T00:03:02.858Z")]}
+    asked = []
+    link._get = lambda url: asked.append(url) or served
+    link.heat_step()
+    assert asked == [] and got == []  # not before the device's status has named its machine
+    link.machine_id = "conveyor-07"
+    link.heat_step()
+    link.heat_step()  # nothing new: nothing handed on
+    assert asked == ["http://device/heat"] * 2 and len(got) == 1
+    assert got[0] == ("conveyor-07", [{"at": f["at"], "min_c": 20.0, "step_c": 0.015, "data": "AAAA"} for f in served["frames"]])
+    served["frames"] = [served["frames"][1], frame("2026-11-15T00:03:03.120Z")]
+    link.heat_step()
+    assert [f["at"] for f in got[1][1]] == ["2026-11-15T00:03:03.120Z"]
+    assert link._frame_at == ""  # what the platform is sent is counted apart
+
+
+def test_a_device_with_no_image_is_not_asked_four_times_a_second():
+    link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None, on_heat=lambda m, f: None)
+    link.machine_id = "conveyor-07"
+    asked = []
+    for answer in (None, {"ok": True, "frames": []}):  # no /heat on its port; no camera or only old images
+        link._heat_wait_until = 0.0
+        link._get = lambda url, answer=answer: asked.append(url) and answer
+        link.heat_step()
+        link.heat_step()
+    assert asked == ["http://device/heat"] * 2
