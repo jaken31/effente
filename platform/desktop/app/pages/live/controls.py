@@ -165,6 +165,8 @@ class ControlsBody(QWidget):
         self.btn_agent = Button("Run Report Agent", "primary", self)
         self.btn_mark = Button("Bookmark", "secondary", self)
         self.btn_export = Button("Export Session", "secondary", self)
+        self.btn_mark.setToolTip("Mark this moment in the events list")
+        self.btn_export.setToolTip("This machine's stored periods, as a file a spreadsheet opens")
         self.btn_agent.clicked.connect(self.run_agent.emit)
         self.btn_mark.clicked.connect(self.bookmark.emit)
         self.btn_export.clicked.connect(self.export_session.emit)

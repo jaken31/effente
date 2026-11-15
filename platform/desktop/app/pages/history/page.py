@@ -27,6 +27,7 @@ from ..live.common import (
     clock,
     diagnosis_color,
     diagnosis_pill,
+    export_failed,
     fault_group,
     label,
     short,
@@ -188,6 +189,7 @@ class HistoryPage(QWidget):
             self.range.addItem(text, k)
         self.range.currentIndexChanged.connect(lambda _i: self.refresh())
         self.btn_export = Button("Export CSV", "secondary", self.trends, small=True)
+        self.btn_export.setToolTip("The periods in the chosen range, as a file a spreadsheet opens")
         self.btn_export.clicked.connect(self.export_dialog)
         self.trends.header_end.addWidget(self.range)
         self.trends.header_end.addWidget(self.btn_export)
@@ -400,10 +402,23 @@ class HistoryPage(QWidget):
             ])
         self.records_table.fit()
 
+    # ---- kept choices -----------------------------------------------------------------
+
+    def remember(self, choices) -> None:
+        """Open with the range and the records filter picked last run, and keep them from now on."""
+        for name, combo, options in (("range", self.range, RANGES), ("filter", self.filter, FILTERS)):
+            kept = choices.get(name, [k for k, _ in options])
+            if kept is not None:
+                combo.setCurrentIndex(combo.findData(kept))
+            combo.currentIndexChanged.connect(lambda _i, n=name, c=combo: choices.set(n, c.currentData()))
+
     # ---- export ----------------------------------------------------------------------
 
     def export_dialog(self) -> None:
         machine = (self.state.current_machine() if self.state else None) or "history"
         path, _ = QFileDialog.getSaveFileName(self, "Export CSV", f"{machine}-records.csv", "CSV (*.csv)")
         if path:
-            write_records_csv(path, self.trend_records())
+            try:
+                write_records_csv(path, self.trend_records())
+            except OSError as e:
+                export_failed(self.state, e)

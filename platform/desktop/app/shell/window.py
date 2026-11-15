@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import zoom
+from ..settings import Choices
 from ..theme import schemes
 from ..theme import tokens as t
 from . import format as fmt
@@ -176,6 +177,8 @@ class MainWindow(QMainWindow):
             self.pages[key] = page
             self.stack.addWidget(self._wrap(page))
             page.navigate.connect(self.navigate)
+            if hasattr(page, "remember"):  # the page's own kept choices: its range, filter, view
+                page.remember(Choices(settings, key))
             if hasattr(page, "simulated_changed"):
                 page.simulated_changed.connect(self.refresh_sim_chip)
 

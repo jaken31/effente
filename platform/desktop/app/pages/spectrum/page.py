@@ -57,6 +57,8 @@ class SpectrumPage(QWidget):
 
         self.table_panel = Panel("Bands", "")
         self.base_button = Button("Use Current as Baseline", kind="secondary", small=True)
+        self.base_button.setToolTip("Compare against the spectrum shown now. Not kept: it goes when the "
+                                    "machine changes or the app closes.")
         self.base_button.clicked.connect(self.use_current_as_baseline)
         self.table_panel.header_end.addWidget(self.base_button)
         self.model = QStandardItemModel(0, len(COLUMNS), self)

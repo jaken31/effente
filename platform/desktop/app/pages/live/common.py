@@ -116,6 +116,13 @@ CSV_COLUMNS = ["seq", "at", "device_id", "machine_id", "model_version", "diagnos
                "wrong", "reason", "note", "features", "problems", "simulated"]
 
 
+def export_failed(state, error: OSError) -> None:
+    """Say that a CSV could not be written, as a notice (INTERFACES.md addition 10)."""
+    failed = getattr(state, "action_failed", None)
+    if failed is not None:
+        failed.emit(f"Export not saved: {error.strerror or error}")
+
+
 def write_records_csv(path: str, records: list) -> int:
     """Write records, as stored, to a CSV file (nested fields as JSON). Returns the row count."""
     with open(path, "w", newline="", encoding="utf-8") as f:
