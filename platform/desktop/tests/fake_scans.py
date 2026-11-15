@@ -132,7 +132,7 @@ class FakeScans(Scans):
                 return str(box_path())
         return None
 
-    def qr_text(self, machine_id: str, name: str = "") -> str:
+    def qr_text(self, machine_id: str, name: str = "", anyway: bool = False) -> str:
         q = urllib.parse.quote
         text = f"effente://scan?v=1&base={q(FAKE_BASE, safe='')}&machine={q(machine_id, safe='')}"
         return text + (f"&name={q(name, safe='')}" if name else "")

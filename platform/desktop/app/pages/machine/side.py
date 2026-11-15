@@ -36,6 +36,14 @@ PLACE = "Place"
 OPEN_LOG = "Open log"
 IMPORT = "Import file"
 IMPORT_NOTE = "A USDZ or GLB file on this laptop, for when the phone cannot send its scan."
+TRY_AGAIN = "Try again"
+TRY_AGAIN_NOTE = "Look for this laptop's address again, after joining the WiFi the phone is on."
+REFRESH = "Refresh code"
+REFRESH_NOTE = ("Look for this laptop's address again and draw the code from it. For when the phone app could "
+                "not connect.")
+SHOW_ANYWAY = "Show code anyway"
+SHOW_ANYWAY_NOTE = ("Show a pairing code although no address was found at which the phone reaches this laptop. "
+                    "The phone may not be able to connect with it.")
 COPY = "Copy line"
 COPIED = "Copied"
 CLOSE = "Close"
@@ -211,6 +219,8 @@ class ScanPanel(QFrame):
 
     changed = Signal()  # the machine id or the name was typed
     import_file = Signal()
+    retry = Signal()  # Try again or Refresh code was pressed: look for this laptop's address again
+    show_anyway = Signal()  # Show code anyway was pressed: draw a code although the phone may not reach the laptop
     closed = Signal()
 
     QR_SIDE = 150
@@ -283,6 +293,14 @@ class ScanPanel(QFrame):
         self.import_button.setToolTip(IMPORT_NOTE)
         self.import_button.clicked.connect(self.import_file)
         buttons.addWidget(self.import_button)
+        self.retry_button = Button(TRY_AGAIN, small=True)
+        self.retry_button.setToolTip(TRY_AGAIN_NOTE)
+        self.retry_button.clicked.connect(self.retry)
+        buttons.addWidget(self.retry_button)
+        self.anyway_button = Button(SHOW_ANYWAY, "ghost", small=True)
+        self.anyway_button.setToolTip(SHOW_ANYWAY_NOTE)
+        self.anyway_button.clicked.connect(self.show_anyway)
+        buttons.addWidget(self.anyway_button)
         buttons.addStretch(1)
         buttons.addWidget(keep_place(self.copy_button))
         col.addLayout(buttons)
@@ -303,8 +321,11 @@ class ScanPanel(QFrame):
         if machine_id != self.machine.text():
             self.machine.setText(machine_id)
 
-    def show_code(self, text: str, note: str, can_close: bool) -> None:
-        """`text` is the pairing line, or "" when there is none to show. `note` says why, or how to use it."""
+    def show_code(self, text: str, note: str, can_close: bool, can_retry: bool = False,
+                  can_show_anyway: bool = False) -> None:
+        """`text` is the pairing line, or "" when there is none to show. `note` says why, or how to use it.
+        `can_retry` offers Refresh code beside a code, and Try again where there is none. `can_show_anyway` offers
+        Show code anyway: there is no line for that reason, and the person may ask for one all the same."""
         self.code.set_text(text)
         self.code.setVisible(bool(self.code.squares()))
         self.note.setText(note)
@@ -314,6 +335,10 @@ class ScanPanel(QFrame):
             self.copy_button.setText(COPY)
         self.line.setVisible(bool(text))
         self.copy_button.setVisible(bool(text))
+        self.retry_button.setText(REFRESH if text else TRY_AGAIN)
+        self.retry_button.setToolTip(REFRESH_NOTE if text else TRY_AGAIN_NOTE)
+        self.retry_button.setVisible(can_retry)
+        self.anyway_button.setVisible(can_show_anyway)
         self.close_button.setVisible(can_close)
 
     def copy(self) -> None:

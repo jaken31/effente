@@ -96,3 +96,31 @@ def test_main_port_in_use(tmp_path):
         )
     assert proc.returncode == 1
     assert "cannot listen" in proc.stderr
+
+
+def test_a_receiver_on_every_interface_also_listens_on_ipv6(tmp_path):
+    """Beside IPv4, on the same port, with the same store. One for a single address does not."""
+    import json
+    import urllib.request
+
+    from receiver_server import Receiver
+
+    def get(host, port):
+        with urllib.request.urlopen(f"http://{host}:{port}/api/state", timeout=5) as reply:
+            return json.load(reply)
+
+    receiver = Receiver("0.0.0.0", 0, str(tmp_path / "d"), str(tmp_path / "w"), log=lambda m: None)
+    if receiver.httpd6 is None:
+        receiver.stop()
+        pytest.skip("this machine has no IPv6")
+    receiver.start()
+    try:
+        assert receiver.httpd6.server_address[1] == receiver.port
+        assert get("[::1]", receiver.port) == get("127.0.0.1", receiver.port)
+    finally:
+        receiver.stop()
+    assert receiver.httpd6.socket.fileno() == -1  # stop() closed it
+
+    one = Receiver("127.0.0.1", 0, str(tmp_path / "d2"), str(tmp_path / "w"), log=lambda m: None)
+    assert one.httpd6 is None
+    one.stop()
