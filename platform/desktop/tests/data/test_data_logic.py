@@ -648,3 +648,16 @@ def test_a_devices_own_readings_come_by_snapshot_and_event():
     assert not L.apply_laptop_event(state, "readings", {"device_id": "effente-01", "readings": "none"})
     L.apply_laptop_snapshot(state, {"devices": {"effente-01": {}}})
     assert state["devices"]["effente-01"]["readings"] is None
+
+
+def test_names_from_the_code_read_as_words():
+    """Laptop only, no JS equivalent."""
+    assert L.plain_name("generic_rotating") == "generic rotating"
+    assert L.plain_name("conveyor") == "conveyor"  # the case is left alone
+    assert L.plain_name(None) == ""
+    texts = {"vib_1x": "vibration once per turn"}
+    assert L.reading_name("vib_1x", texts) == "Vibration once per turn"  # the announced text wins
+    assert L.reading_name("vib_band_17", texts) == "Vibration band 17"
+    assert L.reading_name("snd_level_db") == "Sound level dB"
+    assert L.reading_name("vib_velocity_mm_s") == "Vibration velocity mm/s"
+    assert L.reading_name("") == ""

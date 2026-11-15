@@ -121,7 +121,7 @@ class TestAgents:
         assert agents.short_model("local: /Users/someone/effente-models/small.gguf") == "local: small.gguf"
         assert agents.short_model("stand-in (no model call)") == "stand-in (no model call)"
         [row] = agents.run_rows([dict(self.RUN, model="local: /m/large.gguf")])
-        assert row.who == "maintenance_report · local: large.gguf"
+        assert row.who == "Maintenance report · local: large.gguf"
         assert agents.usage_hint(dict(self.RUN, model="local: /m/large.gguf")).endswith("local: large.gguf")
 
     def test_empty_tool_input_is_a_dash(self):
@@ -137,7 +137,7 @@ class TestAgents:
     def test_run_rows(self):
         [row] = agents.run_rows([self.RUN])
         assert row.status == "report ready"
-        assert row.who == "maintenance_report · stand-in (no model call)"
+        assert row.who == "Maintenance report · stand-in (no model call)"
         assert agents.run_status(dict(self.RUN, status="running")) == "running"
 
 

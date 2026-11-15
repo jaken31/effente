@@ -28,7 +28,7 @@ class Level:
 def protection(mode: str | None, model: dict | None) -> tuple[str, list[Level]]:
     """The headline and the protection level steps."""
     source = (model or {}).get("source")
-    entry = (model or {}).get("library_entry") or ""
+    entry = logic.plain_name((model or {}).get("library_entry"))
     learning = mode == "calibrating" or not model
     if mode == "calibrating":
         head = "Watching for serious problems. Learning this machine."
@@ -61,7 +61,7 @@ def model_fields(model: dict | None, latest: dict | None) -> list[tuple[str, str
     return [
         ("Fit check", _text(m.get("fit_check"))),
         ("Calibrated", clock(m["calibrated_at"]) if parse_time(m.get("calibrated_at")) else NOT_REPORTED),
-        ("Library entry", m.get("library_entry") or NOT_REPORTED),
+        ("Library entry", logic.plain_name(m.get("library_entry")) or NOT_REPORTED),
         ("Source", m.get("source") or NOT_REPORTED),
         ("Model version", m.get("model_version") or NOT_REPORTED),
         ("Features", f"{len(feats)} readings" + (f" · {fv}" if fv else "")),

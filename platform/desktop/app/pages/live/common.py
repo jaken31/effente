@@ -96,13 +96,6 @@ def fault_group(model, diagnosis) -> str:
     return ""
 
 
-def code_html(name: str) -> str:
-    """A reading's code name, set small and mono, as the mockup's .code."""
-    from ...theme.tokens import Fonts
-
-    return f'<span style="font-family:\'{Fonts.mono}\'; font-size:{t.FONT_MONO}px; color:{t.MUTED}">{name}</span>'
-
-
 def label(text: str = "", role: str = "soft", parent: QWidget | None = None, font=None) -> QLabel:
     w = QLabel(text, parent)
     w.setProperty("role", role)

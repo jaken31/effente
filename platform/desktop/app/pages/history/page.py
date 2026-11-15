@@ -300,7 +300,9 @@ class HistoryPage(QWidget):
         names = self._spread_names(rs)
         series = [Series([(r.get("features") or {}).get(n) if _num((r.get("features") or {}).get(n)) else None
                           for r in rs], t.DOT if i == 0 else t.SOFT, dashed=i == 1) for i, n in enumerate(names)]
-        self.legend.set_items([(n, t.DOT if i == 0 else t.SOFT, i == 1) for i, n in enumerate(names)])
+        texts = self._reading_texts()
+        self.legend.set_items([(logic.reading_name(n, texts), t.DOT if i == 0 else t.SOFT, i == 1)
+                               for i, n in enumerate(names)])
         self.spread_chart.set_data(
             series,
             LineChartSpec("Spreads", -2, 10, [0, logic.EVIDENCE_SPREADS, 10], 0,
@@ -331,7 +333,8 @@ class HistoryPage(QWidget):
             diag = a.get("diagnosis")
             ans = a.get("answer")
             source = model.get("source") if model.get("model_version") == a.get("model_version") else None
-            model_text = " · ".join(str(x) for x in (a.get("library_entry") or a.get("model_version"), source) if x)
+            entry = logic.plain_name(a.get("library_entry")) or a.get("model_version")
+            model_text = " · ".join(str(x) for x in (entry, source) if x)
             pill, tip = diagnosis_pill(model, diag, a.get("model_version"))
             answer_item = _item("")
             if ans:
@@ -382,6 +385,7 @@ class HistoryPage(QWidget):
         m = self.records_model
         m.removeRows(0, m.rowCount())
         model = self.state.model() or {}
+        texts = self._reading_texts()
         for r in rows[:RECORDS_SHOWN]:
             pill, tip = diagnosis_pill(model, r.get("diagnosis"), r.get("model_version"))
             judged = _num(r.get("unknown_score"))
@@ -398,9 +402,14 @@ class HistoryPage(QWidget):
                 _item(f"{score:.2f}" if judged else "–", right=True,
                       flag=bool(judged and line is not None and score > line)),
                 _item(r.get("abnormal_minutes") or "", right=True),
-                _item(f"{top[0]} {signed(top[1])}" if top else "–", mono=bool(top)),
+                _item(f"{logic.reading_name(top[0], texts)} {signed(top[1])}" if top else "–"),
             ])
         self.records_table.fit()
+
+    def _reading_texts(self) -> dict:
+        """Reading name -> the text the model announced for it, where the state has it."""
+        texts = getattr(self.state, "feature_texts", None)
+        return texts() if callable(texts) else {}
 
     # ---- kept choices -----------------------------------------------------------------
 

@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from app.data import model_server
+from app.data import logic, model_server
 from app.data.model_settings import SIZE_NAMES
 
 FLEET = [
-    ("maintenance_report", True),
+    ("Maintenance report", True),
     ("setup (later)", False),
     ("review (later)", False),
 ]
@@ -79,7 +79,7 @@ def run_rows(runs: list[dict]) -> list[RunRow]:
     for r in runs or []:
         if not isinstance(r, dict) or not r.get("run_id"):
             continue
-        who = " · ".join(x for x in (r.get("agent") or "", short_model(r.get("model"))) if x)
+        who = " · ".join(x for x in (logic.capitalise(logic.plain_name(r.get("agent"))), short_model(r.get("model"))) if x)
         out.append(RunRow(r["run_id"], clock(r.get("at"), seconds=False), who, run_status(r)))
     return out
 
@@ -87,7 +87,7 @@ def run_rows(runs: list[dict]) -> list[RunRow]:
 def usage_hint(run: dict | None) -> str:
     if not run:
         return ""
-    parts = [x for x in (run.get("agent") or "", short_model(run.get("model"))) if x]
+    parts = [x for x in (logic.capitalise(logic.plain_name(run.get("agent"))), short_model(run.get("model"))) if x]
     usage = run.get("usage") or {}
     if isinstance(usage.get("input_tokens"), int) and isinstance(usage.get("output_tokens"), int):
         parts.append(f"{usage['input_tokens']} in / {usage['output_tokens']} out tokens")
@@ -113,7 +113,7 @@ def call_rows(run: dict | None) -> list[CallRow]:
     out = []
     for c in (run or {}).get("tool_calls") or []:
         if isinstance(c, dict):
-            out.append(CallRow(clock(c.get("at")), str(c.get("name", "")), compact(c.get("input", {})), str(c.get("output", ""))))
+            out.append(CallRow(clock(c.get("at")), logic.capitalise(logic.plain_name(c.get("name"))), compact(c.get("input", {})), str(c.get("output", ""))))
     return out
 
 

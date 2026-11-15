@@ -186,7 +186,7 @@ def test_the_visit_record_is_the_newest_stamped_one_inside_the_newest_reading():
 
 def test_moved_keeps_the_order_sent_and_the_announced_text():
     rows = rd.moved({"features": {"vib_band_17": 7.06, "vib_kurtosis": -1.7}}, {"vib_band_17": "vibration 251-315 Hz"})
-    assert [(m.text, m.spreads) for m in rows] == [("vibration 251-315 Hz", 7.06), ("vib_kurtosis", -1.7)]
+    assert [(m.text, m.spreads) for m in rows] == [("Vibration 251-315 Hz", 7.06), ("Vibration kurtosis", -1.7)]
 
 
 def test_spectrum_normal_own_then_machine_then_none():

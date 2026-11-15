@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from app.data import logic
 from app.data.setup import FIELDS
 
 EMPTY = "Empty"
@@ -194,7 +195,7 @@ def _sources(items, with_note: bool = False) -> str:
     for s in items or []:
         if not isinstance(s, dict):
             continue
-        text = str(s.get("name") or "?")
+        text = logic.plain_name(s.get("name")) or "?"
         if s.get("kind"):
             text += f" ({s['kind']})"
         if with_note and s.get("note"):
@@ -206,7 +207,7 @@ def _sources(items, with_note: bool = False) -> str:
 def choice_title(choice) -> str:
     if not choice:
         return ""
-    entry = choice.get("library_entry") or "?"
+    entry = logic.plain_name(choice.get("library_entry")) or "?"
     return f"{entry} ({choice['status']})" if choice.get("status") else entry
 
 
@@ -314,6 +315,7 @@ NOT_ACTED = ("The device does not act on the chosen entry yet. To change the one
 
 def device(wanted, in_use, has_device: bool) -> Device:
     """What the device reports, beside what was chosen. The chosen entry is never shown as running."""
+    wanted, in_use = logic.plain_name(wanted), logic.plain_name(in_use)
     if not wanted:
         return Device(NOTHING_SENT, "Nothing has been sent to the device.",
                       "The device is told the starting model only after you use it in step 3.")

@@ -17,6 +17,8 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from app.data import logic
+
 DASH = "–"
 SIMULATED = "simulated"
 
@@ -314,7 +316,7 @@ def moved(record: dict | None, texts: dict) -> list[Moved]:
     feats = (record or {}).get("features")
     if not isinstance(feats, dict):
         return []
-    return [Moved(n, str(texts.get(n) or n), float(v)) for n, v in feats.items() if _num(v)]
+    return [Moved(n, logic.reading_name(n, texts), float(v)) for n, v in feats.items() if _num(v)]
 
 
 @dataclass(frozen=True)
