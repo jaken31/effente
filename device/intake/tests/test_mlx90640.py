@@ -139,3 +139,40 @@ def test_the_calibration_waits_for_every_word():
     camera.on_ee(1, 900, b"\x00\x00")  # outside the memory: ignored
     camera.on_ee(1, 768, np.asarray(ee[768:]).astype(">u2").tobytes())
     assert camera.stats["calibrated"]
+
+
+def test_the_devices_port_gives_the_newest_images_whole():
+    """UnoQSource.heat_images and GET /heat: the contract's image form, every one of the 768 pixels."""
+    import base64
+    import json
+    import urllib.request
+
+    from device.intake.source import UnoQSource
+    from device.intake.stream import Stream
+
+    now = [1_794_700_000.25]
+    source = UnoQSource(clock=lambda: now[0])
+    assert source.heat_images() == []
+    for k in range(3):
+        image = np.full((24, 32), 22.0, np.float32)
+        image[5, 7 + k] = 61.2
+        source.on_thermal_frame(image)
+        now[0] += 0.5
+    frames = source.heat_images(2)
+    assert [f["at"] for f in frames] == ["2026-11-14T23:46:40.750Z", "2026-11-14T23:46:41.250Z"]  # the newest two
+    last = frames[-1]
+    pixels = last["min_c"] + np.frombuffer(base64.b64decode(last["data"]), np.uint8).reshape(24, 32) * last["step_c"]
+    assert pixels.shape == (24, 32) and abs(pixels[5, 9] - 61.2) <= last["step_c"] and abs(pixels[0, 0] - 22.0) <= last["step_c"]
+    assert np.argmax(pixels) == 5 * 32 + 9
+
+    stream = Stream(host="127.0.0.1", port=0).start()
+    try:
+        url = f"http://127.0.0.1:{stream.port}/heat"
+        assert json.load(urllib.request.urlopen(url, timeout=3))["frames"] == []  # nothing gives images yet
+        stream.heat_images = source.heat_images
+        got = json.load(urllib.request.urlopen(url, timeout=3))
+        assert got["ok"] and (got["rows"], got["cols"]) == (24, 32) and got["frames"] == frames
+    finally:
+        stream.close()
+    now[0] += 10
+    assert source.heat_images() == []  # too old to be now

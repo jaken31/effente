@@ -175,6 +175,7 @@ class Stream:
         self.model_info = None  # (full) -> the model in use and how to compute with it, for GET /model
         self.data = None  # the device app, for reading what was recorded and learned: GET /recordings, /models
         self.also_read = None  # () -> more to read that is not on this server (the ESP32's addresses)
+        self.heat_images = None  # (n) -> the thermal camera's newest images (UnoQSource.heat_images)
         self.counts = {t: 0 for t in TOPICS}
         self.stalled = 0  # clients disconnected for not reading
         self.client_drops = 0  # items dropped for clients that have since gone
@@ -396,6 +397,9 @@ _INDEX = {"endpoints": {
     "/stream": "Server-Sent Events; ?topics=results,features,events,status (default all), "
                "?features_every=S, ?replay=S",
     "/latest": "last item of each topic", "/features": "the feature table", "/health": "server up",
+    "/heat": "the thermal camera's newest images, at most 2, oldest first, all 24 x 32 pixels: each {at, min_c, "
+             "step_c, data} as heat.frames in platform/CONTRACT.md (data: base64 of 768 bytes, row 0 first; "
+             "degC = min_c + byte x step_c). \"frames\" is empty when there is no camera or no image under 3 s old",
     "/view": "a page for a browser: the state, the readings and what is wrong, refreshed every second",
     "/settings": "GET the device's settings; POST JSON to change them, e.g. {\"sensitivity\": 0.7}",
     "/command": "GET the commands the device takes; POST one as JSON, e.g. {\"command\": \"clear_history\"}",
@@ -500,6 +504,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, dumps({"ok": True, **(s.fires_at() if s.fires_at else {})}))
             elif path == "/controls":
                 self._json(200, dumps({"ok": True, "you_can_send": s.controls() if s.controls else {}}))
+            elif path == "/heat":
+                self._json(200, dumps({"ok": True, "rows": 24, "cols": 32,
+                                       "frames": s.heat_images(2) if s.heat_images else []}))
             elif path == "/":
                 self._json(200, dumps({**_INDEX, "you_can_read": s.readable(),
                                        "you_can_send": s.controls() if s.controls else {}}))

@@ -303,6 +303,25 @@ class UnoQSource:
         self._heat = (self._heat + [(self.clock(), f)])[-self.HEAT_KEEP:]  # replaced, not changed
         self.stats["heat_frames"] += 1
 
+    def heat_images(self, n: int = 2) -> list:
+        """The newest `n` camera images, oldest first, each as platform/CONTRACT.md gives an image
+        (section 2, `heat.frames`): {"at", "min_c", "step_c", "data"}, where data is base64 of 768 bytes,
+        row 0 first, and a pixel's temperature is min_c + byte x step_c. The camera's full 24 x 32 pixels:
+        nothing is averaged or left out; a byte's step is at least 0.01 deg C. Empty when no image is under
+        HEAT_MAX_AGE_S old."""
+        import base64
+        from datetime import datetime, timezone
+        now, out = self.clock(), []
+        for t, f in self._heat[-max(0, int(n)):] if n > 0 else []:
+            if now - t > self.HEAT_MAX_AGE_S:
+                continue
+            lo = math.floor(float(f.min()) * 100) / 100  # rounded down, so no pixel is below min_c
+            step = max(0.01, math.ceil((float(f.max()) - lo) / 255 * 1000) / 1000)  # rounded up, so the hottest fits
+            data = np.clip(np.round((f - lo) / step), 0, 255).astype(np.uint8).tobytes()
+            at = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{int(t % 1 * 1000):03d}Z"
+            out.append({"at": at, "min_c": lo, "step_c": step, "data": base64.b64encode(data).decode("ascii")})
+        return out
+
     def thermal_frames_at(self, window_start: float, window_end: float):
         """The camera's frames for a row: those that arrived during its window, or failing that the newest one
         if it is under HEAT_MAX_AGE_S old; None when there is none (heat from the camera is then missing).

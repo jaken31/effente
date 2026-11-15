@@ -105,6 +105,7 @@ def on_heartbeat(ms, mpu_ok, oled_ok, who_am_i, bus_clocks, bus_tries, sda_high,
 Bridge.provide("hb", on_heartbeat)
 # status (the state: IDLE, RECORDING, TRAINING or DETECTING; and the readings) goes out every second, in every mode
 stream = Stream(port=8765, device_id=DEVICE, machine_id=MACHINE, status_every_s=1.0).start()
+stream.heat_images = source.heat_images  # GET /heat: the camera's newest images, whole
 uploader = Uploader.from_env(DEVICE, MACHINE)  # None when EFFENTE_PLATFORM_URL is not set
 
 
