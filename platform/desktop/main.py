@@ -76,9 +76,24 @@ def have_pyside(argv) -> bool:
     return False
 
 
+def restart_fresh(argv) -> None:
+    """Start the app again with the stored history deleted: what the Device page's
+    reset button ends in. The scan files converted for showing go too: their scans
+    are among what `--fresh` deletes. Called after the receiver has stopped, so the
+    new start finds the port free. Does not return."""
+    from app.data.scans import default_cache_dir
+
+    shutil.rmtree(default_cache_dir(), ignore_errors=True)
+    argv = [a for a in argv if a != "--fresh"]
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, str(HERE / "main.py"), *argv, "--fresh"])
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
-    if not have_pyside(sys.argv[1:] if argv is None else list(argv)):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not have_pyside(argv):
         return 1
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     if args.no_motion:
@@ -151,7 +166,8 @@ def main(argv=None) -> int:
         state.start()
         address = f"{host.host}:{host.port}"
 
-    window = MainWindow(state, receiver_address=address, settings=settings.store())
+    window = MainWindow(state, receiver_address=address, settings=settings.store(),
+                        resettable=host is not None)  # --fake stores nothing to reset
     window.show()
     shown.append(window)
 
@@ -164,7 +180,7 @@ def main(argv=None) -> int:
     wake.start(250)
 
     try:
-        return app.exec()
+        code = app.exec()
     finally:
         if listener is not None:
             listener.close()
@@ -173,6 +189,10 @@ def main(argv=None) -> int:
             stop()
         if host is not None:
             host.stop()
+    if window.reset_wanted:
+        settings.store().sync()  # the window's size and page, before this process is replaced
+        restart_fresh(argv)
+    return code
 
 
 if __name__ == "__main__":
