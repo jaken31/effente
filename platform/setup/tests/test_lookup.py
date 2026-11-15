@@ -14,7 +14,8 @@ import pytest
 from setup import lookup
 
 ENTRIES = lookup.ENTRIES_DIR
-OTHER_TYPES = [t for t in lookup.VALUES["machine_type"] if t != "conveyor"]
+OWN_ENTRY = ["conveyor", "fan", "pump"]  # machine types with a library entry of their own
+OTHER_TYPES = [t for t in lookup.VALUES["machine_type"] if t not in OWN_ENTRY]
 
 
 def manifest(entry_id, entries=ENTRIES):
@@ -38,9 +39,10 @@ def expected_lists(entry_id):
     return out
 
 
-def test_a_conveyor_gets_the_conveyor_entry():
-    choice = lookup.choose({"machine_type": "conveyor"})
-    assert choice["library_entry"] == "conveyor" and choice["reason"] == "machine type is conveyor"
+@pytest.mark.parametrize("machine_type", OWN_ENTRY)
+def test_a_machine_type_with_its_own_entry_gets_it(machine_type):
+    choice = lookup.choose({"machine_type": machine_type})
+    assert choice["library_entry"] == machine_type and choice["reason"] == f"machine type is {machine_type}"
 
 
 @pytest.mark.parametrize("machine_type", OTHER_TYPES)
@@ -67,7 +69,9 @@ def test_drive_speed_mounting_and_sensor_location_change_nothing_today(drive, re
 
 
 @pytest.mark.parametrize("profile,entry_id", [({"machine_type": "conveyor"}, "conveyor"),
-                                              ({"machine_type": "pump"}, "generic_rotating")])
+                                              ({"machine_type": "fan"}, "fan"),
+                                              ({"machine_type": "pump"}, "pump"),
+                                              ({"machine_type": "motor"}, "generic_rotating")])
 def test_the_lists_are_what_the_real_manifest_says(profile, entry_id):
     choice = lookup.choose(profile)
     assert list(choice) == ["library_entry", "version", "reason", "status", "trained_on", "checked_on",
@@ -75,15 +79,15 @@ def test_the_lists_are_what_the_real_manifest_says(profile, entry_id):
     assert {k: v for k, v in choice.items() if k not in ("library_entry", "reason")} == expected_lists(entry_id)
 
 
-@pytest.mark.parametrize("entry_id", ["conveyor", "generic_rotating"])
-def test_today_both_entries_say_they_are_trained_on_simulated_data_and_checked_on_nothing(entry_id):
+@pytest.mark.parametrize("entry_id", ["conveyor", "generic_rotating", "fan", "pump"])
+def test_today_every_entry_says_it_is_trained_on_simulated_data_and_checked_on_nothing(entry_id):
     """What the manifests say on 14 Nov 2026. When an entry gains a real source or a
     finished evaluation, this test should fail: change it then, not before."""
     choice = lookup.read_entry(entry_id)
     assert choice["trained_on"] and {s["kind"] for s in choice["trained_on"]} == {"simulated"}
     assert choice["checked_on"] == [] and choice["fault_types_validated"] == []
     assert choice["not_checked_on"] and choice["fault_types_not_validated"] == 21
-    assert choice["status"] == {"conveyor": "demo", "generic_rotating": "unverified"}[entry_id]
+    assert choice["status"] == {"conveyor": "demo"}.get(entry_id, "unverified")
 
 
 def test_the_same_profile_always_gives_the_same_choice():
@@ -124,7 +128,7 @@ def test_a_missing_manifest_is_never_picked(library):
 def test_with_no_readable_general_entry_nothing_is_picked(library):
     (library / "generic_rotating" / "manifest.json").write_text("[]")
     with pytest.raises(lookup.LookupUnavailable, match="generic_rotating"):
-        lookup.choose({"machine_type": "pump"}, library)
+        lookup.choose({"machine_type": "motor"}, library)
     assert lookup.choose({"machine_type": "conveyor"}, library)["library_entry"] == "conveyor"
 
 

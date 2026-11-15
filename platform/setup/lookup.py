@@ -69,7 +69,10 @@ ENTRIES_DIR = Path(__file__).resolve().parents[2] / "training" / "library" / "en
 GENERAL = "generic_rotating"
 # (machine_type, drive or None for any drive, entry_id), first match wins.
 # `drive` decides nothing until two entries share a machine type.
-TABLE = (("conveyor", None, "conveyor"),)
+# The `fan` and `pump` entries are simulator-only and unverified (training/library/README.md,
+# "fan and pump"); `fan` is trained on a simulated server's cooling fans, not an industrial fan.
+# The reply carries each entry's status and what it was trained on, as for every entry.
+TABLE = (("conveyor", None, "conveyor"), ("fan", None, "fan"), ("pump", None, "pump"))
 
 # The fixed reasons. Each names the profile field that decided.
 REASON_MATCH = "machine type is {machine_type}"
