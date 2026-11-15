@@ -204,6 +204,20 @@ def _next_number(ids):
     return max(numbers, default=0) + 1
 
 
+FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(value):
+    """One cell of the CSV. What people typed (a finding, a name) is free text: a spreadsheet runs a
+    cell that starts with = + - or @ as a formula, so such a cell gets a leading apostrophe, which
+    makes it text. Unverified in Excel or Numbers: checked with Python's csv reader only."""
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.startswith(FORMULA_STARTS):
+        return "'" + value
+    return value
+
+
 class LogStore:
     def __init__(self, store):
         self.store = store
@@ -541,7 +555,8 @@ class LogStore:
     def machine_csv(self, machine_id, part=None, kind=None, since=None, limit=DEFAULT_LOG_LIMIT):
         """The same entries as a CSV file's bytes. UTF-8 with a byte order mark,
         which is what makes a spreadsheet read accents right (unverified in Excel:
-        checked with Python's csv reader only)."""
+        checked with Python's csv reader only). Text a spreadsheet would run as a
+        formula is written as text (_csv_cell)."""
         with self.store.lock:
             entries = self._chosen(machine_id, part, kind, since, limit)
             names = {part_id: p.get("name", "") for part_id, p in self.parts.items()}
@@ -551,7 +566,7 @@ class LogStore:
         for entry in entries:
             row = dict(entry, part=names.get(entry.get("part_id"), ""))
             row["needs_repair"] = {True: "yes", False: "no"}.get(entry.get("needs_repair"), "")
-            out.writerow(["" if row.get(c) is None else row[c] for c in CSV_COLUMNS])
+            out.writerow([_csv_cell(row.get(c)) for c in CSV_COLUMNS])
         return ("﻿" + text.getvalue()).encode("utf-8", "replace")  # a half character in a name must not fail the export
 
     # ---- hooks, called by the Store with its lock held ---------------------

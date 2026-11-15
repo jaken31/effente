@@ -320,10 +320,26 @@ def test_the_csv_opens_in_a_spreadsheet(client):
     assert rows[1] == [later(3), 'Rodillo "A", lado norte', "repair", "soldado", "Sam", "", "", "", "person", "entry-000003"]
     assert rows[2] == [later(2), 'Rodillo "A", lado norte', "finding", 'grieta de 3,5 mm, dijo "urgente"\nsegunda línea',
                        "José Núñez", "yes", "", "", "person", "entry-000001"]
-    assert rows[3][1:4] == ["", "note", "=1+1"] and len(rows) == 4
+    assert rows[3][1:4] == ["", "note", "'=1+1"] and len(rows) == 4  # text, not a formula to run
     _, _, raw = client.request("GET", f"/api/machines/{M}/log.csv?kind=repair&limit=1")
     assert [r[2] for r in csv.reader(io.StringIO(raw.decode("utf-8-sig"), newline=""))] == ["kind", "repair"]
     assert client.json("GET", f"/api/machines/{M}/log.csv?kind=nonsense")[0] == 400
+
+
+@pytest.mark.parametrize("typed", ["=HYPERLINK(\"http://x\",\"click\")", "+1+1", "-2+3", "@SUM(A1:A2)", "\t=1+1"])
+def test_text_a_spreadsheet_would_run_as_a_formula_is_written_as_text(client, typed):
+    part = new_part(client, name=typed)
+    add(client, "finding", part, at=later(1), text=typed, by=typed, needs_repair=False)
+    add(client, "note", at=later(2), text="3 - 2 = 1, belt ok")  # an = or - inside the text is left alone
+    _, _, raw = client.request("GET", f"/api/machines/{M}/log.csv")
+    rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"), newline="")))
+    assert rows[1][3] == "3 - 2 = 1, belt ok"
+    # A name and a signature are kept without the space around them; the text as typed.
+    assert [rows[2][i] for i in (1, 3, 4)] == ["'" + typed.strip(), "'" + typed, "'" + typed.strip()]
+    assert not any(cell.startswith(("=", "+", "-", "@", "\t")) for row in rows for cell in row)
+    # The entry itself is unchanged: only the file for a spreadsheet differs.
+    entries = client.json("GET", f"/api/machines/{M}/log")[1]["entries"]
+    assert entries[1]["text"] == typed
 
 
 def test_log_entry_events(make_receiver, open_stream):
