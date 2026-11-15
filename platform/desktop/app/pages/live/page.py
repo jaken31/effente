@@ -8,6 +8,7 @@ the mockup and CONTRACT.md differ, the contract wins (see status_card.py).
 from __future__ import annotations
 
 import datetime as dt
+import time
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
@@ -28,6 +29,7 @@ from ...theme import tokens as t
 from ...widgets import DataTable, Panel, Pill
 from ..spectrum.band_chart import BandChart, baseline_from
 from ..thermal.heat_image import ColourBar, HeatImage
+from ..thermal.page import LIVE_HOLD_S
 from .charts import DiagnosisBand
 from .common import (
     clock,
@@ -68,6 +70,8 @@ class LivePage(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.state = None
+        self._heat_rng = None  # the Thermal panel's colour scale, from the newest record with an image
+        self._heat_live_at = float("-inf")  # monotonic seconds the board's own image was last shown
         self._snoozed: set[str] = set()
         self._bookmarks: list[dict] = []
 
@@ -179,6 +183,7 @@ class LivePage(QWidget):
                     state.settings_changed):
             sig.connect(self.refresh)
         state.record_added.connect(lambda _r: self.refresh())
+        state.heat_frames.connect(self._live_heat)
         state.connection_changed.connect(lambda _up: self.refresh())
         if hasattr(state, "agent_message"):
             state.agent_message.connect(self.controls.say)
@@ -214,15 +219,30 @@ class LivePage(QWidget):
             hint = f"{n} vibration bands · dashed line is the baseline" if n else "no spectrum yet"
         self.spectrum_panel.set_hint(hint)
 
+    def _live_heat(self, machine_id: str, frames) -> None:
+        """The board's newest image, read straight from it (state.heat_frames): into the Thermal panel at
+        once, on the colour scale of the newest record. The record's own copy comes up to a second later."""
+        s, rng = self.state, self._heat_rng
+        got = [f for f in (logic.decode_frame(x) for x in frames or []) if f]
+        if s is None or machine_id != s.current_machine() or rng is None or not got or self.heat_image.isHidden():
+            return
+        pixels = list(got[-1]["pixels"])
+        at = max(range(len(pixels)), key=pixels.__getitem__)
+        self.heat_image.set_image(pixels, logic.HEAT_W, logic.HEAT_H, rng["lo"], rng["hi"],
+                                  (at // logic.HEAT_W, at % logic.HEAT_W, pixels[at]))
+        self._heat_live_at = time.monotonic()
+
     def _show_thermal(self, s) -> None:
         view = logic.heat_view(s.live_record() or {})
         rng = logic.heat_range(view) if view["kind"] == "camera" else None
         frames = view.get("frames") or []
+        self._heat_rng = rng if view["kind"] == "camera" and frames else None
         if view["kind"] == "camera" and frames and rng:
             hot = None
             if view["hot_row"] is not None and view["hot_col"] is not None and view["max_c"] is not None:
                 hot = (view["hot_row"], view["hot_col"], view["max_c"])
-            self.heat_image.set_image(list(frames[-1]["pixels"]), logic.HEAT_W, logic.HEAT_H, rng["lo"], rng["hi"], hot)
+            if time.monotonic() - self._heat_live_at >= LIVE_HOLD_S:  # else the board's own image is newer
+                self.heat_image.set_image(list(frames[-1]["pixels"]), logic.HEAT_W, logic.HEAT_H, rng["lo"], rng["hi"], hot)
             self.heat_bar.set_range(rng["lo"], rng["hi"])
             self.heat_image.show()
             self.heat_bar.show()

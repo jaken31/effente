@@ -76,6 +76,9 @@ def _legend_item(color: QColor, text: str) -> QWidget:
     return w
 
 
+LIVE_HOLD_S = 1.5  # after the board's last own image, a record's images are played again
+
+
 class ThermalPage(QWidget):
     key = "thermal"
     title = "Thermal"
@@ -88,6 +91,8 @@ class ThermalPage(QWidget):
         self._view: dict | None = None
         self._arrived = 0.0  # monotonic seconds the shown record arrived
         self._index = -1  # shown frame
+        self._live: dict | None = None  # the newest image read straight from the board (show_live_frames)
+        self._live_at = 0.0  # monotonic seconds it came
         self._recent: list[dict] = []  # the frames shown before this one, oldest first, the last RECENT_MS
         self._rate: float | None = None
         self._hover: tuple[int, int] | None = None
@@ -210,6 +215,7 @@ class ThermalPage(QWidget):
         self._state = state
         state.snapshot_changed.connect(self.refresh)
         state.record_added.connect(self._on_record)
+        state.heat_frames.connect(self._on_live)
         self.refresh()
 
     def refresh(self) -> None:
@@ -226,6 +232,11 @@ class ThermalPage(QWidget):
             return
         self.show_record(rec)
         self._draw_trend()
+
+    def _on_live(self, machine_id: str, frames) -> None:
+        s = self._state
+        if s is not None and machine_id == s.current_machine():
+            self.show_live_frames(frames)
 
     def _update_sim(self) -> None:
         sim = self._state.sim() if self._state is not None and hasattr(self._state, "sim") else None
@@ -245,14 +256,46 @@ class ThermalPage(QWidget):
         if view is None or view["kind"] != "camera":
             self._show_empty(view)
             return
-        if self._view is not None and self._index >= 0 and self._view["frames"]:
-            self._shown(self._view["frames"][self._index])
+        on_screen = self._frame()
+        if on_screen is not None:
+            self._shown(on_screen)
         self._view = view
         self._arrived = time.monotonic()
         self._index = -1
         self._set_empty(False)
         self._fill_summary()
+        if self._is_live():  # the board's own images are ahead of this record's copies of them
+            if self.isVisible():
+                self._redraw()
+            return
+        self._live = None
         self._tick()
+
+    def show_live_frames(self, frames) -> None:
+        """Images read straight from the board (state.heat_frames), oldest first: the newest is shown at
+        once. A record brings the same images up to a second later, so while these keep coming
+        (LIVE_HOLD_S) a record changes the summary only. Nothing is shown before the first record."""
+        got = [f for f in (logic.decode_frame(x) for x in frames or []) if f]
+        if not got or self._view is None:
+            return
+        self._timer.stop()
+        for frame in got:
+            on_screen = self._frame()
+            if on_screen is not None:
+                self._shown(on_screen)
+            self._live, self._live_at = frame, time.monotonic()
+        if self.isVisible():
+            self._redraw()
+
+    def _is_live(self) -> bool:
+        return self._live is not None and time.monotonic() - self._live_at < LIVE_HOLD_S
+
+    def _frame(self) -> dict | None:
+        """The image on screen: the board's own while those come, else the record's frame that is due."""
+        if self._is_live():
+            return self._live
+        view = self._view
+        return view["frames"][self._index] if view is not None and self._index >= 0 and view["frames"] else None
 
     def _shown(self, frame: dict) -> None:
         """Keep a frame that was on screen, for "Fastest change" (the image a second before the newest)."""
@@ -265,7 +308,7 @@ class ThermalPage(QWidget):
 
     def _show_empty(self, view: dict | None) -> None:
         self._timer.stop()
-        self._view, self._index, self._recent = None, -1, []
+        self._view, self._index, self._recent, self._live = None, -1, [], None
         self.empty_label.setText(empty_message(view))
         self._set_empty(True)
 
@@ -313,7 +356,7 @@ class ThermalPage(QWidget):
             return
         lo, hi = rng
         bg = view["background_c"]
-        frame = view["frames"][self._index] if self._index >= 0 else None
+        frame = self._frame()
         if frame is not None:
             fs = stats.frame_stats(frame["pixels"], bg)
             self.image.set_image(frame["pixels"], stats.W, stats.H, lo, hi, (fs.hot_row, fs.hot_col, fs.hot_c))

@@ -103,6 +103,9 @@ class ReceiverHost:
         self.sim = None  # SimHandle while the sim runs
         self.device_url = device_url
         self.link = None  # DeviceLink while it runs
+        # (machine_id, images) -> None, set by the app: each of a linked board's thermal images as soon as
+        # the board serves it (DeviceLink's on_heat). Called from a link's thread.
+        self.on_heat = None
         self.usb = usb
         self.usb_log = usb_log
         self.usb_link = None  # UsbLink while it runs
@@ -132,9 +135,15 @@ class ReceiverHost:
         if self.with_sim:
             self._start_sim()
         if self.device_url:
-            self.link = paths.link_module().DeviceLink(self.device_url, self.url, log=self.log).start()
+            self.link = paths.link_module().DeviceLink(self.device_url, self.url, log=self.log, on_heat=self._heat).start()
         if self.usb:
-            self.usb_link = paths.usb_link_module().UsbLink(self.url, log=self.usb_log).start()
+            link = paths.link_module().DeviceLink
+            self.usb_link = paths.usb_link_module().UsbLink(
+                self.url, log=self.usb_log, make_link=lambda *a, **k: link(*a, on_heat=self._heat, **k)).start()
+
+    def _heat(self, machine_id: str, images: list) -> None:
+        if self.on_heat is not None:
+            self.on_heat(machine_id, images)
 
     def connect_device(self, device_url: str) -> None:
         """Read the device at `device_url` (its own port) from now on, in place of the one
@@ -143,7 +152,7 @@ class ReceiverHost:
             raise RuntimeError("the receiver is not running")
         self.disconnect_device()
         self.device_url = device_url
-        self.link = paths.link_module().DeviceLink(device_url, self.url, log=self.log).start()
+        self.link = paths.link_module().DeviceLink(device_url, self.url, log=self.log, on_heat=self._heat).start()
 
     def disconnect_device(self) -> None:
         """Stop reading the device picked by address. A board on USB is left alone."""
