@@ -253,3 +253,34 @@ def find_status(found: dict | None) -> str:
     usb = (f" {silent} board{'' if silent == 1 else 's'} on USB {NOT_FROM_HERE}: "
            "it is on another network than this laptop.") if silent else ""
     return (f"Found {count}. " if n else "No board answered. ") + near + usb
+
+
+# ---- telling the board to change mode ------------------------------------------
+
+# (command, button text, what it does). The commands are the board's own (POST /command).
+MODE_COMMANDS = (
+    ("record", "Record", "Start recording the machine as it runs normally. What is recorded is added to "
+                         "the recordings the model was learned from."),
+    ("stop", "Stop and Train", "End the recording and train the model from it, then start watching. "
+                               "A first recording needs 2 minutes."),
+    ("idle", "Idle", "Stop watching or recording without training, for while someone works on the machine. "
+                     "The model is kept."),
+    ("detect", "Detect", "Go back to watching with the model the board has."),
+)
+# What does something in each mode, as the board lists it (USEFUL_NOW in device/intake/device_app.py).
+# Only to grey out buttons: the board itself decides, and says why when it refuses.
+USEFUL_IN = {"display": ("record", "detect"), "recording": ("stop", "idle"), "training": (),
+             "calibrating": (), "watching": ("record", "idle")}
+MODE_NO_BOARD = "No board to tell. Connect one by its address below, or over USB."
+
+
+def useful_commands(mode: str | None) -> tuple[str, ...]:
+    """The commands worth offering in `mode`. Every one when the mode is not known."""
+    return USEFUL_IN.get(mode or "", tuple(c for c, _text, _tip in MODE_COMMANDS))
+
+
+def mode_status(url: str, mode: str | None) -> str:
+    """One sentence: which board the buttons tell, and the mode it last reported."""
+    if not url:
+        return MODE_NO_BOARD
+    return f"Tells the board at {url}." + (f" It last reported {mode}." if mode else "")

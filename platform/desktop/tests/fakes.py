@@ -264,6 +264,17 @@ class FakeState(StateReads):
         self._found = {"searching": searching, "boards": [dict(b) for b in boards], "tried": tried}
         self.boards_changed.emit()
 
+    def command_url(self) -> str:
+        return self._link.get("url") or ("http://127.0.0.1:8765" if self._link.get("usb") else "")
+
+    def send_command(self, name: str) -> bool:
+        """Nothing is sent: the command is kept in `commands_sent`."""
+        if not self.command_url():
+            self.command_done.emit(addresses.NO_BOARD)
+            return False
+        self.commands_sent = [*getattr(self, "commands_sent", []), name]
+        return True
+
     def set_device_link(self, url: str = "", reachable=None, message: str = "", usb=()) -> None:
         """Show the link to a device in any state, for page tests."""
         self._link = {"url": url, "reachable": reachable, "message": message, "usb": list(usb)}

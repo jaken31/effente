@@ -91,6 +91,9 @@ class StateReads(QObject):
     link_changed = Signal()
     # A search for boards started, found one, or ended.
     boards_changed = Signal()
+    # What came of a command sent with send_command: one sentence, the board's own words
+    # when it answered (done or refused), or that it did not answer.
+    command_done = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -420,6 +423,18 @@ class StateReads(QObject):
     def stop_finding(self) -> None:
         """End a search early. What was found so far stays."""
 
+    def command_url(self) -> str:
+        """The own port of the board that send_command tells: the one picked by address,
+        else the first board on USB. "" when there is none."""
+        return ""
+
+    def send_command(self, name: str) -> bool:
+        """Tell the board to change mode: "record", "stop" (stop and train), "idle" or
+        "detect", as its own POST /command takes them. Returns whether it was sent.
+        command_done then says what came of it, a refusal too. The new mode shows when
+        the board next reports it."""
+        return False
+
     # ---- settings -----------------------------------------------------------
 
     def sensitivity(self) -> dict:
@@ -467,6 +482,7 @@ class DashboardState(StateReads):
         self._settings_store = settings
         self._address = ""  # for this run, when there is no store
         self._link = self._read_link()
+        self._post_command = addresses.post_command  # replaced in tests
         self._link_poll = QTimer(self)
         self._link_poll.setInterval(LINK_POLL_MS)
         self._link_poll.timeout.connect(self._refresh_link)
@@ -584,6 +600,22 @@ class DashboardState(StateReads):
             self._finding = None
             self._found["searching"] = False
             self.boards_changed.emit()
+
+    def command_url(self) -> str:
+        read = getattr(self.host, "command_url", None)
+        return read() if callable(read) else ""
+
+    def send_command(self, name: str) -> bool:
+        url = self.command_url()
+        if not url:
+            self.command_done.emit(addresses.NO_BOARD)
+            return False
+
+        def done(result, _error):
+            self.command_done.emit(result[1])
+
+        self._background(lambda: self._post_command(url, name), done)
+        return True
 
     # ---- background work --------------------------------------------------
 

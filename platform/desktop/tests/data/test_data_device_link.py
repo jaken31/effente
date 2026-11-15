@@ -53,6 +53,21 @@ def board():
             self.end_headers()
             self.wfile.write(body)
 
+        def do_POST(self):
+            """/command as the board answers it: "detect" is refused (no model), the others done."""
+            sent = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            name = sent.get("command")
+            if self.path != "/command" or name == "detect":
+                code, reply = 400, {"ok": False, "error": "no model yet: record, then stop"}
+            else:
+                code, reply = 200, {"ok": True, "command": name, "mode": "recording", "state": "RECORDING"}
+            body = json.dumps(reply).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def log_message(self, *_):
             pass
 
@@ -109,3 +124,40 @@ def test_a_bad_address_or_no_host_is_refused_with_the_reason(make_host, make_sta
     with qtbot.waitSignal(elsewhere.action_failed, timeout=1000) as sig:
         assert elsewhere.connect_device("192.168.43.20") is False
     assert sig.args == [NO_HOST]
+
+
+def test_a_command_reaches_the_board_and_its_answer_comes_back(make_host, make_state, board, qtbot):
+    state = make_state(make_host())
+    assert state.command_url() == ""
+    with qtbot.waitSignal(state.command_done, timeout=1000) as said:  # no board: nothing is sent
+        assert state.send_command("record") is False
+    assert said.args == [addresses.NO_BOARD]
+    state.connect_device(board)
+    assert state.command_url() == f"http://{board}"
+    with qtbot.waitSignal(state.command_done, timeout=5000) as said:
+        assert state.send_command("record") is True
+    assert said.args == ['The board took "record": it is now RECORDING.']
+    with qtbot.waitSignal(state.command_done, timeout=5000) as said:  # the board's own refusal
+        state.send_command("detect")
+    assert said.args == ["The board refused: no model yet: record, then stop."]
+    state.disconnect_device()
+
+
+def test_a_board_that_does_not_answer_a_command_is_said_so():
+    url = f"http://127.0.0.1:{closed_port()}"
+    ok, said = addresses.post_command(url, "idle", timeout=2)
+    assert ok is False and said.startswith(f"The board at {url} did not answer:")
+
+
+def test_commands_go_to_the_board_on_usb_when_none_is_picked_by_address(make_host):
+    host = make_host()
+    assert host.command_url() == ""
+
+    class Usb:
+        links, ports = {}, {"B": 5002, "A": 5001}
+
+    host.usb_link = Usb()
+    assert host.command_url() == "http://127.0.0.1:5001"
+    host.device_url = "http://192.168.43.20:8765"
+    assert host.command_url() == "http://192.168.43.20:8765"
+    host.device_url, host.usb_link = None, None
