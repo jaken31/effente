@@ -104,14 +104,34 @@ def test_stand_in_agent_streams_its_tool_calls(qtbot, make_host, make_state, rep
     assert state.last_agent_message() == ""
 
 
-def test_no_device_log_says_report_pys_own_message(qtbot, make_host, make_state, report_tree):
+def test_a_report_runs_on_the_receivers_stored_records_with_no_session_files(qtbot, make_host, make_state, report_tree):
+    """What a real board leaves: an announced model and records at the receiver, no simulator files."""
+    _, sim_model, _ = paths.sim_modules()
+    host = make_host()
+    client = Client(host.port)
+    client.json("POST", "/api/model", sim_model.model_announcement())
+    for r in sample_records(heat=False):
+        client.json("POST", "/api/records", r)
+    state = make_state(host, report_script=report_tree / "platform" / "report.py")
+    qtbot.waitUntil(lambda: state.current_machine() == SIM_MACHINE, timeout=5000)
+
+    assert state.start_agent("standin") is True
+    qtbot.waitUntil(lambda: bool(state.runs()) and state.runs()[0]["status"] == "done" and not state.agent_running(),
+                    timeout=30000)
+    run = state.runs()[0]
+    assert run["ok"] is True and run["machine_id"] == SIM_MACHINE
+    assert state.last_agent_message() == ""
+
+
+def test_no_announced_model_says_report_pys_own_message(qtbot, make_host, make_state, report_tree):
     host = make_host()
     Client(host.port).json("POST", "/api/records", sample_records(heat=False)[0])
     state = make_state(host, report_script=report_tree / "platform" / "report.py")
     qtbot.waitUntil(lambda: state.current_machine() == SIM_MACHINE, timeout=5000)
     with qtbot.waitSignal(state.agent_message, timeout=20000, check_params_cb=bool) as sig:
         assert state.start_agent() is True
-    assert sig.args[0] == "No device log yet. Start python3 platform/run.py first."
+    assert sig.args[0] == ("The receiver has 1 record for demo-fan-1 but no feature table for model sim-3: "
+                           "the device has not announced that model. No report was written.")
     qtbot.waitUntil(lambda: not state.agent_running(), timeout=5000)
 
 
