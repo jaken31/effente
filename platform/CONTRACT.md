@@ -715,7 +715,7 @@ Entries are only ever added. To correct one, add another. This is the same rule 
 |-------|------|-------|
 | `POST /api/machines/conveyor-07/log` | `kind`, `by`, and `text`, `part_id`, `at`, `needs_repair`, `alarm_id` as the table says | `{"ok": true, "entry": {...}, "part": {"...": "the part with its new state, or null"}}` |
 | `GET /api/machines/conveyor-07/log?part=part-0007&kind=repair&since=2026-11-01T00:00:00Z&limit=300` | | `{"ok": true, "entries": [...]}`, newest `at` first. Every filter is optional. Default 300, at most 2,000. |
-| `GET /api/machines/conveyor-07/log.csv` | | The same entries as a CSV file that opens in a spreadsheet, with the same filters. Columns, in order: `at`, `part`, `kind`, `text`, `by`, `needs_repair`, `alarm_id`, `diagnosis`, `source`, `entry_id`. |
+| `GET /api/machines/conveyor-07/log.csv` | | The same entries as a CSV file that opens in a spreadsheet, with the same filters. Columns, in order: `at`, `part`, `kind`, `text`, `by`, `needs_repair`, `alarm_id`, `diagnosis`, `source`, `entry_id`. A cell that starts with `=`, `+`, `-`, `@` or a tab gets a leading apostrophe, so a spreadsheet shows it as text and does not run it as a formula; the entry itself is unchanged. |
 
 The stream gains the event `log_entry`, with the entry as data.
 
