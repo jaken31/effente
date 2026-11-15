@@ -1112,7 +1112,7 @@ Until a piece is built, its routes answer HTTP 400 with `{"ok": false, "error": 
 | Word | Meaning |
 |------|---------|
 | Machine profile | Five facts about one machine, given by a person. Kept by the platform, one per machine. |
-| Library entry | A starting model in track 3's library, named by its `entry_id`: today `conveyor` and `generic_rotating`. |
+| Library entry | A starting model in track 3's library, named by its `entry_id`: today `conveyor`, `generic_rotating`, `fan` and `pump`. |
 | Lookup | The code that picks a library entry from a machine profile. A table, not a model. |
 | Wanted entry | The library entry the lookup picked for a machine, once a person has confirmed the profile. What the device is asked to use. |
 | Local profile | A name and a role kept on one laptop, so the app can fill `by`. Not a login. |
@@ -1186,13 +1186,13 @@ The library entry is picked by code. No agent and no model takes part, so the ch
 
 (The example is what the `conveyor` entry's manifest said on `master` at `78d726b`, read on 14 Nov. It is trained on simulated data only, and checked on nothing.)
 
-**The rule.** Match on `machine_type`, then on `drive`. No match, or an empty `machine_type`: `generic_rotating`. With the two entries that exist today that comes to one line: `machine_type` `conveyor` picks `conveyor`, everything else picks `generic_rotating`. `drive` decides nothing until two entries share a machine type. `speed_rpm`, `mounting` and `sensor_location` never change the choice in version 3.5.
+**The rule.** Match on `machine_type`, then on `drive`. No match, or an empty `machine_type`: `generic_rotating`. With the four entries that exist today: `machine_type` `conveyor` picks `conveyor`, `fan` picks `fan`, `pump` picks `pump`, and everything else picks `generic_rotating`. The `fan` and `pump` entries are trained on simulated data only, and `fan` on a simulated server's cooling fans, not an industrial fan (`training/library/README.md`). `drive` decides nothing until two entries share a machine type. `speed_rpm`, `mounting` and `sensor_location` never change the choice in version 3.5.
 
 | Field | Rule |
 |-------|------|
 | `library_entry` | The entry's `entry_id`. |
-| `reason` | One sentence from a fixed list in the code, naming the profile field that decided: "machine type is conveyor", "no entry for machine type pump, so the general one", "machine type not given, so the general one". |
-| `version`, `status` | The manifest's `version` and `status`, as they are. Today `status` is `demo` for `conveyor` and `unverified` for `generic_rotating`. |
+| `reason` | One sentence from a fixed list in the code, naming the profile field that decided: "machine type is conveyor", "no entry for machine type motor, so the general one", "machine type not given, so the general one". |
+| `version`, `status` | The manifest's `version` and `status`, as they are. Today `status` is `demo` for `conveyor` and `unverified` for `generic_rotating`, `fan` and `pump`. |
 | `trained_on` | The manifest's `sources` with `used_for` `training`: `name` and `kind`. |
 | `checked_on` | Its `sources` with `used_for` `evaluation` and `evaluated` `true`. Empty for both entries today. |
 | `not_checked_on` | Its `sources` with `used_for` `evaluation` where `evaluated` is not `true`, with the `note` if there is one. |
