@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from app.settings import Choices
 from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
@@ -95,6 +96,7 @@ class MachinePage(QWidget):
         self._scan_wanted = None  # the New scan panel: True or False once the person chose, else by itself
         self.view_state = logic.view_state(None, False)
         self.range = rd.DEFAULT_RANGE  # how far back the chart reaches
+        self._choices = Choices()  # keeps nothing until the window hands one over: remember()
         self._awaiting_entry = False
         self._probe_shown = ...  # the part the probe line was last drawn for; ... before the first draw
 
@@ -289,8 +291,17 @@ class MachinePage(QWidget):
         if self.state is not None:
             self.state.log.set_probe_part(None)
 
+    def remember(self, choices) -> None:
+        """Open with the chart range picked last run, and keep it from now on."""
+        self._choices = choices
+        kept = choices.get("range", self.part_column.chart_panel.range.keys())
+        if kept is not None:
+            self.part_column.chart_panel.range.set_current(kept)
+            self.range = kept
+
     def set_range(self, key: str) -> None:
         self.range = key
+        self._choices.set("range", key)
         self.refresh()
         motion.swap(self.part_column.chart_panel.chart)  # the new stretch of time comes up in place
 

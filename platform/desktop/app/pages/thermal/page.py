@@ -186,6 +186,24 @@ class ThermalPage(QWidget):
         self.image.hovered.connect(self._on_hover)
         self._show_empty(None)
 
+    # ---- kept choices -----------------------------------------------------
+
+    def remember(self, choices) -> None:
+        """Open with the scale, the view and the grid as they were last run, and keep them from now on."""
+        scale = choices.get("scale", self.scale_seg.keys())
+        if scale is not None:
+            self.scale_seg.set_current(scale)
+        view = choices.get("view", self.view_seg.keys())
+        if view is not None:
+            self.view_seg.set_current(view)
+            self.image.set_smooth(view == "smooth")
+        grid = choices.get("grid", ("on", "off"))
+        if grid is not None:
+            self.grid_toggle.setChecked(grid == "on")  # tells the image itself
+        self.scale_seg.changed.connect(lambda key: choices.set("scale", key))
+        self.view_seg.changed.connect(lambda key: choices.set("view", key))
+        self.grid_toggle.toggled.connect(lambda on: choices.set("grid", "on" if on else "off"))
+
     # ---- state ------------------------------------------------------------
 
     def bind(self, state) -> None:

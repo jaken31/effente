@@ -33,6 +33,7 @@ from .common import (
     clock,
     diagnosis_color,
     duration,
+    export_failed,
     fault_group,
     label,
     ms_of,
@@ -366,7 +367,11 @@ class LivePage(QWidget):
         machine = (self.state.current_machine() if self.state else None) or "session"
         path, _ = QFileDialog.getSaveFileName(self, "Export session", f"{machine}-session.csv", "CSV (*.csv)")
         if path:
-            n = self.export_session(path)
+            try:
+                n = self.export_session(path)
+            except OSError as e:
+                export_failed(self.state, e)
+                return
             self.controls.say(f"Saved {n} periods to {path}")
 
     def export_session(self, path: str) -> int:

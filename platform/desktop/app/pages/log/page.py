@@ -11,6 +11,7 @@ and "Agree" only fills the add-entry row for the person to edit and add.
 
 from __future__ import annotations
 
+from app.settings import Choices
 from app.theme import fonts
 from app.theme import tokens as t
 from app.widgets import Button, Panel, Segmented, SimChip, motion
@@ -43,6 +44,7 @@ class LogPage(QWidget):
         super().__init__(parent)
         self.state = None
         self.kind = view.ALL  # the table's kind filter
+        self._choices = Choices()  # keeps nothing until the window hands one over: remember()
         self._asked = None  # (machine, part, kind) the table was last drawn for
         self._adding_entry = False  # an add_entry call is out: its entry empties the form
         self._adding_part = False
@@ -211,7 +213,16 @@ class LogPage(QWidget):
 
     def set_kind(self, kind: str) -> None:
         self.kind = kind
+        self._choices.set("kind", kind)
         self._draw_entries()
+
+    def remember(self, choices) -> None:
+        """Open with the kind of entry shown last run, and keep it from now on."""
+        self._choices = choices
+        kept = choices.get("kind", self.kind_filter.keys())
+        if kept is not None:
+            self.kind_filter.set_current(kept)
+            self.kind = kept
 
     def export_dialog(self) -> None:
         """Ctrl+E, and the Export CSV button: the whole machine's log."""

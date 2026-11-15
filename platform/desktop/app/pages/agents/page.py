@@ -224,6 +224,14 @@ class AgentsPage(QWidget):
         self.state.start_agent(self.mode.current() or "standin")
         self.refresh()
 
+    def remember(self, choices) -> None:
+        """Open with the mode picked last run, stand-in or local, and keep it from now on."""
+        kept = choices.get("mode", self.mode.keys())
+        if kept is not None:
+            self.mode.set_current(kept)
+            self._draw_mode()
+        self.mode.changed.connect(lambda key: choices.set("mode", key))
+
     def _draw_mode(self, *_args) -> None:
         """The chosen mode in a sentence. The model's settings only matter in local mode."""
         mode = self.mode.current() or "standin"
