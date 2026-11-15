@@ -31,6 +31,10 @@ class SpectrumPage(QWidget):
         self._machine = None
         self._records: list[dict] = []
         self._custom: tuple[list[float], str] | None = None  # baseline set by hand, and when
+        # Spectra from check-ins (the device is not watching, so it sends no records), oldest
+        # first, so the waterfall keeps scrolling. In memory only: gone when the machine
+        # changes or the app closes, and never part of the baseline or the table.
+        self._checkins: list[dict] = []
 
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -93,13 +97,31 @@ class SpectrumPage(QWidget):
             return
         machine = s.current_machine()
         if machine != self._machine:
-            self._machine, self._custom = machine, None
+            self._machine, self._custom, self._checkins = machine, None, []
         self._records = list(s.records(limit=HISTORY, spectrum=True))
         latest = s.live_record()
         newer = latest is not None and (not self._records or self._records[-1].get("seq") != latest.get("seq"))
         if newer and maths.spectrum_of(latest) and latest.get("machine_id") == machine:
             self._records.append(latest)
+        self._note_checkin(latest)
         self._draw(latest, s.spectrum_model())
+
+    def _note_checkin(self, latest: dict | None) -> None:
+        """Keep a check-in's spectrum for the waterfall. A check-in is the live record
+        without a `seq` (state.live_record); each is kept once, by its `at`."""
+        if latest is None or latest.get("seq") is not None or not maths.spectrum_of(latest):
+            return
+        if self._checkins and self._checkins[-1].get("at") == latest.get("at"):
+            return
+        self._checkins.append({"at": latest.get("at"), "spectrum": latest["spectrum"]})
+        del self._checkins[: -maths.WATERFALL_PERIODS]
+
+    def waterfall_records(self) -> list[dict]:
+        """What the waterfall draws: the records and the kept check-ins, oldest first by `at`."""
+        if not self._checkins:
+            return self._records
+        # Whole seconds: a record's `at` may carry milliseconds and a check-in's not.
+        return sorted(self._records + self._checkins, key=lambda r: str(r.get("at") or "")[:19])
 
     def _on_record(self, rec: dict) -> None:
         if self._state is not None and rec.get("machine_id") == self._state.current_machine():
@@ -132,7 +154,7 @@ class SpectrumPage(QWidget):
 
     def _draw(self, latest: dict | None, model: dict | None) -> None:
         self.chart.set_record(latest, model)
-        self.waterfall.set_records(self._records)
+        self.waterfall.set_records(self.waterfall_records())
         self._draw_baseline_parts()
 
     def _draw_baseline_parts(self) -> None:
