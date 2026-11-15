@@ -9,8 +9,10 @@ of keys stands in for the terminal and lets the app press keys and quit it.
 
 from __future__ import annotations
 
+import errno
 import io
 import queue
+import socket
 import threading
 from pathlib import Path
 
@@ -67,6 +69,15 @@ class SimHandle:
         return self._err.last
 
 
+def answers_here(port: int, timeout: float = 0.5) -> bool:
+    """Whether a program already takes connections on this laptop's own address at `port`."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 class ReceiverHost:
     """Starts the receiver in this process, and the simulated device when `with_sim`.
 
@@ -110,6 +121,10 @@ class ReceiverHost:
         """Start serving. Raises OSError when the port is taken."""
         if self.receiver is not None:
             return
+        # On macOS the receiver can take the port on all addresses while another program
+        # holds it on 127.0.0.1. The app would then start and read that program instead.
+        if self._port and answers_here(self._port):
+            raise OSError(errno.EADDRINUSE, f"another program is already answering on 127.0.0.1:{self._port}")
         server = paths.server_modules()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.receiver = server.Receiver(self.host, self._port, str(self.data_dir), str(paths.WEB_DIR), log=self.log)

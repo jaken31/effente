@@ -278,3 +278,16 @@ def test_no_red_text(qtbot, state, name):
         for r in range(m.rowCount()):
             for c in range(m.columnCount()):
                 assert m.index(r, c).data(Qt.ItemDataRole.ForegroundRole) is None
+
+
+def test_agents_clicking_a_run_row_survives_the_list_being_rebuilt(qtbot, state):
+    """The page rebuilds the run list on a click, which deletes the row that was clicked."""
+    from app.pages.agents import AgentsPage
+    from app.pages.agents.page import _RunRow
+
+    page = make(qtbot, AgentsPage, state)
+    rows = page.findChildren(_RunRow)
+    assert rows
+    wanted = rows[-1].run_id
+    qtbot.mouseClick(rows[-1], Qt.MouseButton.LeftButton)  # pytest-qt fails the test on an error in the handler
+    qtbot.waitUntil(lambda: page.selected_run == wanted, timeout=2000)

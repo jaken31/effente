@@ -24,6 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PLATFORM = HERE.parent
+REPO = PLATFORM.parent
 DATA = PLATFORM / "server" / "data"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
@@ -48,8 +49,37 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def showing(args) -> str:
+    """What this start would show, as the words another start is told (app/single.py)."""
+    if args.device:
+        return f"the device at {args.device}"
+    return "a real device, with no simulated one" if args.no_sim else "the simulated device"
+
+
+def have_pyside(argv) -> bool:
+    """Whether this Python has PySide6. When it does not and the repo has a .venv, the app
+    starts again with that one, so `python3 platform/desktop/main.py` works whichever
+    python3 comes first on PATH. Otherwise says what to install."""
+    try:
+        import PySide6  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    venv = REPO / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if venv.is_file() and not os.environ.get("EFFENTE_VENV_TRIED"):
+        os.environ["EFFENTE_VENV_TRIED"] = "1"  # so a .venv without PySide6 does not loop
+        sys.stdout.flush()
+        os.execv(str(venv), [str(venv), str(HERE / "main.py"), *argv])
+    print(f"The desktop app needs PySide6, and this Python ({sys.executable}) does not have it.\n"
+          f"Install it:  {sys.executable} -m pip install -r platform/desktop/requirements.txt\n"
+          f"A virtual environment at {REPO / '.venv'} is found by itself.", file=sys.stderr)
+    return False
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
+    if not have_pyside(sys.argv[1:] if argv is None else list(argv)):
+        return 1
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     if args.no_motion:
         os.environ["EFFENTE_REDUCE_MOTION"] = "1"
@@ -71,6 +101,24 @@ def main(argv=None) -> int:
     app.setWindowIcon(QIcon(str(HERE / "app" / "theme" / "effente.svg")))
     apply_theme(app)
 
+    listener, shown = None, []  # shown: the main window, once there is one
+    # One window for each port: a second start brings the first forward and ends.
+    if not args.fake and args.port:
+        from app import single
+
+        already = single.running(args.port)
+        if already is not None:
+            if already and already != showing(args):
+                QMessageBox.information(
+                    None, "effente is already open",
+                    f"effente is already open on port {args.port}, showing {already}.\n\n"
+                    f"Close it first to show {showing(args)}.")
+            return 0
+        # Listening from here, before the receiver and the window are up, so two starts
+        # at nearly the same moment still find each other.
+        listener = single.Listener(args.port, showing(args),
+                                   lambda: shown and single.bring_forward(shown[0]), parent=app)
+
     host = state = None
     if args.fake:
         from tests.fakes import FakeState
@@ -91,12 +139,13 @@ def main(argv=None) -> int:
         try:
             host.start()
         except OSError as e:
-            text = f"The receiver did not start on port {args.port}: {e}"
+            text = f"The receiver did not start on port {args.port}: {e.strerror or e}"
             print(text, file=sys.stderr)
             # Started from the launcher there is no terminal to read that in.
             busy = e.errno == errno.EADDRINUSE
             QMessageBox.critical(None, "effente did not start",
-                                 text + ("\n\neffente may already be running." if busy else ""))
+                                 text + ("\n\nAnother program has the port: platform/run.py in a terminal, "
+                                         "or something else. Close it, or start with --port." if busy else ""))
             return 1
         state = DashboardState(host.url, host=host, settings=settings.store())
         state.start()
@@ -104,6 +153,7 @@ def main(argv=None) -> int:
 
     window = MainWindow(state, receiver_address=address, settings=settings.store())
     window.show()
+    shown.append(window)
 
     # Ctrl-C, a kill or a closed terminal quit through Qt, so the cleanup below runs.
     for name in ("SIGINT", "SIGTERM", "SIGHUP"):
@@ -116,6 +166,8 @@ def main(argv=None) -> int:
     try:
         return app.exec()
     finally:
+        if listener is not None:
+            listener.close()
         stop = getattr(state, "stop", None)
         if callable(stop):
             stop()
