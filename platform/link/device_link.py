@@ -26,7 +26,9 @@ What the device's port does not carry, so this link cannot send:
   - the model's fault type texts and its threshold: message 1 goes out with
     `fault_types` empty and no `threshold`, and a record's `reason` is only what
     the device's own results line gives
-  - the model file: platform/report.py's agent has no log or model file to read
+The report agent (platform/report.py) reads the receiver's stored records and the
+feature table of message 1, so it can report on what this link sent. UNVERIFIED on
+the board.
 
 The watching path is UNVERIFIED on the board. On 13 Nov 2026 it was run against
 the device app itself (device/intake/device_app.py) on a laptop with simulated
