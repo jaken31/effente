@@ -3,7 +3,8 @@
 The report agent (device/agent, `--backend local`) asks a model server on this
 site for its report. This module starts one on 127.0.0.1:8081 with a model
 file, says what state it is in, and stops it. It never starts a second server:
-if the port already answers, that server is used and left alone.
+if the port already answers, that server is used and left alone. A server this
+app started is also stopped when the app is killed or crashes (`start_guard`).
 
 No Qt here. `ModelServer.status()` asks the port, so it can take up to
 PROBE_TIMEOUT_S; call it off the Qt thread when polling. One lock guards the
@@ -18,9 +19,11 @@ broken model file were run for real, and both exit with code 1.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.error
@@ -50,6 +53,37 @@ MODEL_MISSING = "model_missing"
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 # llama-server starts its log lines with a clock and a level: "0.00.625.026 E ".
 _LOG_PREFIX = re.compile(r"^\d+(\.\d+)+\s+[A-Z]\s+")
+
+
+# A small second child that stops the server when this app is gone, however it went
+# (a force quit or a crash runs no cleanup). It holds a pipe from the app: the pipe
+# closing means the app ended. It also ends by itself once the server has.
+_GUARD = """
+import os, select, signal, sys
+pid = int(sys.argv[1])
+while True:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        sys.exit(0)
+    if select.select([sys.stdin], [], [], 1.0)[0]:
+        break
+try:
+    os.kill(pid, signal.SIGTERM)
+except OSError:
+    pass
+"""
+
+
+def start_guard(pid: int):
+    """The guard for the server `pid`, or None where there is none (Windows: no select on a pipe)."""
+    if os.name == "nt":
+        return None
+    try:
+        return subprocess.Popen([sys.executable, "-c", _GUARD, str(pid)], stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
 
 
 def model_file(folder, size: str) -> Path:
@@ -105,6 +139,7 @@ class ModelServer:
         self.port = port
         self.url = f"http://{host}:{port}"
         self._child: subprocess.Popen | None = None
+        self._guard: subprocess.Popen | None = None  # stops the child if this app dies
         self._output = None  # the child's output, kept for the reason it stopped
         self._model: Path | None = None
         self._problem: Status | None = None  # why the last start did nothing
@@ -145,6 +180,7 @@ class ModelServer:
             output.close()
             self._problem = Status(FAILED, f"{self.binary} did not start: {e.strerror or e}.")
             return self._problem
+        self._guard = start_guard(self._child.pid)
         self._output = output
         self._model = model
         self._was_ready = False
@@ -212,6 +248,11 @@ class ModelServer:
         return f"{self.binary} {what} (exit code {code}){said}"
 
     def _forget_child(self) -> None:
+        if self._guard is not None:
+            self._guard.kill()  # not by closing its pipe: that would have it signal a pid that is gone
+            self._guard.wait()
+            self._guard.stdin.close()
+            self._guard = None
         if self._output is not None:
             self._output.close()
         self._child = self._output = self._model = None

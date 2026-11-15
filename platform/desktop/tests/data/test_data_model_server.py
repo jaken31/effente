@@ -139,3 +139,29 @@ def test_probe_tells_a_program_that_is_not_a_model_server():
     with answering(body=b'{"data": []}') as port:
         url = f"http://127.0.0.1:{port}"
         assert ms.probe(url) == (ms.STOPPED, f"The model server at {url} has no model loaded.")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the guard needs select on a pipe")
+def test_server_is_stopped_when_the_app_dies_without_cleaning_up(server, model):
+    server.start(model)
+    wait_for(lambda: server.status().state == ms.READY)
+    child, guard = server._child, server._guard
+    assert guard is not None and guard.poll() is None
+    guard.stdin.close()  # what the guard sees when the app is killed: its end of the pipe closes
+    assert wait_for(lambda: child.poll() is not None)
+    assert wait_for(lambda: guard.poll() is not None)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the guard needs select on a pipe")
+def test_guard_ends_with_the_server_and_on_stop(server, model):
+    server.start(model)
+    wait_for(lambda: server.status().state == ms.READY)
+    guard = server._guard
+    server.stop()
+    assert guard.poll() is not None and server._guard is None
+    server.start(model)
+    wait_for(lambda: server.status().state == ms.READY)
+    guard = server._guard
+    server._child.kill()
+    server._child.wait()
+    assert wait_for(lambda: guard.poll() is not None, timeout=5)
