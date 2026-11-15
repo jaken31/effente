@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from training.library.sources import MPU6050, PublicSet, Recording, SimConveyor, SimPump, SimServerRack  # noqa: F401
+from training.library.sources import MPU6050, MPU6500, PublicSet, Recording, SimConveyor, SimPump, SimServerRack  # noqa: F401
 
 # How long each simulated machine is watched: two whole days from Monday 08:00, so every part of a
 # working day (both shifts, the breaks, the run-down, the night stop, the start-up) is in the
@@ -25,7 +25,8 @@ GENERIC_HOURS = 24.0
 @dataclass(frozen=True)
 class FaultCheck:
     """One scorecard check: a simulated fault, and the fault type the device should name for it."""
-    fault: str  # effente.simulate_conveyor.FAULT_KINDS
+    fault: str  # a fault the first training source can switch on (effente.simulate_conveyor.FAULT_KINDS, or
+    # for a server rack effente.simulate_server's)
     expects: str  # effente.fault_types.NAMES
 
 
@@ -97,4 +98,37 @@ CONVEYOR = Entry(
     fault_checks=SIM_FAULT_CHECKS,
 )
 
-ENTRIES = {e.entry_id: e for e in (GENERIC_ROTATING, CONVEYOR)}
+# For fan and pump: a conveyor is the other type of machine. Evaluation only, never run by the build.
+WRONG_MACHINE_CONVEYOR = SimConveyor("sim_conveyor", used_for="evaluation", seed=21,
+                                     note="wrong machine: a conveyor, for the fit check")
+
+# The only simulated fans in the repo are a server's cooling fans (effente.simulate_server: six of
+# them at 6,000-14,000 RPM, two power-supply fans and a hard drive, felt through the rack). That is
+# what this entry is trained on: not an industrial fan. Two whole days, as the conveyor entry.
+# Of the rack's faults only the worn fan bearing has a fault type that plainly matches and lasts to
+# the end of the check (a bump is over in a second; a stopped fan, a hot connector, a failed room
+# cooler and a clicking drive have no single matching type on the accelerometer and gyro).
+FAN = Entry(
+    "fan", "0.1.0", "unverified",
+    sources=(
+        SimServerRack("sim_rack_fans", used_for="training", mpu6500=True, seed=31, hours=TRAIN_HOURS),
+        WRONG_MACHINE_CONVEYOR,
+        PUBLIC_EVALUATION[2],  # dcase2024_fan_sound: sound only
+    ),
+    fault_checks=(FaultCheck("fan3_bearing", "bearing_defect_like"),),
+)
+
+# effente.simulate_day's cooling-water pump, through the MPU-6500. The simulator makes one day per
+# seed, midnight to midnight, so two days are two seeds (another day's schedule, valve moves and
+# background events, on the same mount), pooled as two machines. It has no faults, so no fault
+# check: every fault type stays "not validated".
+PUMP = Entry(
+    "pump", "0.1.0", "unverified",
+    sources=(
+        SimPump("sim_pump_day_a", used_for="training", imu=MPU6500, seed=41, start_h=0.0, minutes=24 * 60.0),
+        SimPump("sim_pump_day_b", used_for="training", imu=MPU6500, seed=42, start_h=0.0, minutes=24 * 60.0),
+        WRONG_MACHINE_CONVEYOR,
+    ),
+)
+
+ENTRIES = {e.entry_id: e for e in (GENERIC_ROTATING, CONVEYOR, FAN, PUMP)}

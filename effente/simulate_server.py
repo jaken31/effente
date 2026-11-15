@@ -65,10 +65,14 @@ class ServerRackSim:
     sensors = ("accel", "gyro", "audio", "thermal", "room")
 
     def __init__(self, days: int = 3, seed: int = 2, faults: list[Fault] | None = None,
-                 start_s: float = 0.0, end_s: float | None = None, week: int = 0):
+                 start_s: float = 0.0, end_s: float | None = None, week: int = 0,
+                 accel_noise_g: float = 0.0085):
         # `week` gives another week of the same machine and device: a different load schedule and
         # noise, the same camera (its fixed pattern stays). Week 0 is the original.
+        # `accel_noise_g`: the accelerometer's own noise, rms per axis. The default is the simulators'
+        # older figure; 0.0035 is the MPU-6500's, as in effente.simulate_conveyor's realistic mode.
         self.days, self.seed, self.week = days, seed, week
+        self.accel_noise_g = accel_noise_g
         self.faults = default_faults() if faults is None else faults
         self.start_s = start_s
         self.end_s = min(end_s if end_s is not None else days * DAY, days * DAY)
@@ -251,7 +255,7 @@ class ServerRackSim:
             dt = t - bump.start_s
             m = (dt >= 0) & (dt < 0.6)
             a[:, m] += np.array([0.6, 0.3, 0.2])[:, None] * np.exp(-dt[m] / 0.08) * np.sin(tau * 12 * dt[m])
-        a += 0.0085 * self._slice(self.b_snoise, n) + np.array([-0.98, 0.05, 0.12])[:, None]  # on a vertical rail
+        a += self.accel_noise_g * self._slice(self.b_snoise, n) + np.array([-0.98, 0.05, 0.12])[:, None]  # on a vertical rail
         yield Packet("accel", t, a.T.astype(np.float32))
         g = 0.11 * self._slice(self.b_snoise, n) + np.array([0.9, -1.4, 0.6])[:, None]
         if bump is not None:

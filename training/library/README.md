@@ -25,7 +25,7 @@ python3 -m training.library.build                          # every entry
 python3 -m training.library.build generic_rotating --seed 0
 ```
 
-Needs NumPy and SciPy (the simulators use SciPy). Both entries took 21 minutes on a 16-core laptop that was busy with other work, almost all of it simulating days of running. `generic_rotating` needs several GB of memory. The build prints the model file's size, the held-out scores and each scorecard check.
+Needs NumPy and SciPy (the simulators use SciPy). `generic_rotating` and `conveyor` together took 21 minutes on a 16-core laptop that was busy with other work, almost all of it simulating days of running. `generic_rotating` needs several GB of memory. `fan` took 22 minutes and `pump` 19 minutes, built side by side on an 18-core laptop. The pump simulator writes raw files of every sensor, so the pump build needs about 250 MB of temporary disk space for each day it is simulating. The build prints the model file's size, the held-out scores and each scorecard check.
 
 The same seed and the same code give the same bytes, on one machine with one NumPy version. A test builds a small entry twice and compares the bytes. Across machines the last digits of a float may differ; that has not been tested. To make this possible the build replaces the two clock readings the trainer puts in a model file: `created` is the date of the git commit built from, and the training report's `fit_seconds` is null.
 
@@ -77,7 +77,7 @@ manifest, model = load_entry("training/library/entries", "conveyor")
 
 ### Sensors
 
-Entries use the accelerometer, the gyro and the IMU's temperature. The simulated sources drop the microphone, thermal camera and room sensor, so those readings are missing in every row and `Prep` leaves their columns out.
+Entries use the accelerometer, the gyro and the IMU's temperature. The pump and server-rack simulators have no IMU temperature, so `fan` and `pump` are built on the accelerometer and the gyro alone. The simulated sources drop the microphone, thermal camera and room sensor, so those readings are missing in every row and `Prep` leaves their columns out.
 
 Why: with every sensor an entry was 220 columns and about 143 kB, and the sound and heat of simulated site disturbances pushed the threshold so high that no simulated fault alarmed. The cost: faults that show mainly in sound or heat are not caught (see "After calibration").
 
@@ -151,6 +151,29 @@ Recording("conveyor_session_01", "data/real/conveyor/session-01"),
 
 Each session is treated as its own machine when pooling, so re-attaching the sensor between sessions does not blur the network. A test builds an entry from a recorded folder to check this path. A recording cannot have a fault switched on, so the scorecard then stays `not validated` until fault sessions are recorded and a check for them is written.
 
+### fan and pump
+
+Added 14 Nov, version 0.1.0, seed 0, status `unverified`. Simulated data only. The lifecycle doc says the library grows only as real recordings arrive; these two do not follow that. They are simulator-only entries, to be rebuilt from device recordings of a real fan and a real pump when those exist (a `Recording` line in `catalog.py`, as for the conveyor).
+
+| | `fan` | `pump` |
+|---|---|---|
+| Training sources | 1 simulated server rack, 48 hours from Monday 08:00 | 2 simulated days of one pump, each midnight to midnight |
+| Running rows learned, held out | 146,880 and 25,920 | 109,549 and 19,333 |
+| Inputs, patterns kept | 69, 40 | 68, 31 |
+| Held-out score p50 / p90 / p99 / max | 2.03 / 3.67 / 4.86 / 32.84 | 1.76 / 2.78 / 6.95 / 37.82 |
+| The entry's own alarm threshold | 7.92 | 16.82 |
+| `model.json` size (target about 50 kB) | 49,911 bytes | 45,406 bytes |
+
+**fan.** `sim_rack_fans` is `effente.simulate_server` with `accel_noise_g=0.0035` (the MPU-6500's figure, as the conveyor simulator's realistic mode) and the data-center disturbances from `effente.site_noise`. The machine is a 2U server: six cooling fans at 6,000 to 14,000 RPM, two power-supply fans and a hard drive, felt through the rack. It is the only simulated fan in the repo. It is not an industrial fan, and nothing says the entry suits one. The fans turn at 100 to 233 Hz, at or above the top of what the accelerometer passes, and each is about 1.5 mg at full speed against 3.5 mg of sensor noise.
+
+Its one scorecard check is the simulator's worn fan bearing (`fan3_bearing`, expected `bearing_defect_like`). The Watcher stayed quiet before the fault, the score reached 0.94 of the alarm line, and it said `normal` at the end. So it is `not validated`, like every other type.
+
+**pump.** `sim_pump_day_a` and `sim_pump_day_b` are `effente.simulate_day` with `imu="MPU-6500"`: the cooling-water pump (a 4-pole motor on 60 Hz mains, about 1,770 RPM) through +-8 g, a 218 Hz low-pass and 3.5 mg of noise. Only the accelerometer's range, filter and noise change; the offsets, the gyro and the clock error stay the simulator's MPU6050 figures. The 218 Hz setting is the one `training/record/datasets/ottawa.py` uses and is not checked against the datasheet. The simulator makes one day per seed, so the two days are two seeds: another day's schedule, valve moves and background events, on the same mount. They are pooled as two machines. The pump runs about 17.5 hours of each day (production 05:45 to 22:00 and four short night runs). The simulator has no faults, so the entry has no scorecard check.
+
+Both list `sim_conveyor` as the wrong machine, evaluation only and not run. `fan` also lists `dcase2024_fan_sound` (sound only, not run).
+
+Not done for either entry: calibration, the fit check, the "Training length" and "After calibration" runs below, and the validation harness (`training/validation` covers `conveyor` and `generic_rotating` only).
+
 ## Training length
 
 The `conveyor` entry was built at several lengths from the same simulated conveyor, then calibrated for 5 minutes on four simulated conveyors it never saw (other seeds, speeds, loads and mounts) and watched for the next 24 hours. Simulated data, one training seed. In this run the calibrated threshold was never below the entry's own.
@@ -196,7 +219,7 @@ What this shows:
 
 For each check in `catalog.py`, the build carries on the first training machine from the end of its training rows, runs one normal minute, then switches one simulated fault on at full size for 5 minutes. The device's own `Watcher` judges it with the entry's own threshold, without calibration. A fault type is `simulated only` if the Watcher stayed quiet before the fault and named that type at the end. Otherwise it is `not validated`.
 
-Result for both entries: all 21 fault types are `not validated`. Highest smoothed score as a share of the threshold (above 1.0 is an alarm), simulated data:
+Result for `generic_rotating` and `conveyor` (for `fan` and `pump` see "fan and pump"): all 21 fault types are `not validated`. Highest smoothed score as a share of the threshold (above 1.0 is an alarm), simulated data:
 
 | Simulated fault | Expected fault type | `generic_rotating` | `conveyor` |
 |-----------------|---------------------|------|------|
@@ -219,18 +242,19 @@ Two faults now alarm, but under another type's name, so no type earns `simulated
 - The simulators' levels are plausible, not measured.
 - `generic_rotating` is six variants of one simulated machine type. No pump, fan or other machine is in its training rows.
 - The public, pump and server-rack evaluation sources were not run by the build.
+- `fan` and `pump` have never been calibrated or put through the fit check, and `fan` is a server's cooling fans, not an industrial fan.
 - The "Training length" and "After calibration" numbers are one training seed and four simulated machines, against a calibration branch that is still changing.
 - Byte-identical builds across machines or NumPy versions.
 
 ## Decisions
 
-- **`simulate_day` and the server rack are evaluation only.** `simulate_day` models an MPU6050; the server rack simulator's noise is not the MPU-6500's. The device uses the MPU-6500 and the TRD says never to mix the two, so the build refuses any training source that is not MPU-6500.
+- **`simulate_day` and the server rack are evaluation only as they are.** `simulate_day` models an MPU6050; the server rack simulator's noise is not the MPU-6500's. The device uses the MPU-6500 and the TRD says never to mix the two, so the build refuses any training source that is not MPU-6500. Both simulators now take an MPU-6500 setting (`Day(seed, imu="MPU-6500")`, `ServerRackSim(accel_noise_g=0.0035)`), which `fan` and `pump` train on; their defaults are unchanged.
 - **Accelerometer, gyro and IMU temperature only.** See "Sensors".
 - **Site disturbances are in the training rows**, as in `training/record/conveyor_eval`. Training on clean simulated data gives a normal no real site has.
 - **One-second rows.** Matches what calibration uses.
 - **Model file size.** 53 and 58 kB against "about 50 kB". The build writes the JSON without spaces.
 - **`built.git_commit`** is written with an underscore, as in the TRD's "Shared formats".
-- **No change to `effente/`.** The trainer, runtime and model file format are untouched.
+- **No change to the trainer, runtime or model file format.** The only changes in `effente/` are the two simulator settings above, added for `fan` and `pump`.
 
 ## Open questions
 

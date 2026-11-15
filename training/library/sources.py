@@ -13,11 +13,15 @@ build (training/library/build.py): only MPU-6500 sources may train an entry.
                 (the sensor head turned, and vibration passed on more or less strongly).
                 It can also give the same machine a little later with one fault switched on,
                 for the scorecard.
-  SimPump       effente.simulate_day's cooling-water pump. It models an MPU6050 (its noise,
-                range and filter), so it is evaluation only.
-  SimServerRack effente.simulate_server's server rack: another type of machine, and the "wrong
-                machine" for the conveyor entry. Its accelerometer noise is 8.5 mg, the
-                simulators' older figure, not the MPU-6500's 3.5 mg, so it is evaluation only.
+  SimPump       effente.simulate_day's cooling-water pump, one day of it. Left as it is, it
+                models an MPU6050 (its noise, range and filter), so it is evaluation only. With
+                imu=MPU6500 the simulator gives the same day through the MPU-6500's range, filter
+                and noise, and that day may train an entry (the pump entry). It has no faults.
+  SimServerRack effente.simulate_server's server rack (six cooling fans, two power-supply fans
+                and a hard drive): another type of machine, and the "wrong machine" for the
+                conveyor entry. Left as it is, its accelerometer noise is 8.5 mg, the simulators'
+                older figure, so it is evaluation only. With mpu6500=True the noise is the
+                MPU-6500's 3.5 mg, and it may train an entry (the fan entry).
   Recording     a learn-mode folder recorded with the device (device/intake/recorder.py).
   PublicSet     a public data set, named with the script that converts and evaluates it.
                 Evaluation only: none of the conversions in training/record/datasets/ is an
@@ -142,6 +146,7 @@ class SimConveyor:
     seed: int = 1
     start_h: float = 8.0  # Monday 08:00, mid-shift
     hours: float = 0.5  # how long it is watched; the catalog sets the entries' length
+    note: str = ""  # what it is for, for the manifest
     kind = "simulated"
     sensor = MPU6500
     can_fault = True
@@ -170,6 +175,31 @@ class SimConveyor:
         return Rows(t, X, list(F.FEATURE_NAMES), later)
 
 
+class _PumpHours:
+    """effente.simulate_day as a packet source: the accelerometer and gyro of one day, from t_from
+    to t_to. The simulator writes raw files of every sensor (about 233 MB an hour), so each hour is
+    rendered, read and deleted before the next."""
+    sensors = ("accel", "gyro")
+
+    def __init__(self, seed: int, imu: str, t_from: float, t_to: float):
+        from device.intake.source import SourceInfo
+        self.seed, self.imu, self.t_from, self.t_to = seed, imu, t_from, t_to
+        self.info = SourceInfo()
+
+    def packets(self):
+        from device.intake.source import FileSource
+        from effente import simulate_day as SD
+        SD._init_worker(self.seed, self.imu)  # the day's schedule and slow physics
+        for hour in range(int(self.t_from // 3600), int(math.ceil(self.t_to / 3600))):
+            with tempfile.TemporaryDirectory() as tmp:
+                SD.render_hour((hour, self.t_from, self.t_to, tmp))
+                files = FileSource(tmp, self.t_from, self.t_to)
+                for p in files.packets():
+                    self.info = files.info  # the file's own scales and range
+                    if p.sensor in self.sensors:
+                        yield p
+
+
 @dataclass(frozen=True)
 class SimPump:
     name: str
@@ -177,12 +207,20 @@ class SimPump:
     seed: int = 1
     start_h: float = 8.0
     minutes: float = 10.0
+    imu: str = MPU6050  # effente.simulate_day's own sensor: evaluation only. MPU6500 may train
+    note: str = ""  # what it is for, for the manifest
     kind = "simulated"
-    sensor = MPU6050  # effente.simulate_day models the MPU6050: evaluation only
     can_fault = False
 
+    @property
+    def sensor(self) -> str:
+        return self.imu
+
+    @property
+    def hours(self) -> float:
+        return self.minutes / 60.0
+
     def load_rows(self, seed: int = 0, faults=()) -> Rows:
-        from device.intake.source import FileSource
         from effente import features as F
         from effente import simulate_day as SD
         from effente.history import History
@@ -190,42 +228,51 @@ class SimPump:
             raise ValueError("the pump simulator has no faults")
         t_from = self.start_h * 3600.0
         t_to = min(float(SD.DAY_S), t_from + self.minutes * 60.0)
-        SD._init_worker(self.seed + 1000 * seed)  # the day's schedule and slow physics
-        with tempfile.TemporaryDirectory() as tmp:  # the simulator writes raw files (about 4 MB a minute)
-            for hour in range(int(t_from // 3600), int(math.ceil(t_to / 3600))):
-                SD.render_hour((hour, t_from, t_to, tmp))
-            t, X = _stream(FileSource(tmp, t_from, t_to), History())
+        t, X = _stream(_PumpHours(self.seed + 1000 * seed, self.imu, t_from, t_to), History())
         return Rows(t, X, list(F.FEATURE_NAMES))
 
 
 @dataclass(frozen=True)
 class SimServerRack:
     """effente.simulate_server's server rack (fans and a hard drive), with the site's disturbances,
-    through the same sensors as SimConveyor."""
+    through the same sensors as SimConveyor. It can also give the same rack a little later with
+    one of the simulator's faults switched on, for the scorecard."""
     name: str
     used_for: str = "evaluation"
     seed: int = 2
     start_h: float = 8.0  # Monday 08:00, busy hours
     hours: float = 0.5
     note: str = ""  # what it is for, for the manifest
+    mpu6500: bool = False  # the MPU-6500's accelerometer noise (3.5 mg) instead of the older 8.5 mg
     kind = "simulated"
-    sensor = OLD_SIM_NOISE  # not MPU-6500 noise: evaluation only
-    can_fault = False
+    can_fault = True
+
+    @property
+    def sensor(self) -> str:  # without MPU-6500 noise it is evaluation only
+        return MPU6500 if self.mpu6500 else OLD_SIM_NOISE
+
+    def _source(self, seed: int, start_s: float, end_s: float, faults):
+        from effente.simulate_server import ServerRackSim
+        from effente.site_noise import SiteNoise
+        noise = {"accel_noise_g": 0.0035} if self.mpu6500 else {}
+        sim = ServerRackSim(days=math.ceil(end_s / DAY_S), seed=self.seed + 1000 * seed, faults=list(faults),
+                            start_s=start_s, end_s=end_s, **noise)
+        return DeviceSensors(SiteNoise(sim, profile="datacenter", seed=self.seed + 1000 * seed))
 
     def load_rows(self, seed: int = 0, faults=()) -> Rows:
         from effente import features as F
         from effente.history import History
-        from effente.simulate_server import ServerRackSim
-        from effente.site_noise import SiteNoise
-        if faults:
-            raise ValueError("the server rack source switches no faults on")
+        from effente.simulate_conveyor import Fault
         start = self.start_h * 3600.0
         end = start + self.hours * 3600.0
-        sim = ServerRackSim(days=math.ceil(end / DAY_S), seed=self.seed + 1000 * seed, faults=[], start_s=start,
-                            end_s=end)
-        site = SiteNoise(sim, profile="datacenter", seed=self.seed + 1000 * seed)
-        t, X = _stream(DeviceSensors(site), History())
-        return Rows(t, X, list(F.FEATURE_NAMES))
+        history = History()
+        t, X = _stream(self._source(seed, start, end, []), history)
+        later = {}
+        for kind in faults:  # the same rack, carrying on from the same history, with one fault
+            onset = end + LEAD_IN_S
+            fault = Fault(kind, onset, onset + FAULT_S, f"{kind}, simulated", 1.0)
+            later[kind] = _stream(self._source(seed, end, onset + FAULT_S, [fault]), copy.deepcopy(history))
+        return Rows(t, X, list(F.FEATURE_NAMES), later)
 
 
 @dataclass(frozen=True)
