@@ -159,7 +159,7 @@ def _produce(call, machine_id, records, features, run, search) -> tuple[AgentRes
             report, usage = call(machine_id, records, features, schema)
     except AgentUnavailable as error:
         return AgentResult(ok=False, reason=f"agent unavailable: {error}"), {}
-    problems = check_report(report, records, list(features), parts_found="\n".join(tools.parts_found))
+    problems = check_report(report, records, features, parts_found="\n".join(tools.parts_found))
     if problems:
         return AgentResult(ok=False, problems=problems, reason="report failed checks"), usage
     return AgentResult(ok=True, report=report), usage
@@ -248,7 +248,7 @@ class LocalCall:
         }
         usage = {"input_tokens": 0, "output_tokens": 0}
         report, text = self._ask(body, schema, usage)
-        problems = check_report(report, records, list(features))
+        problems = check_report(report, records, features)
         if problems:
             # One more try, told what was wrong. run_agent checks whatever comes back.
             messages.append({"role": "assistant", "content": text})

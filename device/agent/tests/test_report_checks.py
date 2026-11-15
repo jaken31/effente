@@ -293,6 +293,20 @@ def test_fault_words_follow_the_diagnoses_in_the_records():
     ]
 
 
+def test_a_cited_readings_own_sentence_may_be_quoted_with_its_digits():
+    table = {"vib_1x": "vibration once per turn", "vib_harm_3_10": "vibration at 3-10x running speed (rattle)"}
+    records = [record("looseness_or_rattle", vib_harm_3_10=6.44)]
+    quoting = report(summary="Vibration at 3-10x running speed peaked at 6.44 spreads.", priority="medium",
+                     cited_features=["vib_harm_3_10"], recommended_action="Check the fasteners.")
+    assert check_report(quoting, records, table) == []
+    assert check_report(quoting, records, list(table)) == [  # without the sentences, 10x reads as a movement
+        "summary gives a reading's movement that no cited reading has: 10",
+        "summary has a number that is not in the readings: 3",
+    ]
+    uncited = dict(quoting, cited_features=[], summary="Vibration at 3-10x running speed is up.")
+    assert "summary gives a reading's movement that no cited reading has: 10" in check_report(uncited, records, table)
+
+
 def test_every_fault_type_has_words():
     fault_types = pytest.importorskip("effente.fault_types")  # needs numpy
     assert set(FAULT_WORDS) == set(fault_types.NAMES)

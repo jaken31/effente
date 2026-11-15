@@ -103,7 +103,7 @@ def build_report_schema(feature_names: list[str]) -> dict:
     }
 
 
-def check_report(report: dict, records: list[dict], feature_names: list[str], parts_found: str = "") -> list[str]:
+def check_report(report: dict, records: list[dict], feature_names, parts_found: str = "") -> list[str]:
     """Return what is wrong with a report. An empty list means it passes.
 
     Applies to every report, whoever wrote it. In order:
@@ -127,6 +127,10 @@ def check_report(report: dict, records: list[dict], feature_names: list[str], pa
        reading's movement must be a value of a cited reading
        (`unknown_number_problems`).
 
+    `feature_names` is the feature table: its names, or name -> sentence. With
+    the sentences, a cited reading's own sentence may be quoted with the digits
+    in it ("vibration at 3-10x running speed").
+
     Not checked, because code cannot read prose: a cause or a part named in
     words outside `FAULT_WORDS` ("replace the motor"), a reading described in
     its own words without a number, a plain number that happens to equal a
@@ -136,6 +140,8 @@ def check_report(report: dict, records: list[dict], feature_names: list[str], pa
     problems = shape_problems(report)
     if problems:
         return problems
+    sentences = feature_names if isinstance(feature_names, dict) else {}
+    feature_names = list(feature_names)
     if report["priority"] not in PRIORITIES:
         problems.append(f"unknown priority: {report['priority']!r}")
     for name in report["cited_features"]:
@@ -151,7 +157,7 @@ def check_report(report: dict, records: list[dict], feature_names: list[str], pa
         problems.append("part_reference must be empty: no parts lookup gave it")
     problems += uncited_reading_problems(report, records, feature_names)
     problems += undiagnosed_fault_problems(report, records, feature_names)
-    problems += unknown_number_problems(report, records, feature_names)
+    problems += unknown_number_problems(report, records, feature_names, sentences)
     return problems
 
 
@@ -243,7 +249,9 @@ def uncited_reading_problems(report: dict, records: list[dict], feature_names: l
     return problems
 
 
-def unknown_number_problems(report: dict, records: list[dict], feature_names: list[str]) -> list[str]:
+def unknown_number_problems(
+    report: dict, records: list[dict], feature_names: list[str], sentences: dict[str, str] | None = None
+) -> list[str]:
     """Return a problem for each number in the free text that the readings do not back.
 
     Two kinds of number pass:
@@ -258,7 +266,9 @@ def unknown_number_problems(report: dict, records: list[dict], feature_names: li
     A number said to be a reading's movement (`MOVEMENT`: "7 spreads", "seven
     times its usual spread", "7x") must be of the second kind. Sign is ignored,
     because peaks are given as sizes. Digits inside a reading name, a machine
-    id or a device id are part of the name. Anything else must match exactly:
+    id or a device id are part of the name, and so are digits in a cited
+    reading's sentence from the feature table (`sentences`), quoted whole or
+    without its bracketed ending. Anything else must match exactly:
     "about 10" does not match a reading of 9.6.
     """
     given = summarize_readings(records)
@@ -276,9 +286,15 @@ def unknown_number_problems(report: dict, records: list[dict], feature_names: li
     names = _reading_names(records, feature_names) | times
     for record in records:
         names |= {str(record[key]) for key in ("machine_id", "device_id") if record.get(key)}
+    quoted = set()
+    for name in cited:
+        sentence = str((sentences or {}).get(name) or "").strip()
+        quoted |= {sentence, sentence.split("(")[0].strip()} - {""}
     problems = []
     for key in FREE_TEXT_KEYS:
         text = report[key]
+        for sentence in sorted(quoted, key=len, reverse=True):
+            text = re.sub(re.escape(sentence), " ", text, flags=re.IGNORECASE)
         for name in sorted(names, key=len, reverse=True):  # longest first: one name may contain another
             text = _name_pattern(name).sub(" ", text)
         for said in dict.fromkeys(match.group(1) for match in MOVEMENT.finditer(text)):
