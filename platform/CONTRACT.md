@@ -214,6 +214,8 @@ Reply:
 
 `need_model` is `true` when the platform has not seen this `model_version`; the device then repeats message 1.
 
+**A record sent twice is stored once.** A record with the same `device_id`, `machine_id`, `at`, `model_version`, `diagnosis` and `unknown_score` as one the platform already holds is acknowledged and not stored again: no new `seq`, no `record` event, no change to an alarm. This holds across a platform restart. `stored` still counts it, so the reply to a repeated message is the reply to the first one, and a device that sends again after a lost reply needs to do nothing more. A whole message of repeats still counts as hearing from the device. Two records that differ in any of those six fields are both stored, so a device whose clock started over loses nothing. Nothing changes for a device that sends each record once.
+
 Once the dashboard has set a sensitivity for this device, the reply also carries `"settings": {"sensitivity": 0.7}` (section 7).
 
 The platform adds two fields before storing or showing a record: `seq` (a whole number that only goes up, across all devices) and `received_at`.
