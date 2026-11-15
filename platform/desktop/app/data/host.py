@@ -152,6 +152,17 @@ class ReceiverHost:
             # stop() waits for a request in flight, up to seconds when the board does not answer.
             threading.Thread(target=link.stop, name="effente-device-link-stop", daemon=True).start()
 
+    def command_url(self) -> str:
+        """The own port of the board that commands go to: the one picked by address,
+        else the first board on USB (through its forwarded port). "" when there is none."""
+        if self.device_url:
+            return self.device_url
+        usb = self.usb_link
+        ports = dict(getattr(usb, "ports", None) or {}) if usb is not None else {}
+        for serial in sorted(ports):
+            return f"http://127.0.0.1:{ports[serial]}"
+        return ""
+
     def device_link(self) -> dict:
         """What is read by address and over USB, for the Device page.
         `reachable` is None until the first answer or failure."""

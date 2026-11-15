@@ -280,6 +280,28 @@ def test_device_page_connects_a_board_by_address(qtbot, state):
     assert page.link_status.text() == "No board connected by address. Reading 1 board over USB."
 
 
+def test_device_page_tells_the_board_to_change_mode(qtbot, state):
+    from app.pages.device import DevicePage
+    from app.pages.device import view as device
+
+    page = make(qtbot, DevicePage, state)
+    assert page.mode_status.text() == device.MODE_NO_BOARD
+    assert not any(b.isEnabled() for b in page.mode_buttons.values())  # no board to tell
+    dev = state.device_id()
+    state.push("device", {"device_id": dev, "connected": True, "mode": "display"})
+    state.set_device_link("http://192.168.43.20:8765", reachable=True)
+    assert page.mode_status.text() == "Tells the board at http://192.168.43.20:8765. It last reported display."
+    assert [n for n, b in page.mode_buttons.items() if b.isEnabled()] == ["record", "detect"]
+    page.mode_buttons["record"].click()
+    assert state.commands_sent == ["record"]
+    state.command_done.emit('The board took "record": it is now RECORDING.')
+    assert page.mode_said.text() == 'The board took "record": it is now RECORDING.'
+    state.push("device", {"device_id": dev, "connected": True, "mode": "recording"})  # its next check-in
+    assert [n for n, b in page.mode_buttons.items() if b.isEnabled()] == ["stop", "idle"]
+    state.push("device", {"device_id": dev, "connected": True, "mode": "training"})
+    assert not any(b.isEnabled() for b in page.mode_buttons.values())
+
+
 def test_device_page_starts_with_the_address_used_last(qtbot, state):
     from app.pages.device import DevicePage
 

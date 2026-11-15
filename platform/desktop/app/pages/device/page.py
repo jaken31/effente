@@ -87,6 +87,36 @@ class DevicePage(QWidget):
         lv.addWidget(self.link_why)
         self.link_panel.add(link_box)
 
+        self.mode_panel = Panel("Mode", "tell the board to record, train, idle or watch", padded=True)
+        mode_box = QWidget()
+        mv = QVBoxLayout(mode_box)
+        mv.setContentsMargins(0, 0, 0, 0)
+        mv.setSpacing(8)
+        mrow = QHBoxLayout()
+        mrow.setContentsMargins(0, 0, 0, 0)
+        mrow.setSpacing(10)
+        self.mode_buttons: dict[str, Button] = {}
+        for name, text, tip in view.MODE_COMMANDS:
+            b = Button(text, kind="secondary")
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _checked=False, n=name: self.send_command(n))
+            self.mode_buttons[name] = b
+            mrow.addWidget(b)
+        mrow.addStretch(1)
+        self.mode_status = QLabel()
+        self.mode_status.setProperty("role", "strong")
+        self.mode_status.setFont(fonts.body())
+        self.mode_status.setWordWrap(True)
+        self.mode_said = QLabel()  # what the board answered to the last command
+        self.mode_said.setProperty("role", "muted")
+        self.mode_said.setFont(fonts.body())
+        self.mode_said.setWordWrap(True)
+        self.mode_said.hide()
+        mv.addLayout(mrow)
+        mv.addWidget(self.mode_status)
+        mv.addWidget(self.mode_said)
+        self.mode_panel.add(mode_box)
+
         self.model_panel = Panel("Model", padded=True)
         box = QWidget()
         v = QVBoxLayout(box)
@@ -124,9 +154,10 @@ class DevicePage(QWidget):
 
         grid.addWidget(self.devices_panel, 0, 0, 1, 2)
         grid.addWidget(self.link_panel, 1, 0, 1, 2)
-        grid.addWidget(self.model_panel, 2, 0)
-        grid.addWidget(self.log_panel, 2, 1)
-        grid.setRowStretch(2, 1)
+        grid.addWidget(self.mode_panel, 2, 0, 1, 2)
+        grid.addWidget(self.model_panel, 3, 0)
+        grid.addWidget(self.log_panel, 3, 1)
+        grid.setRowStretch(3, 1)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
@@ -138,6 +169,8 @@ class DevicePage(QWidget):
         state.alarms_changed.connect(self.refresh_log)
         state.runs_changed.connect(self.refresh_log)
         state.link_changed.connect(self.refresh_link)
+        state.link_changed.connect(self.refresh_mode)
+        state.command_done.connect(self._said)
         self.address.setText(state.device_address())
         self.refresh_link()
         self.refresh()
@@ -191,6 +224,28 @@ class DevicePage(QWidget):
         self.link_button.setText(view.DISCONNECT if on else view.CONNECT)
         self.link_status.setText(view.link_status(link))
 
+    def send_command(self, name: str) -> None:
+        """Tell the board to change mode. The mode shown moves when the board reports it."""
+        if self.state is None:
+            return
+        self._said("")
+        self.state.send_command(name)
+
+    def _said(self, text: str) -> None:
+        self.mode_said.setText(text)
+        self.mode_said.setVisible(bool(text))
+
+    def refresh_mode(self) -> None:
+        if self.state is None:
+            return
+        url = self.state.command_url()
+        d = (self.state.devices() or {}).get(self.state.device_id()) or {}
+        mode = d.get("mode") if d.get("connected") else None
+        useful = view.useful_commands(mode)
+        for name, button in self.mode_buttons.items():
+            button.setEnabled(bool(url) and name in useful)
+        self.mode_status.setText(view.mode_status(url, mode))
+
     def _paused(self, on: bool) -> None:
         if not on:
             self.refresh_log()
@@ -217,6 +272,7 @@ class DevicePage(QWidget):
         fields = view.model_fields(model, self.state.latest())
         self.prot_kv.set_rows([f for f in fields if f[0] in PROT_KEYS])
         self.model_kv.set_rows([f for f in fields if f[0] not in PROT_KEYS])
+        self.refresh_mode()
         self.refresh_log()
 
     def refresh_log(self, *_args) -> None:
