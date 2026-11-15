@@ -160,6 +160,8 @@ class FakeState(StateReads):
         self._sim = FakeSim() if with_sim else None
         self._link = dict(addresses.NO_LINK)
         self._address = ""
+        self._found = {"searching": False, "boards": [], "tried": None}
+        self.searches = 0  # how many times find_boards was called
         self.started_agents = []  # modes start_agent was called with
         self.own_agent_alive = False  # set True to act as if this app's report run is going
         self.stopped_agents = 0  # how many times stop_agent was called
@@ -244,6 +246,23 @@ class FakeState(StateReads):
 
     def disconnect_device(self) -> None:
         self.set_device_link()
+
+    def find_boards(self) -> None:
+        """No search is run: it is shown as going, with nothing found yet."""
+        self.searches += 1
+        self.set_found_boards(searching=True)
+
+    def found_boards(self) -> dict:
+        return {**self._found, "boards": [dict(b) for b in self._found["boards"]]}
+
+    def stop_finding(self) -> None:
+        if self._found["searching"]:
+            self.set_found_boards(self._found["boards"], tried=self._found["tried"])
+
+    def set_found_boards(self, boards=(), searching: bool = False, tried=None) -> None:
+        """Show a search in any state, for page tests. Boards as find_boards.board() makes them."""
+        self._found = {"searching": searching, "boards": [dict(b) for b in boards], "tried": tried}
+        self.boards_changed.emit()
 
     def set_device_link(self, url: str = "", reachable=None, message: str = "", usb=()) -> None:
         """Show the link to a device in any state, for page tests."""

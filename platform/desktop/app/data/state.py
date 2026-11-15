@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, Signal
 
 from . import device_address as addresses
+from . import find_boards as finder
 from . import logic, model_server, paths
 from .api import ApiClient, ApiError, StreamReader
 from .model_settings import ModelSettings
@@ -88,6 +89,8 @@ class StateReads(QObject):
     model_changed = Signal()
     # A device was connected or disconnected by address, or what its link says moved.
     link_changed = Signal()
+    # A search for boards started, found one, or ended.
+    boards_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -402,6 +405,21 @@ class StateReads(QObject):
     def disconnect_device(self) -> None:
         """Stop reading the board picked by address."""
 
+    def find_boards(self) -> None:
+        """Look for boards this laptop could read over WiFi: one on USB is asked for its
+        WiFi address, and the addresses near this laptop's and near device_address() are
+        tried (app/data/find_boards.py). found_boards() fills as they turn up."""
+
+    def found_boards(self) -> dict:
+        """{"searching": bool, "boards": [...], "tried": how many nearby addresses were tried,
+        or None before a search ended}. A board is {"address", "how": "usb" or "network",
+        "serial", "answers", "device_id", "machine_id", "mode"}: the last three are the
+        board's own words, "" for a board on USB whose WiFi address did not answer."""
+        return {"searching": False, "boards": [], "tried": None}
+
+    def stop_finding(self) -> None:
+        """End a search early. What was found so far stays."""
+
     # ---- settings -----------------------------------------------------------
 
     def sensitivity(self) -> dict:
@@ -452,6 +470,9 @@ class DashboardState(StateReads):
         self._link_poll = QTimer(self)
         self._link_poll.setInterval(LINK_POLL_MS)
         self._link_poll.timeout.connect(self._refresh_link)
+        self._find = finder.find  # replaced in tests
+        self._found = {"searching": False, "boards": [], "tried": None}
+        self._finding = None  # the running search's stop event
         self.report_script = str(report_script or paths.REPORT_SCRIPT)
         self.reader = StreamReader(self.api, self)
         self.reader.connected.connect(self._on_connected, Qt.QueuedConnection)
@@ -478,6 +499,7 @@ class DashboardState(StateReads):
     def stop(self) -> None:
         self._model_poll.stop()
         self._link_poll.stop()
+        self.stop_finding()
         self.reader.stop()
         self.stop_agent()
         self.models.stop()
@@ -522,6 +544,46 @@ class DashboardState(StateReads):
         if self.host is not None:
             self.host.disconnect_device()
         self._refresh_link()
+
+    def find_boards(self) -> None:
+        self.stop_finding()
+        stop = self._finding = threading.Event()
+        self._found = {"searching": True, "boards": [], "tried": None}
+        self.boards_changed.emit()
+        last = self.device_address()
+
+        def mine() -> bool:  # a search stopped or replaced says nothing more
+            return self._finding is stop and not stop.is_set()
+
+        def add(board):
+            if mine():
+                self._found["boards"].append(board)
+                self.boards_changed.emit()
+
+        def end(tried):
+            if mine():
+                self._found.update(searching=False, tried=tried)
+                self._finding = None
+                self.boards_changed.emit()
+
+        def run():
+            try:
+                tried = self._find(last, lambda b: self._done.emit(lambda: add(b)), stop)
+            except Exception:  # noqa: BLE001  a search that broke ends as one that found no more
+                tried = None
+            self._done.emit(lambda: end(tried))
+
+        threading.Thread(target=run, name="effente-find-boards", daemon=True).start()
+
+    def found_boards(self) -> dict:
+        return {**self._found, "boards": [dict(b) for b in self._found["boards"]]}
+
+    def stop_finding(self) -> None:
+        if self._finding is not None:
+            self._finding.set()
+            self._finding = None
+            self._found["searching"] = False
+            self.boards_changed.emit()
 
     # ---- background work --------------------------------------------------
 

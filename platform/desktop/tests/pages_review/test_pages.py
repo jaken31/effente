@@ -288,6 +288,70 @@ def test_device_page_starts_with_the_address_used_last(qtbot, state):
     assert make(qtbot, DevicePage, state).address.text() == "192.168.43.20"
 
 
+def found_board(address, how="network", answers=True, device_id="effente-01", mode="display"):
+    return {"address": address, "how": how, "serial": "S1" if how == "usb" else "", "answers": answers,
+            "device_id": device_id if answers else "", "machine_id": "fan-1" if answers else "",
+            "mode": mode if answers else ""}
+
+
+def test_find_boards_lists_what_was_found_and_connects_to_the_one_picked(qtbot, state):
+    from app.pages.device import DevicePage
+    from app.pages.device import view as device
+
+    page = make(qtbot, DevicePage, state)
+    page.find_button.click()
+    find = page.finder
+    qtbot.addWidget(find)
+    assert state.searches == 1  # opening it starts a search
+    assert find.status.text() == device.SEARCHING
+    assert not find.connect_button.isEnabled() and not find.again.isEnabled()
+
+    state.set_found_boards([found_board("10.110.213.214", "usb", answers=False),
+                            found_board("192.168.43.77", device_id="effente-02", mode="watching"),
+                            found_board("192.168.43.20", "usb")], tried=252)
+    rows = find.table.row_model
+    assert [[rows.text(r, c) for c in range(5)] for r in range(3)] == [
+        ["effente-01", "fan-1", "Display", "192.168.43.20", "USB"],
+        ["effente-02", "fan-1", "Watching", "192.168.43.77", "network search"],
+        ["–", "–", "–", "10.110.213.214", "USB · " + device.NO_ANSWER],
+    ]
+    assert find.status.text() == ("Found 2 boards. Tried 252 nearby addresses. 1 board on USB does not answer "
+                                  "from this laptop's network: it is on another network than this laptop.")
+    assert not find.connect_button.isEnabled()  # two answer: one must be picked
+    find._pick(2)
+    assert not find.connect_button.isEnabled()  # a board that does not answer cannot be picked
+    find._pick(1)
+    assert find.connect_button.isEnabled()
+    with qtbot.waitSignal(find.finished, timeout=1000):
+        find.connect_button.click()
+    assert state.device_link()["url"] == "http://192.168.43.77:8765"
+    assert page.address.text() == "192.168.43.77"
+    assert page.link_button.text() == device.DISCONNECT
+    assert page.finder is None
+
+
+def test_find_boards_picks_the_only_board_and_says_when_there_is_none(qtbot, state):
+    from app.pages.device import DevicePage
+
+    page = make(qtbot, DevicePage, state)
+    page.find_boards()
+    find = page.finder
+    qtbot.addWidget(find)
+    state.set_found_boards([], tried=253)
+    assert find.status.text() == "No board answered. Tried 253 nearby addresses."
+    assert not find.connect_button.isEnabled()
+    state.set_found_boards([], tried=0)
+    assert find.status.text().startswith("No board answered. This laptop has no ordinary local address")
+    find.again.click()
+    assert state.searches == 2
+    state.set_found_boards([found_board("192.168.43.20")], tried=253)
+    assert find.status.text() == "Found 1 board. Tried 253 nearby addresses."
+    assert find.selected == "192.168.43.20" and find.connect_button.isEnabled()
+    state.set_found_boards([found_board("192.168.43.20")], searching=True)
+    find.reject()
+    assert state.found_boards()["searching"] is False  # closing ends the search
+
+
 # ---- the RED rule ---------------------------------------------------------
 
 
