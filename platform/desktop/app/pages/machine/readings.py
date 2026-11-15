@@ -266,11 +266,12 @@ PROBE_ON_THIS = "Probe on this part"
 CLEAR = "Clear"
 
 
-def probe_line(parts: list, probe_part_id, selection: dict | None = None, tz=None) -> str:
+def probe_line(parts: list, probe_part_id, selection: dict | None = None, tz=None, cleared: str = "") -> str:
     """"Probe on: Drive roller, since 16:01". The time is shown only when the store gives the
-    selection's `since` (contract 9.1): the app never stands in a time of its own."""
+    selection's `since` (contract 9.1): the app never stands in a time of its own. With no part
+    picked, `cleared` is the reason the platform gave for clearing the last pick, shown as it came."""
     if not probe_part_id:
-        return NO_PROBE
+        return f"The pick was cleared: {cleared}. {NO_PROBE}" if cleared else NO_PROBE
     part = next((p for p in parts if p.get("part_id") == probe_part_id), None)
     name = (part or {}).get("name") or probe_part_id
     started = clock((selection or {}).get("since"), tz) if (selection or {}).get("part_id") == probe_part_id else ""

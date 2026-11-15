@@ -71,6 +71,7 @@ class PartLog(QObject):
         self._reviewing = None  # the part it reviews, or EVERY_PART
         self._review_output = b""
         self._probes: dict = {}  # machine_id -> its selection (contract 9.1)
+        self._cleared: dict = {}  # machine_id -> the `reason` its pick was last cleared with, while none is set
         self._fetched: dict = {}  # key -> the reply held; a key is ("readings", part_id, since) or ("normal", machine, part_id)
         self._loading: set = set()  # keys being fetched now
         self._stale: set = set()  # keys held whose reply may have moved: fetched again when next asked for
@@ -89,6 +90,7 @@ class PartLog(QObject):
         self._entries_loaded.clear()  # entries may have been added while the stream was down
         probes = snap.get("probe")
         self._probes = {m: p for m, p in (probes.items() if isinstance(probes, dict) else ()) if isinstance(p, dict)}
+        self._cleared = {m: why for m, why in self._cleared.items() if m not in self._probes}
         self._stale.update(self._fetched)  # readings may have moved while the stream was down
         self._failed.clear()
         self.parts_changed.emit()
@@ -104,20 +106,24 @@ class PartLog(QObject):
         elif name == "agent_run" and data.get("agent") == REVIEW_AGENT:
             self.reviews_changed.emit()
         elif name == "probe":
-            self._take_probe(data.get("machine_id"), data.get("probe"))
+            self._take_probe(data.get("machine_id"), data.get("probe"), data.get("reason"))
         elif name == "reading":
             self._take_reading(data)
 
-    def _take_probe(self, machine, probe) -> None:
-        """Keep a machine's selection, or its clearing, from an event or a reply."""
+    def _take_probe(self, machine, probe, reason=None) -> None:
+        """Keep a machine's selection, or its clearing and why, from an event or a reply."""
         if not isinstance(machine, str):
             return
         probe = probe if isinstance(probe, dict) else None
-        if self._probes.get(machine) != probe:
+        why = reason if probe is None and isinstance(reason, str) else ""
+        if self._probes.get(machine) != probe or (why and self._cleared.get(machine) != why):
             if probe is None:
                 self._probes.pop(machine, None)
             else:
                 self._probes[machine] = probe
+            self._cleared.pop(machine, None)
+            if why:
+                self._cleared[machine] = why
             self.probe_changed.emit()
 
     def _take_reading(self, data) -> None:
@@ -274,6 +280,12 @@ class PartLog(QObject):
         (contract 9.1), or None. A copy: changing it changes nothing here."""
         selection = self._probes.get(self.state.current_machine())
         return dict(selection) if selection else None
+
+    def probe_cleared(self) -> str:
+        """Why the current machine's pick was last cleared, as the `probe` event's `reason`
+        gave it (contract 9.1): "device moved", "no records for 5 minutes", or what the
+        handheld sent. "" while a part is picked, or when a person here cleared it."""
+        return self._cleared.get(self.state.current_machine(), "")
 
     def readings(self, part_id, since=None):
         """The reply of the part's readings route (contract 9.3), or None while it

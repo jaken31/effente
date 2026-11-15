@@ -535,7 +535,9 @@ class MachinePage(QWidget):
         if probe != self._probe_shown and self._probe_shown is not ... and self.isVisible():
             motion.swap(self.probe_text)  # the probe went to another part
         self._probe_shown = probe
-        self.probe_text.setText(rd.probe_line(parts, probe, selection() if callable(selection) else None))
+        cleared = getattr(log, "probe_cleared", None)  # why the platform cleared the last pick, where the store has it
+        self.probe_text.setText(rd.probe_line(parts, probe, selection() if callable(selection) else None,
+                                              cleared=cleared() if callable(cleared) else ""))
         self.probe_clear.setVisible(bool(probe))
 
         entries = log.entries(selected) if selected else []

@@ -49,6 +49,23 @@ def visit(client, n=12, start=0):
     assert client.json("POST", "/api/records", batch)[0] == 200
 
 
+def test_a_clear_from_elsewhere_brings_its_reason(qtbot, state, client):
+    log = state.log
+    with qtbot.waitSignal(log.probe_changed, timeout=5000):
+        log.set_probe_part(ROLLER)
+    assert log.probe_cleared() == ""
+    body = {"part_id": None, "by": "effente-01", "reason": "stopped on the handheld"}
+    client.json("PUT", f"/api/machines/{MACHINE}/probe", body)
+    qtbot.waitUntil(lambda: log.probe_cleared() == "stopped on the handheld", timeout=5000)
+    assert log.probe_part() is None
+    with qtbot.waitSignal(log.probe_changed, timeout=5000):
+        log.set_probe_part(ROLLER)
+    assert log.probe_cleared() == ""  # a part is picked again: the old reason is gone
+    with qtbot.waitSignal(log.probe_changed, timeout=5000):
+        log.set_probe_part(None)
+    assert log.probe_cleared() == ""  # cleared by the person here: nothing to explain
+
+
 def test_the_probe_is_set_changed_and_cleared(qtbot, state, client):
     log = state.log
     assert log.probe_part() is None

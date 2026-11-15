@@ -16,7 +16,7 @@ from fake_setup import FakeSetup
 from fakes import FakeState
 
 READINGS = {"signals": ("probe_changed", "readings_changed"),
-            "calls": ("probe_part", "probe", "readings", "normal_spectrum", "set_probe_part")}
+            "calls": ("probe_part", "probe", "probe_cleared", "readings", "normal_spectrum", "set_probe_part")}
 SETUP = {"signals": ("profile_changed", "run_changed", "entry_changed", "local_profile_changed"),
          "calls": ("profile", "draft", "choice", "run", "run_running", "wanted_entry", "device_entry",
                    "local_profile", "start_run", "set_draft", "confirm", "set_local_profile")}

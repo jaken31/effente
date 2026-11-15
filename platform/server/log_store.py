@@ -22,7 +22,9 @@ may raise it to refuse a batch of records.
 The probe's part (contract 9.1) is kept in a third append-only file,
 `probe.jsonl`: one line each time a pick is set or cleared, the newest line for
 a machine wins. Its 5 minute rule runs on the wall clock (`self.clock`), not a
-monotonic one, so it still holds across a restart.
+monotonic one, so it still holds across a restart. A pick also clears itself
+when the device says `device_moved` after judging in place under that pick
+(`self.settled`, not kept across a restart).
 
 Readings (contract 9.3) are never stored: platform/partlog/readings.py works
 them out from each part's stamped records, kept here sorted by `at`. Each part's
@@ -58,6 +60,9 @@ PROBE_FILE = "probe.jsonl"
 CATCH_UP_S = 60  # a record measured this long before a pick is still stamped (clock difference)
 PROBE_QUIET_S = 5 * 60  # a pick clears itself after this long with no record from its machine
 PROBE_QUIET_REASON = "no records for 5 minutes"
+PROBE_MOVED_REASON = "device moved"  # the pick was cleared because the device said `device_moved`
+NOT_IN_PLACE = ("stopped", "warming_up", readings.MOVED)  # a record saying one of these does not settle a pick
+REASON_MAX = 200  # characters of the `reason` a clear may carry
 SAMPLE_MACHINE = "sample-machine"  # the only machine simulated history is written to
 HISTORY_DEVICE = "sim-history"  # the device the history command sends as
 READING_EVENT_EVERY_S = 10  # a growing reading sends its `reading` event at most this often (9.3)
@@ -215,6 +220,7 @@ class LogStore:
         self.probe_file = JsonLines(os.path.join(store.data_dir, PROBE_FILE))
         self.probes = {}  # machine_id -> its selection (contract 9.1)
         self.heard = {}  # machine_id -> wall-clock time its newest record was stored
+        self.settled = set()  # machine ids whose pick has stamped a record judged in place (9.1 Moved)
         self.part_records = {}  # part_id -> its stamped records, sorted by readings.key
         self.newest = {}  # part_id -> its newest reading, worked out
         self.sent = {}  # part_id -> {"reading", "at", "pending"}: the last `reading` event and when
@@ -410,10 +416,13 @@ class LogStore:
         part_id = body["part_id"]
         if part_id is not None and (not isinstance(part_id, str) or not part_id):
             raise BadRequest("probe 'part_id' must be a part's id or null")
+        reason = body.get("reason", "")
+        if not isinstance(reason, str) or len(reason) > REASON_MAX:
+            raise BadRequest(f"probe 'reason' must be text of at most {REASON_MAX} characters")
         with self.store.lock:
             if part_id is None:
                 if machine_id in self.probes:
-                    self._put_probe(machine_id, None, "")
+                    self._put_probe(machine_id, None, reason)
                 return None
             if self._part_on(machine_id, part_id).get("removed"):
                 raise BadRequest(f"part {part_id} is removed: the probe cannot be on it")
@@ -424,6 +433,7 @@ class LogStore:
     def _put_probe(self, machine_id, probe, reason):
         """Keep a selection, or its clearing, and send the `probe` event. Inside the lock."""
         self.probe_file.append([{"machine_id": machine_id, "probe": probe, "at": _iso(self.clock()), "reason": reason}])
+        self.settled.discard(machine_id)  # a new pick, or none: nothing judged in place under it yet
         if probe is None:
             self.probes.pop(machine_id, None)
         else:
@@ -568,6 +578,14 @@ class LogStore:
         probe = self.probes.get(machine_id)
         at = parse_time(record.get("at"))
         if probe is not None and at is not None and at >= parse_time(probe["since"]) - CATCH_UP_S:
+            said = readings.said(record)
+            if said == readings.MOVED and machine_id in self.settled:
+                # The device judged in place under this pick and now says its tilt changed:
+                # it was lifted or knocked off. This record and the ones after it get no part.
+                self._put_probe(machine_id, None, PROBE_MOVED_REASON)
+                return
+            if said not in NOT_IN_PLACE:
+                self.settled.add(machine_id)
             record["part_id"] = probe["part_id"]
 
     def tick(self):

@@ -151,6 +151,7 @@ Written by the lead after reading the code on master at `b929c5f`. Names above a
    | signal | `readings_changed(str)` | This part's readings, summary or projection moved |
    | read | `probe_part()` | The `part_id` the probe is on for the current machine, or `None` |
    | read | `probe()` | The current machine's selection, `{machine_id, part_id, since, by}` as contract 9.1 gives it, or `None`. An addition after the team agreed this table. |
+   | read | `probe_cleared()` | Why the current machine's pick was last cleared, as the `probe` event's `reason` gave it (`device moved`, `no records for 5 minutes`, or what the handheld sent). `""` while a part is picked or when a person here cleared it. An addition after the team agreed this table. |
    | read | `readings(part_id, since=None)` | The reply of the part's readings route (contract 9.3), or `None` while it is being fetched. Asking starts the fetch. |
    | read | `normal_spectrum(part_id=None)` | The reply of contract 9.4, or `None` while it is being fetched |
    | action | `set_probe_part(part_id)` | Say the probe is on this part. `None` clears it. |

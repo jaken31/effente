@@ -138,6 +138,74 @@ def test_a_record_after_5_quiet_minutes_is_not_stamped_even_before_a_tick(rig):
     assert rig.state_probe() == {}
 
 
+MOVED = {"diagnosis": "device_moved", "diagnosis_this_minute": "device_moved"}
+
+
+def test_the_pick_clears_itself_when_the_device_says_it_moved_after_judging_in_place(rig, open_stream):
+    rig.pick(rig.roller)
+    stream = open_stream(rig.receiver.port)
+    rig.send(diagnosis="normal", diagnosis_this_minute=None)  # judged in place: the pick is settled
+    rig.clock.t += 1
+    rig.send(**MOVED)
+    assert stream.next("probe") == {"machine_id": M, "probe": None, "reason": "device moved"}
+    assert rig.state_probe() == {}
+    rig.clock.t += 1
+    rig.send(diagnosis="normal", diagnosis_this_minute=None)
+    assert [r.get("part_id") for r in rig.stored()] == [rig.roller, None, None]
+
+
+def test_this_periods_diagnosis_decides_while_the_stretch_still_names_another_type(rig):
+    rig.pick(rig.roller)
+    rig.send()  # unbalance_like: abnormal, but judged in place
+    rig.send(diagnosis="unbalance_like", diagnosis_this_minute="device_moved")
+    assert rig.state_probe() == {}
+    assert [r.get("part_id") for r in rig.stored()] == [rig.roller, None]
+
+
+@pytest.mark.parametrize("before", ["stopped", "warming_up", "device_moved"])
+def test_a_pick_not_yet_judged_in_place_is_kept_when_the_device_says_it_moved(rig, before):
+    """A part at another tilt than the device learned at says device_moved throughout: it can still be picked."""
+    rig.pick(rig.roller)
+    rig.send(diagnosis=before, diagnosis_this_minute=None)
+    rig.send(**MOVED)
+    assert rig.state_probe()[M]["part_id"] == rig.roller
+    assert [r.get("part_id") for r in rig.stored()] == [rig.roller, rig.roller]
+
+
+def test_a_new_pick_must_be_judged_in_place_again_before_a_move_clears_it(rig):
+    rig.pick(rig.roller)
+    rig.send(diagnosis="normal", diagnosis_this_minute=None)
+    rig.pick(rig.belt)  # the person moved the probe and said so
+    rig.send(**MOVED)
+    assert rig.state_probe()[M]["part_id"] == rig.belt
+    rig.send(diagnosis="normal", diagnosis_this_minute=None)
+    rig.send(**MOVED)
+    assert rig.state_probe() == {}
+
+
+def test_a_late_moved_record_from_before_the_pick_does_not_clear_it(rig):
+    rig.pick(rig.roller)
+    rig.send(diagnosis="normal", diagnosis_this_minute=None)
+    rig.send(at=T0 - 61, **MOVED)
+    assert rig.state_probe()[M]["part_id"] == rig.roller
+
+
+def test_a_clear_may_carry_a_reason_as_the_handheld_does(rig, open_stream):
+    rig.pick(rig.roller)
+    stream = open_stream(rig.receiver.port)
+    body = {"part_id": None, "by": "effente-01", "reason": "stopped on the handheld"}
+    assert rig.client.json("PUT", f"/api/machines/{M}/probe", body) == (200, {"ok": True, "probe": None})
+    assert stream.next("probe") == {"machine_id": M, "probe": None, "reason": "stopped on the handheld"}
+
+
+@pytest.mark.parametrize("reason", [5, "x" * 201])
+def test_a_bad_reason_is_refused(rig, reason):
+    rig.pick(rig.roller)
+    status, reply = rig.client.json("PUT", f"/api/machines/{M}/probe", {"part_id": None, "by": "Sam", "reason": reason})
+    assert status == 400 and "reason" in reply["error"]
+    assert rig.state_probe()[M]["part_id"] == rig.roller
+
+
 def test_the_pick_survives_a_restart_inside_the_5_minutes(rig):
     rig.pick(rig.roller)
     probe = rig.state_probe()

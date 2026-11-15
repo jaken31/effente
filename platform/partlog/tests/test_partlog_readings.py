@@ -72,6 +72,20 @@ def test_the_velocity_is_the_median_so_a_knock_does_not_move_it():
     assert work_out(even)[0]["velocity_mm_s"] == 5.5
 
 
+def test_device_moved_records_are_left_out_when_enough_others_remain():
+    placing = visit(T0, 4, v=9.0, diagnosis="device_moved")
+    lifting = [rec(T0 + 20 + i, v=9.0, diagnosis="unbalance_like", diagnosis_this_minute="device_moved") for i in range(4)]
+    [r] = work_out(placing + visit(T0 + 4, 10, v=2.0) + lifting)
+    assert (r["records"], r["velocity_mm_s"]) == (10, 2.0)
+    assert (r["start"], r["end"]) == (iso(T0), iso(T0 + 23))  # the visit still spans every stamped record
+
+
+def test_a_visit_that_is_nearly_all_device_moved_keeps_those_records():
+    """A part at another tilt than the device learned at: fewer than 10 other records, so nothing is left out."""
+    [r] = work_out(visit(T0, 9, v=2.0) + visit(T0 + 9, 30, v=4.0, diagnosis="device_moved"))
+    assert (r["records"], r["velocity_mm_s"]) == (39, 4.0)
+
+
 def test_the_score_is_the_median_without_warming_up_records_and_null_when_none_has_one():
     warming = visit(T0, 6, score=None, diagnosis="warming_up")
     scored = [rec(T0 + 10 + i, score=s) for i, s in enumerate([0.5, 0.7, 0.9, 5.0])]

@@ -160,6 +160,8 @@ def test_a_simulated_number_in_the_list_says_so():
 def test_the_probe_line():
     parts = [{"part_id": "p1", "name": "Drive roller"}]
     assert rd.probe_line(parts, None) == rd.NO_PROBE
+    assert rd.probe_line(parts, None, cleared="device moved") == f"The pick was cleared: device moved. {rd.NO_PROBE}"
+    assert rd.probe_line(parts, "p1", cleared="device moved") == "Probe on: Drive roller"  # a pick is set: no old reason
     assert rd.probe_line(parts, "p1") == "Probe on: Drive roller"  # no `since` given: no time stood in
     since = {"part_id": "p1", "since": "2026-11-14T16:01:30Z"}
     assert rd.probe_line(parts, "p1", since, UTC) == "Probe on: Drive roller, since 16:01"
