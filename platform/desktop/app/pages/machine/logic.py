@@ -319,7 +319,11 @@ MACHINE_ID = re.compile(r"[a-z0-9-]{1,40}")
 NO_MACHINE_ID = "Type the machine's id to get its code."
 BAD_MACHINE_ID = "A machine id is 1 to 40 lowercase letters, digits or -."
 NO_QR_TEXT = ("No pairing code: the phone could not reach this laptop. The laptop has no address on a local "
-              "network, or its receiver listens on this laptop only. A scan file can still be imported.")
+              "network, or its receiver listens on this laptop only. Join the WiFi the phone is on: the code shows "
+              "by itself, or press Try again. A scan file can still be imported.")
+CODE_ANYWAY_TEXT = ("This code may not work: no address was found at which the phone reaches this laptop, so the "
+                    "code carries the nearest one there is. If the phone app cannot connect, join the WiFi the "
+                    "phone is on, or import a scan file.")
 
 
 def machine_id_problem(text) -> str:

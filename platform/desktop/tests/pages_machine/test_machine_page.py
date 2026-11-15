@@ -547,6 +547,69 @@ def test_new_scan_shows_the_pairing_code_and_the_same_line_as_text(qtbot, page, 
     assert not page.scan_panel.isVisible()
 
 
+def test_the_code_follows_the_laptop_onto_another_network(qtbot, page, state, monkeypatch):
+    """The laptop changes WiFi while the app runs: the open panel shows the new line, with no click."""
+    from app.pages.machine import page as page_module
+
+    real = type(state.scans).qr_text
+    monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="": "")
+    click(qtbot, page.stage.scan_button)
+    assert not page.scan_panel.code.isVisible() and page.scan_panel.note.text() == logic.NO_QR_TEXT
+    assert page._network_timer.isActive() and page._network_timer.interval() == page_module.NETWORK_CHECK_MS
+
+    assert page.scan_panel.retry_button.isVisible()
+    click(qtbot, page.scan_panel.retry_button)  # still no address: nothing changes
+    assert page.scan_panel.note.text() == logic.NO_QR_TEXT and page.scan_panel.retry_button.isVisible()
+
+    monkeypatch.setattr(type(state.scans), "qr_text", real)
+    click(qtbot, page.scan_panel.retry_button)  # Try again finds it without waiting for the timer
+    assert page.scan_panel.line.toPlainText() == real(state.scans, state.current_machine())
+    assert not page.scan_panel.retry_button.isVisible()
+    monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="": "")
+    page._network_timer.timeout.emit()
+    assert page.scan_panel.retry_button.isVisible()
+
+    monkeypatch.setattr(type(state.scans), "qr_text", real)
+    page._network_timer.timeout.emit()
+    line = state.scans.qr_text(state.current_machine())
+    assert page.scan_panel.line.toPlainText() == line and page.scan_panel.line.isVisible()
+    assert page.scan_panel.note.text() == side.SCAN_HOW
+
+    monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="": "")
+    page._network_timer.timeout.emit()  # and off it again
+    assert not page.scan_panel.line.isVisible() and page.scan_panel.note.text() == logic.NO_QR_TEXT
+    page.hide()
+    assert not page._network_timer.isActive()
+
+
+def test_show_code_anyway_draws_a_code_the_phone_may_not_reach(qtbot, page, state, monkeypatch):
+    """No address a phone reaches: the person can still ask for the code, and is told it may not work."""
+    real = type(state.scans).qr_text
+    monkeypatch.setattr(type(state.scans), "qr_text",
+                        lambda self, machine_id, name="", anyway=False: real(self, machine_id, name) if anyway else "")
+    click(qtbot, page.stage.scan_button)
+    panel = page.scan_panel
+    assert not panel.code.isVisible() and panel.note.text() == logic.NO_QR_TEXT
+    assert panel.anyway_button.isVisible() and panel.anyway_button.text() == side.SHOW_ANYWAY
+
+    click(qtbot, panel.anyway_button)
+    line = real(state.scans, state.current_machine())
+    assert panel.code.isVisible() and panel.line.isVisible() and panel.line.toPlainText() == line
+    assert panel.note.text() == logic.CODE_ANYWAY_TEXT
+    assert not panel.anyway_button.isVisible() and panel.retry_button.isVisible() and panel.copy_button.isVisible()
+    page._network_timer.timeout.emit()  # still no address: the code asked for stays
+    assert panel.line.toPlainText() == line and panel.note.text() == logic.CODE_ANYWAY_TEXT
+
+    monkeypatch.setattr(type(state.scans), "qr_text", real)  # the laptop joins a network: the real line
+    page._network_timer.timeout.emit()
+    assert panel.note.text() == side.SCAN_HOW and not panel.retry_button.isVisible()
+    monkeypatch.setattr(type(state.scans), "qr_text", lambda self, machine_id, name="", anyway=False: "")
+    page._network_timer.timeout.emit()  # and leaves it: no code until it is asked for again
+    assert not panel.code.isVisible() and panel.note.text() == logic.NO_QR_TEXT and panel.anyway_button.isVisible()
+    click(qtbot, panel.anyway_button)  # nothing to carry at all: still no code
+    assert not panel.code.isVisible() and panel.note.text() == logic.NO_QR_TEXT
+
+
 def test_the_code_is_drawn_from_segnos_matrix(qtbot, page, state):
     pytest.importorskip("segno")
     from app.pages.machine import qr

@@ -128,6 +128,18 @@ class ReceiverHTTPServer(http.server.ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+class ReceiverHTTPServer6(ReceiverHTTPServer):
+    """The same receiver on IPv6 only, beside the IPv4 one. A phone's hotspot may give the laptop
+    no IPv4 address a phone can reach, only an IPv6 one. One socket for both families is not used:
+    on macOS it binds even when another program holds the port on IPv4, so a taken port would go unseen."""
+
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        super().server_bind()
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "effente-receiver/1"
@@ -488,6 +500,17 @@ class Receiver:
             (host, port), self.store, self.hub, web_dir, keepalive=keepalive, handler=handler
         )
         self.port = self.httpd.server_address[1]
+        # Listening on every interface: on every IPv6 one too, when the laptop has IPv6. Without it
+        # the receiver works as before, on IPv4.
+        self.httpd6 = None
+        if host in ("0.0.0.0", ""):
+            try:
+                self.httpd6 = ReceiverHTTPServer6(
+                    ("::", self.port), self.store, self.hub, web_dir, keepalive=keepalive, handler=handler
+                )
+            except OSError as e:
+                log(f"receiver: not listening on IPv6 ({e})")
+        self._serving6 = None
         self._stop = threading.Event()
         self._watcher = threading.Thread(target=self._watch, name="quiet-watcher", daemon=True)
         self._serving = None
@@ -501,10 +524,18 @@ class Receiver:
         self._watcher.start()
         self._serving = threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
         self._serving.start()
+        self._start6()
+
+    def _start6(self):
+        if self.httpd6 is not None:
+            self._serving6 = threading.Thread(
+                target=self.httpd6.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
+            self._serving6.start()
 
     def serve_forever(self):
         """Serve in this thread until stop() or Ctrl-C."""
         self._watcher.start()
+        self._start6()
         self.httpd.serve_forever(poll_interval=0.2)
 
     def stop(self):
@@ -515,6 +546,11 @@ class Receiver:
             self.httpd.shutdown()
             self._serving.join(timeout=5)
         self.httpd.server_close()
+        if self.httpd6 is not None:
+            if self._serving6 is not None:
+                self.httpd6.shutdown()
+                self._serving6.join(timeout=5)
+            self.httpd6.server_close()
 
 
 def lan_address():

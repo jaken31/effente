@@ -24,7 +24,7 @@ from app.theme import fonts
 from app.theme import tokens as t
 from app.theme.qss import css
 from app.widgets import Button, motion
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
 
@@ -38,6 +38,7 @@ from .stage import CONVERT_AGAIN, IMPORT, Stage
 LEFT_MIN_W = 300
 MID_MIN_W = 440
 RIGHT_W = 316
+NETWORK_CHECK_MS = 2000  # how often the open New scan panel asks whether the laptop's address changed
 # The page's height when the window is 1440x820, less the top bar and the content's padding: the page
 # never asks for more, so the window does not scroll it. Only the log list scrolls.
 FIT_H = 820 - t.TOPBAR_H - 2 * t.CONTENT_PAD
@@ -93,6 +94,12 @@ class MachinePage(QWidget):
         self._machine = None
         self._qr_checked = ("", "")  # the pairing line last checked, and why it cannot be drawn
         self._scan_wanted = None  # the New scan panel: True or False once the person chose, else by itself
+        self._code_anyway = False  # Show code anyway was pressed: draw a code the phone may not reach
+        self._line_shown = ("", False)  # the pairing line the panel shows, and whether it was asked for anyway
+        # The laptop can join another network while the app runs. Nothing tells the page, so it asks.
+        self._network_timer = QTimer(self)
+        self._network_timer.setInterval(NETWORK_CHECK_MS)
+        self._network_timer.timeout.connect(self.check_network)
         self.view_state = logic.view_state(None, False)
         self.range = rd.DEFAULT_RANGE  # how far back the chart reaches
         self._awaiting_entry = False
@@ -143,6 +150,8 @@ class MachinePage(QWidget):
         self.scan_panel = ScanPanel()
         self.scan_panel.changed.connect(self._draw_scan_panel)
         self.scan_panel.import_file.connect(self.import_dialog)
+        self.scan_panel.retry.connect(self._draw_scan_panel)
+        self.scan_panel.show_anyway.connect(self.show_code_anyway)
         self.scan_panel.closed.connect(self.toggle_scan_panel)
         self.stage.set_overlay(self.scan_panel)
         left_w = QWidget()
@@ -322,6 +331,41 @@ class MachinePage(QWidget):
     def toggle_scan_panel(self) -> None:
         self._scan_wanted = not self.scan_panel_open()
         self.refresh()
+
+    def check_network(self) -> None:
+        """Draw the New scan panel again when the pairing line is no longer the one shown: the laptop
+        joined or left a network. Asks only while the panel is on screen."""
+        if self.state is None or not self.scan_panel.isVisible():
+            return
+        machine_id = self.scan_panel.machine_id()
+        if logic.machine_id_problem(machine_id):
+            return
+        if self._pairing_line(machine_id) != self._line_shown:
+            self._draw_scan_panel()
+
+    def show_code_anyway(self) -> None:
+        """Draw a pairing code although no address was found at which the phone reaches this laptop."""
+        self._code_anyway = True
+        self._draw_scan_panel()
+
+    def _pairing_line(self, machine_id: str) -> tuple:
+        """The line the panel shows for this machine id, and whether it is the one asked for anyway: no
+        address was found at which the phone reaches this laptop, so it may not work."""
+        name = self.scan_panel.machine_name()
+        text = self.state.scans.qr_text(machine_id, name)
+        if text or not self._code_anyway:
+            return text, False
+        text = self.state.scans.qr_text(machine_id, name, anyway=True)
+        return text, bool(text)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._network_timer.start()
+        self.check_network()
+
+    def hideEvent(self, e) -> None:
+        super().hideEvent(e)
+        self._network_timer.stop()
 
     def import_dialog(self) -> None:
         if self.state is None:
@@ -615,14 +659,18 @@ class MachinePage(QWidget):
             return
         machine_id = self.scan_panel.machine_id()
         note = logic.machine_id_problem(machine_id)
-        text = "" if note else self.state.scans.qr_text(machine_id, self.scan_panel.machine_name())
+        text, anyway = self._line_shown = ("", False) if note else self._pairing_line(machine_id)
         if not note:
+            if text and not anyway:
+                self._code_anyway = False  # a real line is back: the next time there is none, ask again
             if text != self._qr_checked[0]:  # worked out once for each line, not on every redraw
                 self._qr_checked = (text, qr.problem(text))
             note = (logic.NO_QR_TEXT if not text else
-                    self._qr_checked[1] or logic.other_machine_note(machine_id, self.state.current_machine())
-                    or SCAN_HOW)
-        self.scan_panel.show_code(text, note, can_close=self.scan() is not None or self.part() is not None)
+                    self._qr_checked[1] or (logic.CODE_ANYWAY_TEXT if anyway else "")
+                    or logic.other_machine_note(machine_id, self.state.current_machine()) or SCAN_HOW)
+        self.scan_panel.show_code(text, note, can_close=self.scan() is not None or self.part() is not None,
+                                  can_retry=note == logic.NO_QR_TEXT or anyway,
+                                  can_show_anyway=note == logic.NO_QR_TEXT)
 
     # ---- keys -------------------------------------------------------------
 

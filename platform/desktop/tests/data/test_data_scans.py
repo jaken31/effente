@@ -566,6 +566,54 @@ def test_a_receiver_this_app_runs_for_this_laptop_only_gives_no_line(monkeypatch
     assert read_line(Scans(state).qr_text("conveyor-07"))["base"] == "http://192.168.43.10:8000"
 
 
+def test_asked_for_anyway_the_line_carries_the_nearest_address(monkeypatch, qapp):
+    """Show code anyway: a line although the phone may not reach the laptop."""
+    addresses(monkeypatch, "192.168.43.10")
+    state = Bare("http://127.0.0.1:8000")
+    state.host = Bare("http://127.0.0.1:8000")
+    state.host.host = "127.0.0.1"  # the receiver listens on this laptop only
+    assert Scans(state).qr_text("conveyor-07") == ""
+    assert read_line(Scans(state).qr_text("conveyor-07", anyway=True))["base"] == "http://192.168.43.10:8000"
+    state.host.host = "0.0.0.0"
+    addresses(monkeypatch, "192.0.0.2", ["192.0.0.2"])  # no private address: any IPv4 one of an interface
+    monkeypatch.setattr(scans_module, "_interface_addresses6", lambda: ["2001:db8::7"])
+    assert Scans(state).qr_text("conveyor-07") == ""
+    assert read_line(Scans(state).qr_text("conveyor-07", "Conveyor 7", anyway=True)) == {
+        "v": "1", "base": "http://192.0.0.2:8000", "machine": "conveyor-07", "name": "Conveyor 7"}
+    addresses(monkeypatch, None)  # no IPv4 at all: the IPv6 one, whatever the receiver listens on
+    assert read_line(Scans(state).qr_text("conveyor-07", anyway=True))["base"] == "http://[2001:db8::7]:8000"
+    monkeypatch.setattr(scans_module, "_interface_addresses6", list)  # on no network: the app's own address
+    assert read_line(Scans(state).qr_text("conveyor-07", anyway=True))["base"] == "http://127.0.0.1:8000"
+    assert Scans(state).qr_text("", anyway=True) == ""
+
+
+def test_with_no_ipv4_address_the_line_carries_the_ipv6_one(monkeypatch, qapp):
+    """A phone's IPv6-only hotspot: no IPv4 address a phone reaches, so the IPv6 one, in brackets.
+    Only when the receiver this app runs listens on IPv6."""
+    addresses(monkeypatch, "192.0.0.2", ["192.0.0.2"])  # all such a hotspot gives the laptop on IPv4
+    monkeypatch.setattr(scans_module, "_interface_addresses6", lambda: ["2001:db8::7", "2001:db8::9"])
+    state = Bare("http://127.0.0.1:8000")
+    state.host = Bare("http://127.0.0.1:8000")
+    state.host.host = "0.0.0.0"
+    state.host.receiver = Bare("http://127.0.0.1:8000")
+    state.host.receiver.httpd6 = None  # IPv4 only
+    assert Scans(state).qr_text("conveyor-07") == ""
+    state.host.receiver.httpd6 = object()
+    assert read_line(Scans(state).qr_text("conveyor-07"))["base"] == "http://[2001:db8::7]:8000"
+    addresses(monkeypatch, "192.168.43.10")  # an IPv4 address comes first
+    assert read_line(Scans(state).qr_text("conveyor-07"))["base"] == "http://192.168.43.10:8000"
+    addresses(monkeypatch, None)
+    monkeypatch.setattr(scans_module, "_interface_addresses6", lambda: [])
+    assert Scans(state).qr_text("conveyor-07") == ""
+    assert Scans(Bare("http://127.0.0.1:8000")).qr_text("conveyor-07") == ""  # a receiver this app does not run
+
+
+def test_this_laptops_real_ipv6_addresses_are_read(qapp):
+    found = scans_module._interface_addresses6()
+    assert all(isinstance(a, str) and ":" in a and not a.lower().startswith("fe80") for a in found)
+    assert scans_module.lan_address6() == (found[0] if found else "")
+
+
 @pytest.mark.parametrize("route,interfaces,address", [
     ("192.168.43.10", ["10.0.0.7"], "192.168.43.10"),  # the address it reaches other networks from
     (None, ["10.42.0.1"], "10.42.0.1"),  # no route out: the laptop is the hotspot

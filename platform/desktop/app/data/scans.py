@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QStandardPaths, Signal
-from PySide6.QtNetwork import QAbstractSocket, QNetworkInterface
+from PySide6.QtNetwork import QAbstractSocket, QNetworkAddressEntry, QNetworkInterface
 
 from . import logic
 from .api import ApiError, quote
@@ -89,6 +89,35 @@ def _interface_addresses() -> list:
     return out
 
 
+def _interface_addresses6() -> list:
+    """The IPv6 addresses of this laptop that another machine on its network can reach, the lasting
+    ones before the temporary ones. Never a link-local one: a phone cannot use it without knowing
+    which of its own interfaces to send from."""
+    flag = QNetworkInterface.InterfaceFlag
+    eligible = QNetworkAddressEntry.DnsEligibilityStatus.DnsEligible
+    lasting, other = [], []
+    for interface in QNetworkInterface.allInterfaces():
+        flags = interface.flags()
+        if not (flags & flag.IsUp and flags & flag.IsRunning) or flags & (flag.IsLoopBack | flag.IsPointToPoint):
+            continue
+        for entry in interface.addressEntries():
+            ip = entry.ip()
+            if ip.protocol() != QAbstractSocket.NetworkLayerProtocol.IPv6Protocol:
+                continue
+            if not (ip.isGlobal() or ip.isUniqueLocalUnicast()):
+                continue
+            (lasting if entry.dnsEligibility() == eligible else other).append(ip.toString())
+    return lasting + other
+
+
+def lan_address6() -> str:
+    """This laptop's IPv6 address on the local network, or "" when it has none. For a network
+    that gives it no IPv4 address a phone can reach: some phone hotspots are IPv6 only.
+    Unverified: no phone has sent a scan to this address yet."""
+    found = _interface_addresses6()
+    return found[0] if found else ""
+
+
 def lan_address() -> str:
     """This laptop's address on the local network, or "" when it has none.
 
@@ -103,6 +132,21 @@ def lan_address() -> str:
     found = [a for a in _interface_addresses() if _local(a)]
     found.sort(key=lambda a: ipaddress.IPv4Address(a) in CONTAINER_NETWORK)  # stable: otherwise the system's order
     return found[0] if found else ""
+
+
+def _any_address() -> str:
+    """The nearest thing to an address for this laptop when `lan_address()` has none or the receiver
+    is not known to listen there: the private IPv4 one, else any other IPv4 one of an interface that
+    is up, else the IPv6 one in brackets. "" when the laptop is on no network at all. A guess: the
+    phone may not reach it."""
+    address = lan_address()
+    if address:
+        return address
+    found = _interface_addresses()
+    if found:
+        return found[0]
+    address6 = lan_address6()
+    return f"[{address6}]" if address6 else ""
 
 
 def _loopback(host) -> bool:
@@ -261,12 +305,17 @@ class Scans(QObject):
         self._fetch(scan)
         return None
 
-    def qr_text(self, machine_id: str, name: str = "") -> str:
+    def qr_text(self, machine_id: str, name: str = "", anyway: bool = False) -> str:
         """The line the QR code holds (contract section 8.2): the receiver's address as
         the phone reaches it. For a receiver on this laptop that is the laptop's
-        address on the local network. "" when the phone could not reach it: the
-        laptop has no such address, or the receiver this app runs listens on the
-        laptop only."""
+        address on the local network: IPv4, or IPv6 in brackets when it has no
+        IPv4 one and this app's receiver listens on IPv6. "" when the phone could
+        not reach it: the laptop has no such address, or the receiver this app
+        runs listens on the laptop only.
+
+        `anyway` gives a line even then, for the person who asks for the code all
+        the same: it carries the nearest address there is (`_any_address`), else
+        the receiver's address as this app uses it. The phone may not reach it."""
         api = getattr(self.state, "api", None)
         if api is None or not machine_id:
             return ""
@@ -274,9 +323,16 @@ class Scans(QObject):
         if _this_laptop(api.host):
             own = getattr(self.state, "host", None)
             address = "" if own is not None and _loopback(getattr(own, "host", None)) else lan_address()
-            if not address:
+            if not address and getattr(getattr(own, "receiver", None), "httpd6", None) is not None:
+                # No IPv4 address a phone can reach, and this app's receiver hears IPv6: the IPv6 one.
+                address6 = lan_address6()
+                address = f"[{address6}]" if address6 else ""
+            if not address and anyway:
+                address = _any_address()
+            if address:
+                base = f"http://{address}:{api.port}"
+            elif not anyway:
                 return ""
-            base = f"http://{address}:{api.port}"
         q = urllib.parse.quote
         text = f"effente://scan?v=1&base={q(base, safe='')}&machine={q(machine_id, safe='')}"
         return text + (f"&name={q(name, safe='')}" if name else "")
