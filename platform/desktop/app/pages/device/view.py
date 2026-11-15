@@ -172,3 +172,31 @@ def device_rows(devices: dict | list | None) -> list[DeviceRow]:
             model_version=d.get("model_version") or "–",
         ))
     return sorted(rows, key=lambda r: r.device_id)
+
+
+# ---- a board picked by address ------------------------------------------------
+
+CONNECT, DISCONNECT = "Connect", "Disconnect"
+ADDRESS_HINT = "the board's address on the network, for example 192.168.43.20"
+# What device/app/README.md and platform/README.md say about reading the board's own port.
+LINK_WHY = ("The board and this laptop must be on the same network, and it must let them reach each other: "
+            "a phone hotspot does, university WiFi usually does not. Read this way, the board sends no "
+            "fault type sentences and no model file.")
+TWICE = " A board is also read over USB. If it is the same board, every message arrives twice: disconnect here."
+
+
+def link_status(link: dict | None) -> str:
+    """One sentence on the board read by address. Says only what the link reported."""
+    link = link or {}
+    url, usb = link.get("url") or "", link.get("usb") or []
+    if not url:
+        boards = f"{len(usb)} board{'' if len(usb) == 1 else 's'}"
+        return f"No board connected by address. Reading {boards} over USB." if usb else "No board connected by address."
+    reachable = link.get("reachable")
+    if reachable is True:
+        text = f"Reading the board at {url}."
+    elif reachable is False:
+        text = f"No answer from {url}. Still trying: check the board is on and on this network."
+    else:
+        text = f"Trying {url}."
+    return text + (TWICE if usb else "")
