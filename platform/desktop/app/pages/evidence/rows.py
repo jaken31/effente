@@ -86,9 +86,7 @@ class MovedList(RowList):
         out = []
         for i, r in enumerate(rows):
             w = _Row(i == len(rows) - 1)
-            names = [label(r.text or r.name, T.TEXT)]
-            if r.text:
-                names.append(label(r.name, T.MUTED, mono=True))
+            names = [label(logic.capitalise(r.text) or logic.reading_name(r.name), T.TEXT)]
             w.top(names, label(r.value_text, T.SOFT))
             w.box.addWidget(CentredBar(r.fraction, logic.EVIDENCE_SPREADS / MOVED_BAR_FULL, r.evidence))
             w.evidence = r.evidence

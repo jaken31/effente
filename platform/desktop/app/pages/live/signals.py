@@ -17,7 +17,7 @@ from ...data import logic
 from ...theme import fonts
 from ...theme import tokens as t
 from ...widgets import FlagValue, Sparkline
-from .common import code_html, evidence_count, label, short, signed, top_feature
+from .common import evidence_count, label, short, signed, top_feature
 
 NAME_W = 230
 VALUE_W = 133  # the mockup's 120px cell, as wide as the browser lays it out
@@ -208,7 +208,7 @@ def build_specs(state, records: list) -> list[SignalSpec]:
     top = top_feature(rec)
     if top:
         texts = state.feature_texts()
-        ctx = f"{logic.capitalise(texts.get(top[0], top[0]))} {code_html(top[0])} {signed(top[1])} spreads"
+        ctx = f"{logic.reading_name(top[0], texts)} {signed(top[1])} spreads"
     else:
         ctx = "None yet"
     specs.append(SignalSpec(
@@ -288,7 +288,7 @@ def _velocity_spec(state, rec: dict, records: list) -> SignalSpec:
     margin = logic.margins(state.sensitivity()["reported"])["vibration"]
     bits = []
     if _num(spreads):
-        bits.append(f"{signed(spreads)} spreads {code_html('vib_velocity_mm_s')}")
+        bits.append(f"{signed(spreads)} spreads")
     bits.append(f"wrong above {short(margin)}\u00d7 normal")
     bits.append(f"limit {VIBRATION_LIMIT_MM_S} mm/s for any machine")
     vals = [(r.get("features") or {}).get("vib_velocity_mm_s") for r in records]

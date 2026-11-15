@@ -840,6 +840,40 @@ def verdict_text(verdict) -> str:
     return VERDICT_TEXT.get(verdict, "")
 
 
+# Names as the code writes them, in plain words. Laptop only, no JS equivalent.
+# Nothing is added that the name does not say: the words are the name's own.
+_NAME_UNITS = (("_mm_s", " mm/s"), ("_db", " dB"), ("_hz", " Hz"))  # at the end of a reading's name
+_NAME_WORDS = {"vib": "vibration", "snd": "sound", "temp": "temperature", "imu": "IMU", "rms": "RMS",
+               "1x": "1×", "2x": "2×", "3x": "3×", "hf": "HF"}
+
+
+def plain_name(name) -> str:
+    """A name with underscores, as words: "generic_rotating" -> "generic rotating",
+    "get_readings" -> "get readings". For a library entry, an agent, a tool, a data set.
+    The case is left alone, so it reads the same in the middle of a sentence."""
+    if not name:
+        return ""
+    return _js_string(name).replace("_", " ").strip()
+
+
+def reading_name(name, texts=None) -> str:
+    """What to call a reading on screen: the text the model announced for it, else
+    its name in words: "vib_band_17" -> "Vibration band 17", "snd_level_db" ->
+    "Sound level dB". `texts` is feature name -> announced text."""
+    if not name:
+        return ""
+    announced = (texts or {}).get(name)
+    if announced:
+        return capitalise(str(announced))
+    text, unit = _js_string(name), ""
+    for ending, shown in _NAME_UNITS:
+        if text.endswith(ending):
+            text, unit = text[: -len(ending)], shown
+            break
+    words = [_NAME_WORDS.get(w, w) for w in text.split("_") if w]
+    return capitalise(" ".join(words)) + unit
+
+
 def apply_laptop_snapshot(state: dict, snap) -> dict:
     """The parts of GET /api/state the JS does not read: `alarms`, each device's
     `sensitivity`, `settings` and `readings`, and `machines`. Call after apply_snapshot."""

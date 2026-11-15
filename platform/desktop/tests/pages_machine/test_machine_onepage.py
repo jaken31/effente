@@ -283,7 +283,7 @@ def test_what_moved_comes_from_the_visits_newest_record(qtbot, page, state):
     rows = page.part_column.evidence_panel.moved.rows
     newest = state.records()[-1]
     assert [(m.name, m.spreads) for m in rows] == list(newest["features"].items())
-    assert rows[0].text == state.feature_texts()["vib_band_17"]
+    assert rows[0].text == "Vibration 251-315 Hz"  # the announced text, with a capital
 
 
 def test_no_visit_record_on_this_laptop_says_so(page, state):

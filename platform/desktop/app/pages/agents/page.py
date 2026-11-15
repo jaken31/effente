@@ -9,9 +9,9 @@ and shown only while Local model is the mode picked.
 
 from __future__ import annotations
 
-from html import escape
 from pathlib import Path
 
+from app.data import logic
 from app.pages.evidence.table_model import Column, RowTable
 from app.theme import fonts
 from app.theme import tokens as t
@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import view
-from .kv import KeyValues, code_html
+from .kv import KeyValues
 from .levels import Levels
 
 IO_MAX_H = 180
@@ -352,8 +352,7 @@ class AgentsPage(QWidget):
         rows = []
         for key, value in view.report_fields(run, texts):
             if isinstance(value, list):
-                value = ("html", ", ".join(
-                    (escape(text) + " " if text else "") + code_html(name) for text, name in value))
+                value = ", ".join(logic.reading_name(name, {name: text}) for text, name in value)
             rows.append((key, value))
         if not run:
             rows = [("Status", "no run yet")]

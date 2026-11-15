@@ -260,7 +260,7 @@ def test_the_choice_in_the_contracts_words(page):
     m = page.model
     assert m.entry.text() == "conveyor (demo)"
     assert m.values["Checked on"].text() == "Nothing yet"
-    assert m.values["Trained on"].text() == "sim_conveyor (simulated)"
+    assert m.values["Trained on"].text() == "sim conveyor (simulated)"
     assert m.values["Fault types validated"].text() == "0 of 21"
     assert m.warning.isVisible()
     assert m.by_code.text() == view.PICKED_BY_CODE
@@ -319,7 +319,7 @@ def test_a_change_after_confirming_can_be_used_again(page, state):
 
 def test_wanted_and_in_use_differ(page, state):
     assert (state.setup.wanted_entry(), state.setup.device_entry()) == (WANTED_ENTRY, DEVICE_ENTRY)
-    assert page.device.line.text() == "Chosen: conveyor. Device is using: generic_rotating."
+    assert page.device.line.text() == "Chosen: conveyor. Device is using: generic rotating."
     assert page.device.mark.status == view.DIFFERS
     assert page.device.note.text() == view.NOT_ACTED
 

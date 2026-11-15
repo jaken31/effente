@@ -52,9 +52,9 @@ def test_speed_text_round_trips():
 def test_choice_rows_keep_trained_and_checked_apart():
     rows = dict(view.choice_rows(sample_choice()))
     assert rows["Why"] == "machine type is conveyor"
-    assert rows["Trained on"] == "sim_conveyor (simulated)"
+    assert rows["Trained on"] == "sim conveyor (simulated)"
     assert rows["Checked on"] == "Nothing yet"
-    assert rows["Not checked on"] == "sim_server_rack (simulated): wrong machine: a server rack, for the fit check"
+    assert rows["Not checked on"] == "sim server rack (simulated): wrong machine: a server rack, for the fit check"
     assert rows["Fault types validated"] == "0 of 21"
     assert view.choice_title(sample_choice()) == "conveyor (demo)"
     assert view.choice_warning(sample_choice())
@@ -121,7 +121,7 @@ def test_the_wanted_entry_is_never_shown_as_in_use():
     for d in (no_device, waiting):
         assert d.line == "Chosen: conveyor, not yet loaded on the device."
         assert view.NOT_ACTED in d.note
-    assert differs.line == "Chosen: conveyor. Device is using: generic_rotating."
+    assert differs.line == "Chosen: conveyor. Device is using: generic rotating."
     assert taken.line == "Device is using: conveyor, the chosen one."
 
 

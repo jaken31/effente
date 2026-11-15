@@ -102,9 +102,18 @@ def thermal_rate(latest: dict | None, records: list[dict], stale: bool) -> str:
     return _per_s(rate * len(heat.get("frames") or []), "frames ")
 
 
+def plain_name(name) -> str:
+    """The logic port's plain_name ("Generic rotating"), if the data layer is present."""
+    try:
+        from app.data import logic
+    except ImportError:
+        return str(name or "")
+    return logic.plain_name(name)
+
+
 def model_text(model: dict | None) -> str:
     """"conveyor, calibrated": the library entry and how it was fitted."""
     if not model:
         return "–"
-    parts = [p for p in (model.get("library_entry"), model.get("source")) if p]
+    parts = [p for p in (plain_name(model.get("library_entry")), model.get("source")) if p]
     return ", ".join(parts) or str(model.get("model_version") or "–")
