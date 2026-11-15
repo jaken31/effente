@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping
 from typing import ClassVar
 
-from PySide6.QtCore import QPointF, QSize, Qt, QTimer
+from PySide6.QtCore import QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QPainter, QRadialGradient, QTransform
 from PySide6.QtWidgets import (
     QApplication,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import zoom
 from ..theme import schemes
 from ..theme import tokens as t
 from . import format as fmt
@@ -41,6 +42,10 @@ DEFAULT_W, DEFAULT_H = 1440, 900  # the mockup's size
 
 # What the window remembers between runs: keys in the settings store.
 GEOMETRY, PAGE, MACHINE = "window/geometry", "window/page", "window/machine"
+# The window's place in screen pixels, kept across the restart that changes the app's
+# size, so the window stays where it was and only what is in it grows or shrinks.
+ZOOM_RECT = "window/zoom_rect"
+ZOOM_WAIT_MS = 600  # after the last size key, so several presses restart the app once
 
 
 class _Backdrop(QWidget):
@@ -127,6 +132,8 @@ class MainWindow(QMainWindow):
     `receiver_address` is shown on the device card, for example "0.0.0.0:8000".
     `settings` is a QSettings the window keeps its size, page and machine in, so the
     next run opens where this one closed; without it nothing is remembered.
+    A new size (app/zoom.py) closes the window with `restart_wanted` set: the
+    program that made the window starts the app again, which is when Qt reads it.
     """
 
     def __init__(self, state=None, *, pages: Mapping[str, QWidget] | None = None,
@@ -135,6 +142,13 @@ class MainWindow(QMainWindow):
         self.state = state
         self.receiver_address = receiver_address
         self.settings = settings
+        self.restart_wanted = False  # set by a new size, read after the window closes
+        self._zoom = zoom.current()  # the size asked for; differs from the one drawn until the restart
+        self._zoom_notice = None
+        self._zoom_timer = QTimer(self)
+        self._zoom_timer.setSingleShot(True)
+        self._zoom_timer.setInterval(ZOOM_WAIT_MS)
+        self._zoom_timer.timeout.connect(self._restart_for_zoom)
         self.setWindowTitle("effente")
         self.setMinimumSize(MIN_W, MIN_H)
         self.resize(DEFAULT_W, DEFAULT_H)
@@ -181,6 +195,7 @@ class MainWindow(QMainWindow):
         geometry = self._remembered(GEOMETRY)
         if geometry:
             self.restoreGeometry(geometry)
+        self._restore_zoom_rect()
         # Picked again once the machine list is known: see refresh().
         self._wanted_machine = self._remembered(MACHINE)
         page = self._remembered(PAGE)
@@ -312,6 +327,73 @@ class MainWindow(QMainWindow):
 
     def toggle_full_screen(self) -> None:
         self.setWindowState(self.windowState() ^ Qt.WindowState.WindowFullScreen)
+
+    def zoom_in(self) -> None:
+        self._set_zoom(zoom.stepped(self._zoom, 1, self._zoom_limit()), "This screen has no room for a larger size")
+
+    def zoom_out(self) -> None:
+        self._set_zoom(zoom.stepped(self._zoom, -1), "This is the smallest size")
+
+    def zoom_reset(self) -> None:
+        self._set_zoom(zoom.DEFAULT, "This is the normal size")
+
+    def _zoom_limit(self) -> float:
+        """The largest size at which the smallest window still fits this screen."""
+        screen = self.screen()
+        if screen is None:
+            return zoom.STEPS[-1]
+        room, now = screen.availableGeometry(), zoom.current()
+        return min(room.width() * now / MIN_W, room.height() * now / MIN_H)
+
+    def _set_zoom(self, value: float, at_the_end: str) -> None:
+        """Keep a new size and, a moment after the last key, start again to show it."""
+        if value == self._zoom:
+            self._zoom_note(f"Size {zoom.percent(value)}: {at_the_end}")
+            return
+        self._zoom = value
+        self._remember(zoom.KEY, value)
+        if value == zoom.current():  # back where this run already is
+            self._zoom_timer.stop()
+            self._zoom_note(f"Size {zoom.percent(value)}")
+            return
+        self._zoom_note(f"Size {zoom.percent(value)}: Restarting to show it")
+        self._zoom_timer.start()
+
+    def _zoom_note(self, text: str) -> None:
+        if self._zoom_notice is not None:
+            self._zoom_notice.closed.emit()  # one card for the size, not one a key press
+        self._zoom_notice = self.notices.show_failure(text)
+
+    def _restart_for_zoom(self) -> None:
+        if self._zoom == zoom.current():
+            return
+        s = self.state
+        if s is not None and getattr(s, "own_agent_running", lambda: False)():
+            # Starting again would cut the report off (see closeEvent).
+            self._zoom_note(f"Size {zoom.percent(self._zoom)}: A report is running, "
+                            "so it shows the next time the app starts")
+            return
+        if not (self.isMaximized() or self.isFullScreen()):
+            g, now = self.geometry(), zoom.current()
+            self._remember(ZOOM_RECT, ",".join(str(round(v * now)) for v in (g.x(), g.y(), g.width(), g.height())))
+        self.restart_wanted = True
+        self.close()
+        QApplication.quit()
+
+    def _restore_zoom_rect(self) -> None:
+        """After a restart for a new size: the window where it was, in screen pixels."""
+        kept = self._remembered(ZOOM_RECT)
+        if not kept:
+            return
+        self.settings.remove(ZOOM_RECT)
+        try:
+            x, y, w, h = (round(float(v) / zoom.current()) for v in str(kept).split(","))
+        except ValueError:
+            return
+        if any(screen.availableGeometry().intersects(QRect(x, y, w, h)) for screen in QApplication.screens()):
+            self.setGeometry(x, y, w, h)
+        else:
+            self.resize(w, h)
 
     def toggle_shortcut_help(self) -> None:
         self.shortcut_help.toggle()

@@ -76,19 +76,30 @@ def have_pyside(argv) -> bool:
     return False
 
 
+def restart(argv) -> None:
+    """Start the app again with the same arguments: how a new size shows (app/zoom.py).
+    Called after the receiver has stopped, so the new start finds the port free.
+    Does not return."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, str(HERE / "main.py"), *argv])
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
-    if not have_pyside(sys.argv[1:] if argv is None else list(argv)):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not have_pyside(argv):
         return 1
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     if args.no_motion:
         os.environ["EFFENTE_REDUCE_MOTION"] = "1"
 
-    from app import settings
+    from app import settings, zoom
     from app.theme import apply_theme, schemes
 
     # Before app.shell is imported: some widgets read colour tokens at import.
     schemes.apply(args.scheme or schemes.saved())
+    zoom.apply(zoom.saved())  # before the QApplication: Qt reads its scale factor once
 
     from app.shell import MainWindow
     from PySide6.QtCore import QTimer
@@ -164,7 +175,7 @@ def main(argv=None) -> int:
     wake.start(250)
 
     try:
-        return app.exec()
+        code = app.exec()
     finally:
         if listener is not None:
             listener.close()
@@ -173,6 +184,10 @@ def main(argv=None) -> int:
             stop()
         if host is not None:
             host.stop()
+    if window.restart_wanted:
+        settings.store().sync()  # the size, and the window's place and page, before this process is replaced
+        restart([a for a in argv if a != "--fresh"])  # --fresh already deleted the history once
+    return code
 
 
 if __name__ == "__main__":
