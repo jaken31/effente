@@ -321,6 +321,29 @@ def test_each_image_is_handed_on_as_soon_as_the_device_serves_it():
     assert link._frame_at == ""  # what the platform is sent is counted apart
 
 
+def test_images_come_again_after_the_device_starts_its_clock_again():
+    """A restart with no network time: every image is then older than the newest one seen before it."""
+    got = []
+    link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None, on_heat=lambda m, f: got.append(f))
+    link.machine_id = "conveyor-07"
+    served = {"frames": [frame("2026-11-15T00:03:02.584Z")]}
+    link._get = lambda url: served
+    link.heat_step()
+    served["frames"] = [frame("1970-01-01T00:00:41.100Z"), frame("1970-01-01T00:00:41.600Z")]
+    link.heat_step()
+    link.heat_step()  # nothing new on the new clock: nothing handed on
+    assert [[f["at"] for f in images] for images in got] == [
+        ["2026-11-15T00:03:02.584Z"], ["1970-01-01T00:00:41.100Z", "1970-01-01T00:00:41.600Z"]]
+    served["frames"].append(frame("1970-01-01T00:00:42.100Z"))
+    link.heat_step()
+    assert [f["at"] for f in got[-1]] == ["1970-01-01T00:00:42.100Z"]
+
+    link._frame_at = "2026-11-15T00:03:02.584Z"  # the platform's copies, counted apart, start again too
+    message = {"heat": {"source": "camera"}}
+    assert link._add_frames(message) == "1970-01-01T00:00:42.100Z"
+    assert [f["at"] for f in message["heat"]["frames"]] == ["1970-01-01T00:00:41.600Z", "1970-01-01T00:00:42.100Z"]
+
+
 def test_a_device_with_no_image_is_not_asked_four_times_a_second():
     link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None, on_heat=lambda m, f: None)
     link.machine_id = "conveyor-07"
