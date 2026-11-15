@@ -65,6 +65,79 @@ def test_empty_array_stores_nothing(client):
     assert status == 200 and reply["stored"] == 0
 
 
+def history(client, machine="conveyor-07"):
+    return client.json("GET", f"/api/machines/{machine}/records?limit=2000")[1]["records"]
+
+
+def test_a_record_sent_twice_is_stored_once_and_answered_the_same(make_receiver, open_stream):
+    receiver, client = make_receiver()
+    announce(client)
+    stream = open_stream(receiver.port)
+    record = make_record()
+    first = client.json("POST", "/api/records", record)
+    again = client.json("POST", "/api/records", record)  # the reply was lost, so the device repeats it
+    assert first == again == (200, {"ok": True, "stored": 1, "need_model": False})
+    assert [r["seq"] for r in history(client)] == [1]
+    # The next new record is the next one the stream gives: the repeat made no event and took no seq.
+    client.json("POST", "/api/records", make_record())
+    assert [stream.next("record")["seq"] for _ in range(2)] == [1, 2]
+    assert len(client.json("GET", "/api/machines/conveyor-07/alarms")[1]["alarms"]) == 1
+
+
+def test_a_batch_that_overlaps_what_is_held_stores_only_the_new_records(client):
+    a, b, c = (make_record(n=i) for i in range(3))
+    client.json("POST", "/api/records", [a, b])
+    status, reply = client.json("POST", "/api/records", [a, b, c, c])  # a catch-up that starts too early
+    assert status == 200 and reply["stored"] == 4
+    assert [r["n"] for r in history(client)] == [0, 1, 2]
+
+
+def test_a_repeat_from_another_sender_of_the_same_judgement_is_not_stored(client):
+    """The board's uploader and a link reading the same board build the record separately."""
+    record = make_record()
+    client.json("POST", "/api/records", record)
+    client.json("POST", "/api/records", dict(record, readings={"vib_velocity_mm_s": 3.1}, note="from the link"))
+    assert len(history(client)) == 1
+
+
+def test_another_judgement_at_the_same_time_is_stored(client):
+    """A device whose clock started over gives times it gave before; those are not repeats."""
+    at = "2026-11-14T16:02:11Z"
+    client.json("POST", "/api/records", make_record(at=at, unknown_score=2.4))
+    client.json("POST", "/api/records", make_record(at=at, unknown_score=2.5))
+    client.json("POST", "/api/records", make_record(at=at, unknown_score=2.4, diagnosis="looseness_or_rattle"))
+    client.json("POST", "/api/records", make_record(at=at, unknown_score=2.4, device_id="effente-02"))
+    assert len(history(client)) == 4
+
+
+def test_a_record_stored_before_a_restart_is_not_stored_again_after_it(make_receiver, tmp_path):
+    data = tmp_path / "shared-data"
+    receiver, client = make_receiver(data_dir=data)
+    record = make_record()
+    client.json("POST", "/api/records", record)
+    receiver.stop()
+
+    _, client = make_receiver(data_dir=data)
+    status, reply = client.json("POST", "/api/records", [record, make_record()])
+    assert status == 200 and reply["stored"] == 2
+    assert [r["seq"] for r in history(client)] == [1, 2]
+
+
+def test_a_repeat_still_shows_the_device_is_there_and_asks_for_a_model_it_lacks(make_receiver, tmp_path):
+    data = tmp_path / "shared-data"
+    receiver, client = make_receiver(data_dir=data)
+    record = make_record()
+    client.json("POST", "/api/records", record)
+    receiver.stop()
+
+    _, client = make_receiver(data_dir=data)
+    assert client.json("GET", "/api/state")[1]["devices"]["effente-01"]["connected"] is False
+    status, reply = client.json("POST", "/api/records", record)
+    assert (status, reply["stored"], reply["need_model"]) == (200, 1, True)
+    dev = client.json("GET", "/api/state")[1]["devices"]["effente-01"]
+    assert dev["connected"] is True and dev["mode"] == "watching"
+
+
 def test_platform_overrides_seq_and_received_at(client):
     client.json("POST", "/api/records", make_record(seq=999999, received_at="1999-01-01T00:00:00Z"))
     _, hist = client.json("GET", "/api/machines/conveyor-07/records")
@@ -308,9 +381,9 @@ def test_many_streams_and_abrupt_disconnects_do_not_stall_uploads(make_receiver,
     slow.sendall(b"GET /api/stream HTTP/1.1\r\nHost: x\r\n\r\n")
     good = open_stream(client.port)
 
-    big = [make_record(n=i, pad="x" * 2000) for i in range(50)]
     start = time.monotonic()
     for _ in range(20):
+        big = [make_record(n=i, pad="x" * 2000) for i in range(50)]
         status, reply = client.json("POST", "/api/records", big)
         assert status == 200 and reply["stored"] == 50
     assert time.monotonic() - start < 10

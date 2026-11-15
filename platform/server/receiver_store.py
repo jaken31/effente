@@ -144,6 +144,14 @@ def _sensitivity(value):
     return value if value is not None and 0 <= value <= 1 else None
 
 
+def _record_key(record):
+    """What makes two records the same judgement: who sent it, when, and what was judged. A record
+    sent twice (a lost reply, or two senders reading one device) matches; a second judgement that
+    only shares the time, as after a device's clock started over, does not."""
+    return (record.get("device_id"), record.get("machine_id"), record.get("at"), record.get("model_version"),
+            record.get("diagnosis"), _number(record.get("unknown_score")))
+
+
 def _require_strings(obj, names, what):
     for name in names:
         value = obj.get(name)
@@ -248,6 +256,7 @@ class Store:
         self.settings_file = JsonLines(os.path.join(data_dir, SETTINGS_FILE))
         self.records = []  # every record, in seq order
         self.by_machine = {}  # machine_id -> list of records
+        self.record_keys = set()  # _record_key of every stored record: one sent again is not stored again
         self.models = {}  # model_version -> announcement
         self.runs = {}  # run_id -> latest copy
         self.run_order = {}  # run_id -> order of last update, breaks ties in sorting
@@ -366,6 +375,7 @@ class Store:
 
     def _index_record(self, record):
         self.records.append(record)
+        self.record_keys.add(_record_key(record))
         self.by_machine.setdefault(record["machine_id"], []).append(record)
 
     def _put_run(self, run):
@@ -531,40 +541,50 @@ class Store:
     # ---- message 2: records -----------------------------------------------
 
     def add_records(self, body):
-        """Store one record or a list. Returns the reply for the device."""
-        batch = body if isinstance(body, list) else [body]
-        for i, record in enumerate(batch):
+        """Store one record or a list. Returns the reply for the device.
+
+        A record the platform already holds (`_record_key`) is acknowledged and not stored again:
+        `stored` counts it, so a sender that repeats a message after a lost reply is told the same."""
+        sent = body if isinstance(body, list) else [body]
+        for i, record in enumerate(sent):
             what = "record" if not isinstance(body, list) else f"record {i}"
             if not isinstance(record, dict):
                 raise BadRequest(f"{what} must be a JSON object")
             _require_strings(record, REQUIRED_RECORD_FIELDS, what)
             _require_problems(record, what)
         with self.lock:
-            for record in batch:  # section 9.1: the log store may add `part_id`, or refuse the batch
+            for record in sent:  # section 9.1: the log store may add `part_id`, or refuse the batch
                 self._hook(self.partlog.stamp_record, record)
+            batch, keys = [], set()  # the records not held yet
+            for record in sent:
+                key = _record_key(record)
+                if key not in self.record_keys and key not in keys:
+                    keys.add(key)
+                    batch.append(record)
             received_at = utc_now()
             for record in batch:
                 record.setdefault("simulated", False)
                 record["seq"] = self.next_seq
                 record["received_at"] = received_at
                 self.next_seq += 1
-            self.records_file.append(batch)
-            need_model = False
+            if batch:
+                self.records_file.append(batch)
+            need_model = any(record["model_version"] not in self.models for record in sent)
+            if sent and not batch:  # all sent before: the device is still there, nothing else is new
+                self._touch(sent[-1]["device_id"], WATCHING)
             for record in batch:
                 self._index_record(record)
                 device = self._touch(record["device_id"], WATCHING)
                 device.latest = record
                 device.model_version = record["model_version"]
-                if record["model_version"] not in self.models:
-                    need_model = True
                 self.emit("record", record)
                 self._set_problems(device, record)
                 self._note_readings(device, record)
                 self._note_sensitivity(device, record.get("sensitivity"))
                 self._track_alarm(record)
                 self._hook(self.partlog.record_stored, record)
-            reply = {"ok": True, "stored": len(batch), "need_model": need_model}
-            return self._reply_settings(reply, batch[-1]["device_id"]) if batch else reply
+            reply = {"ok": True, "stored": len(sent), "need_model": need_model}
+            return self._reply_settings(reply, sent[-1]["device_id"]) if sent else reply
 
     # ---- message 3: check-in ----------------------------------------------
 

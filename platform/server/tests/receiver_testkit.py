@@ -123,12 +123,19 @@ ABOVE_NORMAL = {
 }
 
 
+_made = [0]  # records made in this test (conftest's fixture starts it again for each test)
+
+
 def make_record(**over):
+    """A sample record. Each one made in a test is a second later than the one before, as a device's
+    are: the platform does not store the same record twice."""
+    at = f"2026-11-14T16:{2 + (11 + _made[0]) // 60:02d}:{(11 + _made[0]) % 60:02d}Z"
+    _made[0] += 1
     record = {
         "device_id": "effente-01",
         "machine_id": "conveyor-07",
         "model_version": "conveyor-07-20261114",
-        "at": "2026-11-14T16:02:11Z",
+        "at": at,
         "diagnosis": "unbalance_like",
         "diagnosis_this_minute": "unbalance_like",
         "confidence": 0.71,

@@ -10,7 +10,14 @@ for path in (SERVER_DIR, TESTS_DIR):
         sys.path.insert(0, path)
 
 from receiver_server import Receiver  # noqa: E402
+import receiver_testkit  # noqa: E402
 from receiver_testkit import Client, Stream  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def first_record_time():
+    """make_record's times start again at 16:02:11 in every test."""
+    receiver_testkit._made[0] = 0
 
 
 @pytest.fixture

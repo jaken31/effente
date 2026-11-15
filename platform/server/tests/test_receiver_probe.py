@@ -45,7 +45,10 @@ def rig(make_receiver):
             return self.client.json("PUT", f"/api/machines/{machine}/probe", {"part_id": part_id, "by": by})
 
         def send(self, at=None, **over):
-            return self.client.json("POST", "/api/records", make_record(at=iso(self.clock.t if at is None else at), **over))
+            if at is None:  # a millisecond after the one before: the same record twice is stored once
+                self.sent = getattr(self, "sent", 0) + 1
+                at = self.clock.t + self.sent / 1000
+            return self.client.json("POST", "/api/records", make_record(at=iso(at), **over))
 
         def stored(self, machine=M):
             return ok(self.client, "GET", f"/api/machines/{machine}/records?limit=2000")["records"]
