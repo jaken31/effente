@@ -10,6 +10,10 @@ and sends the platform the contract's messages on the device's behalf:
   watching       the model (message 1), then a record (message 2) a second, each with the
                  vibration velocity (contract 9.2) and the heat of the device's newest feature row
 
+When the thermal camera gave the heat, its newest images (all 24 x 32 pixels, at most 2)
+are read from the device's `GET /heat` and go out as `heat.frames` (contract section 2).
+A device without that address sends the summary alone.
+
 A sensitivity set on the dashboard comes back in the platform's reply and is
 passed to the device's `POST /settings`, as the uploader does on the board.
 
@@ -18,7 +22,6 @@ What the device's port does not carry, so this link cannot send:
     `fault_types` empty and no `threshold`, and a record's `reason` is only what
     the device's own results line gives
   - the model file: platform/report.py's agent has no log or model file to read
-  - the thermal camera's images: `heat` goes out with the camera's summary and no `frames`
 
 The watching path is UNVERIFIED on the board. On 13 Nov 2026 it was run against
 the device app itself (device/intake/device_app.py) on a laptop with simulated
@@ -47,6 +50,8 @@ from datetime import UTC, datetime
 POLL_S = 0.5  # the device's status changes once a second; the contract wants a message every 2 s
 TIMEOUT_S = 2.0
 LOG_REPEAT_S = 30.0
+NO_HEAT_ADDRESS_S = 30.0  # a device whose port has no /heat is asked again this often
+MAX_FRAMES = 2  # images in one message (contract section 2)
 WALL_CLOCK_AFTER_S = 1e9  # as device/intake: above this, a device time is Unix time
 CHECK_IN_MODES = ("display", "calibrating", "recording", "training")
 QUIET = ("normal", "warming_up", "stopped")  # diagnoses that are not "something is wrong"
@@ -97,7 +102,7 @@ def heat_of(value):
     With `th_max_c` in the row the thermal camera gave this reading: `source` is "camera" and the
     summary is the row's th_* features, each null when the row lacks it (`cells` and `spots` are
     null unless all 48 blocks are there). Without it, the IMU's temperature alone.
-    No `frames`: the device's port serves no images.
+    No `frames` here: DeviceLink adds the images it reads from the device's `GET /heat`.
     The camera branch is UNVERIFIED on the board: on 14 Nov 2026 its rows had no th_* values."""
     imu = value("imu_temp_c")
     imu = None if imu is None else round(imu, 2)
@@ -265,6 +270,8 @@ class DeviceLink:
         self._line_at = None
         self._announced = None  # model_version the platform has from us
         self._table = None  # the device's GET /features, read once
+        self._frame_at = ""  # `at` of the newest camera image the platform has from us
+        self._no_heat_until = 0.0  # the device's port had no /heat: not asked again before this
         self._logged: dict[str, float] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -311,8 +318,10 @@ class DeviceLink:
                 self._send_record(line, status, latest.get("features"))
         elif status["at"] != self._status_at:  # a status that stops changing means a device that stopped
             message = check_in(status, latest.get("features"), self._feature_table())
+            newest = self._add_frames(message)
             reply = self._post(f"/api/devices/{urllib.parse.quote(status['device_id'], safe='')}", message)
             if reply is not None:
+                self._frame_at = newest
                 self._status_at = status["at"]
                 self.stats["check_ins"] += 1
                 self._settings(reply, status)
@@ -324,14 +333,36 @@ class DeviceLink:
             return self._say("line", "the device's results line has no device_id, machine_id or model_version")
         if self._announced != version and not self._announce(dict(status, model_version=version)):
             return
-        reply = self._post("/api/records", record(line, status, row, self._feature_table()))
+        message = record(line, status, row, self._feature_table())
+        newest = self._add_frames(message)
+        reply = self._post("/api/records", message)
         if reply is None:
             return
+        self._frame_at = newest
         self._line_at = line["at"]
         self.stats["records"] += 1
         if reply.get("need_model") is True:
             self._announced = None  # announced again with the next record
         self._settings(reply, status)
+
+    def _add_frames(self, message: dict) -> str:
+        """Give a message whose heat is the camera's the device's newest images (`GET /heat`): those the
+        platform does not have from us yet, oldest first, at most MAX_FRAMES. Returns the `at` of the newest
+        image the platform will then have (to keep once it took the message)."""
+        heat = message.get("heat")
+        if not isinstance(heat, dict) or heat.get("source") != "camera" or time.monotonic() < self._no_heat_until:
+            return self._frame_at
+        got = self._get(self.device + "/heat")
+        if not isinstance(got, dict) or not isinstance(got.get("frames"), list):
+            self._no_heat_until = time.monotonic() + NO_HEAT_ADDRESS_S  # an older device: the summary alone
+            return self._frame_at
+        new = sorted((f for f in got["frames"] if isinstance(f, dict) and isinstance(f.get("at"), str)
+                      and f["at"] > self._frame_at and isinstance(f.get("data"), str)
+                      and _number(f.get("min_c")) and _number(f.get("step_c"))), key=lambda f: f["at"])[-MAX_FRAMES:]
+        if not new:
+            return self._frame_at
+        heat["frames"] = [{k: f[k] for k in ("at", "min_c", "step_c", "data")} for f in new]
+        return new[-1]["at"]
 
     def _feature_table(self):
         """The device's feature table, read once (it changes only with the device's code)."""

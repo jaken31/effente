@@ -260,3 +260,43 @@ def test_a_watching_devices_records_reach_the_platform_with_their_velocity(link,
     link.step()
     assert link.stats["records"] == 1
     assert receiver.store.records[-1]["readings"]["vib_velocity_mm_s"] == 0.41
+
+
+def frame(at):
+    return {"at": at, "min_c": 20.0, "step_c": 0.015, "data": "AAAA", "more": "not sent on"}
+
+
+def test_the_cameras_images_go_out_once_each_at_most_two_a_message():
+    link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None)
+    served = {"frames": [frame("2026-11-15T00:03:02.584Z"), frame("2026-11-15T00:03:02.858Z")]}
+    asked = []
+    link._get = lambda url: asked.append(url) or served
+    message = {"heat": {"source": "camera", "max_c": 23.4}}
+    newest = link._add_frames(message)
+    assert asked == ["http://device/heat"] and newest == "2026-11-15T00:03:02.858Z"
+    assert message["heat"]["frames"] == [{"at": f["at"], "min_c": 20.0, "step_c": 0.015, "data": "AAAA"} for f in served["frames"]]
+    again = {"heat": {"source": "camera"}}
+    assert link._add_frames(again) == newest and len(again["heat"]["frames"]) == 2  # not taken yet: sent again
+    link._frame_at = newest  # it took it
+    served["frames"] = [served["frames"][1], frame("2026-11-15T00:03:03.120Z"), frame("2026-11-15T00:03:03.400Z"),
+                        frame("2026-11-15T00:03:03.700Z"), {"at": "2026-11-15T00:03:04Z"}]  # the last has no image
+    third = {"heat": {"source": "camera"}}
+    assert link._add_frames(third) == "2026-11-15T00:03:03.700Z"
+    assert [f["at"] for f in third["heat"]["frames"]] == ["2026-11-15T00:03:03.400Z", "2026-11-15T00:03:03.700Z"]
+    link._frame_at = "2026-11-15T00:03:03.700Z"
+    nothing_new = {"heat": {"source": "camera"}}
+    link._add_frames(nothing_new)
+    assert "frames" not in nothing_new["heat"]
+
+
+def test_images_are_asked_for_only_when_the_camera_gave_the_heat_and_the_device_has_them():
+    link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None)
+    asked = []
+    link._get = lambda url: asked.append(url)  # None: the device's port has no /heat
+    for message in ({}, {"heat": None}, {"heat": {"source": "imu", "imu_temp_c": 26.6}}):
+        link._add_frames(message)
+    assert asked == []
+    message = {"heat": {"source": "camera"}}
+    link._add_frames(message)
+    link._add_frames(message)
+    assert asked == ["http://device/heat"] and "frames" not in message["heat"]  # an older device is not asked every time
