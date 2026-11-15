@@ -189,3 +189,48 @@ def test_colours_are_the_mockup_ramp():
     assert table[255] == (0xFF, 0x4D, 0x2E)
     # Pure grays up to white at 7/9 of the way, then red for the hottest.
     assert all(r == g == b for r, g, b in table[: 255 * 7 // 9])
+
+
+def image(at_ms, level, **pixels):
+    """A decoded frame at `level` degC everywhere, except the pixels given as p<index>=degC."""
+    px = [level] * (stats.W * stats.H)
+    for name, c in pixels.items():
+        px[int(name[1:])] = c
+    return {"at_ms": at_ms, "pixels": px}
+
+
+def test_fastest_change_is_against_the_image_a_second_before():
+    """The camera gives about 2 images a second: the change is taken over one second, not against the
+    image just before (a short gap blows the camera's noise up)."""
+    earlier = [image(0, 22.0), image(300, 22.0), image(1000, 22.0, p5=22.4)]
+    newest = image(1300, 22.0, p5=24.0)
+    assert stats.change_over_second(earlier, newest) == pytest.approx(2.0)  # against the one at 300: 2.0 degC in 1.0 s
+    assert stats.fastest_change(earlier[-1], newest) == pytest.approx(1.6 / 0.3)  # what the image before would say
+    late = image(1700, 22.0, p5=24.1)  # nearest to a second before is the one at 1000 (0.7 s): scaled to a second
+    assert stats.change_over_second(earlier, late) == pytest.approx(1.7 / 0.7)
+
+
+def test_fastest_change_needs_an_image_about_a_second_before():
+    newest = image(5000, 22.0, p5=30.0)
+    assert stats.change_over_second([], newest) is None
+    assert stats.change_over_second([image(4700, 22.0)], newest) is None  # 0.3 s before: too close
+    assert stats.change_over_second([image(1000, 22.0)], newest) is None  # 4 s before: too old
+    assert stats.change_over_second([image(None, 22.0)], newest) is None
+    assert stats.change_over_second([image(4000, 22.0)], image(None, 22.0)) is None
+    assert stats.change_over_second([image(4000, 22.0)], None) is None
+
+
+def test_the_page_keeps_the_frames_shown_in_the_last_second_and_a_half(page):
+    p, _ = page
+    p._recent = []
+    for at in (0, 300, 1000, 1300, 2000, 2300):
+        p._shown(image(at, 22.0))
+    assert [f["at_ms"] for f in p._recent] == [1000, 1300, 2000, 2300]
+    again = p._recent[-1]
+    p._shown(again)  # the same frame, shown again
+    assert len(p._recent) == 4
+    p._view, p._index = dict(p._view, frames=[image(3000, 22.0, p9=23.5)]), 0  # the record on screen, one new frame
+    p._redraw()
+    assert p._rate == pytest.approx(1.5)  # against the frame at 2000
+    p._show_empty(None)
+    assert p._recent == []
