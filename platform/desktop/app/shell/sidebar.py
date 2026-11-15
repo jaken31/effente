@@ -71,7 +71,7 @@ class NavItem(QAbstractButton):
         super().__init__(parent)
         self.key = key
         self.setText(label)
-        self.shortcut_text = str(shortcut) if shortcut else ""  # a page past the ninth has no key
+        self.shortcut_text = "" if shortcut is None else str(shortcut)  # a page past the tenth has no key
         self.child = child
         self.on = False
         self.parent_on = False
@@ -178,7 +178,7 @@ class Nav(QWidget):
         sl.setContentsMargins(18 + 1 + 8, 0, 0, 4)
         sl.setSpacing(1)
         for i, (key, label, child) in enumerate(NAV):
-            item = NavItem(key, label, i + 1 if i < 9 else None, child, self)
+            item = NavItem(key, label, (i + 1) % 10 if i < 10 else None, child, self)  # 1 to 9, then 0
             item.clicked.connect(lambda _=False, k=key: self.navigate.emit(k))
             self.items[key] = item
             if child:

@@ -36,8 +36,11 @@ ACTIONS: list[tuple[tuple[str, ...], str, str, str]] = [
     (("?", "Shift+?", "F1"), "?", "Show or hide this list", "toggle_shortcut_help"),
     (("Ctrl+Q",), f"{MOD} Q", "Quit", "close"),
 ]
-NUMBERED = KEYS[:9]  # the pages a number key opens. A tenth page has no key yet (INTERFACES.md addition 23).
-PAGES_ROW = (f"1 to {len(NUMBERED)}", "Open a page, in sidebar order")
+# The key that opens each page: 1 to 9 in sidebar order, then 0 for the tenth, as on
+# the keyboard's number row. An eleventh page would have no key.
+PAGE_KEY: dict[str, str] = {key: str((i + 1) % 10) for i, key in enumerate(KEYS[:10])}
+NUMBERED = list(PAGE_KEY)  # the pages a number key opens
+PAGES_ROW = ("1 to 9, 0", "Open a page, in sidebar order")
 
 
 def install(window) -> list[QShortcut]:
@@ -49,7 +52,7 @@ def install(window) -> list[QShortcut]:
         sc.activated.connect(slot)
         return sc
 
-    made = [add(str(i + 1), lambda k=key: window.navigate(k)) for i, key in enumerate(NUMBERED)]
+    made = [add(digit, lambda k=key: window.navigate(k)) for key, digit in PAGE_KEY.items()]
     for sequences, _shown, _what, method in ACTIONS:
         made += [add(s, getattr(window, method)) for s in sequences]
     return made
