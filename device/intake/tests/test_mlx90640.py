@@ -173,6 +173,6 @@ def test_the_devices_port_gives_the_newest_images_whole():
         got = json.load(urllib.request.urlopen(url, timeout=3))
         assert got["ok"] and (got["rows"], got["cols"]) == (24, 32) and got["frames"] == frames
     finally:
-        stream.close()
+        stream.stop()
     now[0] += 10
     assert source.heat_images() == []  # too old to be now
