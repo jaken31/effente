@@ -339,3 +339,17 @@ def test_an_idle_devices_check_in_fills_the_spectrum_heat_and_velocity(live, sta
     assert "IMU 26.6 °C" in live.thermal_panel.hint()
     device["readings"] = {"at": "2026-11-14T03:16:43Z", "readings": {"vib_mg": 4.5}}
     assert state.live_record() is record  # nothing to draw from the check-in: back to the record
+
+
+def test_the_boards_own_image_shows_when_the_record_has_no_camera_image(live, state):
+    """A board that serves images (GET /heat) while its records carry the IMU's temperature only."""
+    camera = state.latest()["heat"]["frames"][-1]
+    state.push("record", dict(state.latest(), seq=state.latest()["seq"] + 1, heat={"source": "imu", "imu_temp_c": 28.3}))
+    assert live.heat_image.isHidden() and not live.heat_empty.isHidden()
+    state.heat_frames.emit(state.current_machine(), [camera])
+    assert not live.heat_image.isHidden() and live.heat_empty.isHidden()
+    state.push("record", dict(state.latest(), seq=state.latest()["seq"] + 1))
+    assert not live.heat_image.isHidden()  # the next such record leaves the board's image on screen
+    live._heat_live_at -= 60  # the board's images stopped
+    state.push("record", dict(state.latest(), seq=state.latest()["seq"] + 1))
+    assert live.heat_image.isHidden() and not live.heat_empty.isHidden()

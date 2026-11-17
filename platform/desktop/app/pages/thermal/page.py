@@ -31,6 +31,8 @@ from PySide6.QtWidgets import (
 
 HISTORY = 300
 HOVER_IDLE = "Hover the image to read a pixel."
+# The board serves its camera's images while its records carry no heat summary: the numbers are the image's own.
+FROM_IMAGE = "image read from the device; its records carry no heat summary, so these numbers are this image's own"
 KPIS = ("Hottest", "Above room", "Average", "Hot pixels", "Fastest change", "Scene match")
 
 
@@ -77,6 +79,9 @@ def _legend_item(color: QColor, text: str) -> QWidget:
 
 
 LIVE_HOLD_S = 1.5  # after the board's last own image, a record's images are played again
+# With no camera summary in the records the board's own image is all there is, and it stays this long
+# after it came. Measured on the real board on 16 Nov 2026: a new image every 1 to 13 s, not 2 a second.
+IMAGE_HOLD_S = 20.0
 
 
 class ThermalPage(QWidget):
@@ -93,6 +98,7 @@ class ThermalPage(QWidget):
         self._index = -1  # shown frame
         self._live: dict | None = None  # the newest image read straight from the board (show_live_frames)
         self._live_at = 0.0  # monotonic seconds it came
+        self._record_has_camera = False  # the newest record shown carried the camera's summary
         self._recent: list[dict] = []  # the frames shown before this one, oldest first, the last RECENT_MS
         self._rate: float | None = None
         self._hover: tuple[int, int] | None = None
@@ -254,8 +260,12 @@ class ThermalPage(QWidget):
         """Show a record's heat: summary now, its frames at their own spacing."""
         view = logic.heat_view(rec) if rec is not None else None
         if view is None or view["kind"] != "camera":
+            self._record_has_camera = False
+            if self._is_live():  # the board serves images its records do not carry: those stay on screen
+                return
             self._show_empty(view)
             return
+        self._record_has_camera = True
         on_screen = self._frame()
         if on_screen is not None:
             self._shown(on_screen)
@@ -274,11 +284,17 @@ class ThermalPage(QWidget):
     def show_live_frames(self, frames) -> None:
         """Images read straight from the board (state.heat_frames), oldest first: the newest is shown at
         once. A record brings the same images up to a second later, so while these keep coming
-        (LIVE_HOLD_S) a record changes the summary only. Nothing is shown before the first record."""
+        (LIVE_HOLD_S) a record changes the summary only. When the newest record carries no camera
+        summary (or there is no record yet), the summary is the newest image's own
+        (logic.heat_view_from_image) and the page says so."""
         got = [f for f in (logic.decode_frame(x) for x in frames or []) if f]
-        if not got or self._view is None:
+        if not got:
             return
         self._timer.stop()
+        if not self._record_has_camera:
+            self._view, self._index = logic.heat_view_from_image(got[-1]), -1
+            self._set_empty(False)
+            self._fill_summary()
         for frame in got:
             on_screen = self._frame()
             if on_screen is not None:
@@ -288,7 +304,8 @@ class ThermalPage(QWidget):
             self._redraw()
 
     def _is_live(self) -> bool:
-        return self._live is not None and time.monotonic() - self._live_at < LIVE_HOLD_S
+        hold = LIVE_HOLD_S if self._record_has_camera else IMAGE_HOLD_S
+        return self._live is not None and time.monotonic() - self._live_at < hold
 
     def _frame(self) -> dict | None:
         """The image on screen: the board's own while those come, else the record's frame that is due."""
@@ -398,12 +415,17 @@ class ThermalPage(QWidget):
         k.cell(5).set_value(f"{round(sm * 100)}%" if sm is not None else "–", abnormal=v["frozen"])
         if v["frozen"]:
             k.cell(5).set_sub("camera image frozen")
+        elif v.get("from_image"):
+            k.cell(5).set_sub("not in the device's records")
         elif sm is None:
             k.cell(5).set_sub("usual view not learned yet")
         else:
             k.cell(5).set_sub("likeness to the usual view")
         n = len(v["frames"])
         hint = "optional sensor · MLX90640 · 32 × 24"
+        if v.get("from_image"):
+            self.cam_panel.set_hint(f"{hint} · {FROM_IMAGE}")
+            return
         self.cam_panel.set_hint(f"{hint} · {n} fps" if n else f"{hint} · grid only, no images in this reading")
 
     def _fill_frame_kpis(self, fs) -> None:
