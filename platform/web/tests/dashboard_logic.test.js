@@ -349,7 +349,8 @@ test("decodeFrame turns bytes into degC and rejects bad images", () => {
   const f = L.decodeFrame(frame("2026-11-14T16:02:11Z", (i) => (i === 5 ? 255 : 4), 20, 0.25));
   assert.equal(f.pixels.length, 768);
   assert.equal(f.pixels[0], 21);
-  assert.equal(f.pixels[5], 20 + 255 * 0.25);
+  assert.equal(f.pixels[5], 21);
+  assert.equal(f.pixels[26], 20 + 255 * 0.25); // byte 5 of the first row, shown mirrored: column 31 - 5
   assert.equal(f.atMs, Date.parse("2026-11-14T16:02:11Z"));
   assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0.25, data: Buffer.alloc(10).toString("base64") }), null);
   assert.equal(L.decodeFrame({ at: "x", min_c: 20, step_c: 0, data: Buffer.alloc(768).toString("base64") }), null);
@@ -369,7 +370,7 @@ test("heatView reads each heat source", () => {
   const v = L.heatView(rec({ heat: camHeat() }));
   assert.equal(v.kind, "camera");
   assert.equal(v.frames.length, 2);
-  assert.deepEqual([v.maxC, v.hotRow, v.hotCol, v.backgroundC, v.sceneMatch, v.frozen], [61.2, 9, 21, 25, 0.93, false]);
+  assert.deepEqual([v.maxC, v.hotRow, v.hotCol, v.backgroundC, v.sceneMatch, v.frozen], [61.2, 9, 10, 25, 0.93, false]); // hot_col 21 in the record, shown mirrored: 31 - 21
 
   // History records have no images: the grid alone still draws.
   const g = L.heatView(rec({ heat: camHeat({ frames: undefined }) }));

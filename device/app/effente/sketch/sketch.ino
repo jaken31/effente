@@ -653,7 +653,7 @@ void composeTiles() {
 const uint8_t MLX_ADDR = 0x33;
 bool showThermal = false;               // which screen: the readings, or the heat picture. The button swaps them
                                         // (the user, 14 Nov; before that they swapped by themselves every 10 s)
-const bool MLX_MIRROR = false;          // true if the picture comes out left-right swapped in the case
+const bool MLX_MIRROR = true;           // true if the picture comes out left-right swapped in the case
 bool mlxOk = false, mlxHave = false;
 uint8_t mlxState = 0;                   // 0 not found yet, 1 reading its memory, 2 waiting for a frame, 3 reading one
 uint16_t mlxWord = 0, mlxChunk = 32;    // words done of the part being read; words per read (halved if refused)

@@ -103,8 +103,8 @@ def test_hover_reads_the_pixel(page):
 def test_cells_grid_is_the_records_cells(page):
     p, st = page
     h = st.latest()["heat"]
-    for i in (0, 47):
-        assert [float(x) for x in p.cells.cell_texts(i)] == pytest.approx([h["cells"][i], h["spots"][i]], abs=0.05)
+    for i, j in ((0, 7), (47, 40)):  # shown mirrored: the cell on screen is the record's cell in the same row, other side
+        assert [float(x) for x in p.cells.cell_texts(i)] == pytest.approx([h["cells"][j], h["spots"][j]], abs=0.05)
 
 
 def test_one_decimal_has_no_negative_zero():
