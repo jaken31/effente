@@ -1,0 +1,87 @@
+{
+ "test 1, bearing 3 (inner race)": {
+  "snapshots in run": 2156,
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 3.3,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 3.3,
+   "separation |2 AUC - 1|": 0.51
+  },
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz whitened": {
+   "early hit %": 1.3,
+   "late hit %": 6.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 9.3,
+   "separation |2 AUC - 1|": 0.347
+  }
+ },
+ "test 1, bearing 4 (roller)": {
+  "snapshots in run": 2156,
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.983
+  },
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz whitened": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.994
+  }
+ },
+ "test 2, bearing 1 (outer race)": {
+  "snapshots in run": 984,
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz today": {
+   "early hit %": 0.7,
+   "late hit %": 100.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 100.0,
+   "separation |2 AUC - 1|": 1.0
+  },
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz whitened": {
+   "early hit %": 4.7,
+   "late hit %": 97.9,
+   "early hit % (hour average)": 0.7,
+   "late hit % (hour average)": 100.0,
+   "separation |2 AUC - 1|": 0.985
+  }
+ },
+ "test 3, bearing 3 (outer race)": {
+  "snapshots in run": 6324,
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz today": {
+   "early hit %": 3.3,
+   "late hit %": 40.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 40.0,
+   "separation |2 AUC - 1|": 0.533
+  },
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz whitened": {
+   "early hit %": 3.3,
+   "late hit %": 31.3,
+   "early hit % (hour average)": 1.3,
+   "late hit % (hour average)": 38.0,
+   "separation |2 AUC - 1|": 0.334
+  }
+ },
+ "control: test 2, bearing 3": {
+  "snapshots in run": 984,
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz today": {
+   "early hit %": 44.7,
+   "late hit %": 46.8,
+   "early hit % (hour average)": 32.7,
+   "late hit % (hour average)": 60.6,
+   "separation |2 AUC - 1|": 0.041
+  },
+  "20 kHz, IIS3DWB-like noise, 2-6 kHz whitened": {
+   "early hit %": 42.7,
+   "late hit %": 33.0,
+   "early hit % (hour average)": 42.0,
+   "late hit % (hour average)": 47.9,
+   "separation |2 AUC - 1|": 0.074
+  }
+ }
+}

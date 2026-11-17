@@ -1,0 +1,32 @@
+{
+ "1 kHz, MPU noise, today": {
+  "healthy vs fault": 1.0,
+  "healthy half vs half": 0.11,
+  "healthy vs another healthy bearing": 0.99
+ },
+ "1 kHz, MPU noise, whitened": {
+  "healthy vs fault": 0.28,
+  "healthy half vs half": 0.17,
+  "healthy vs another healthy bearing": 0.13
+ },
+ "1 kHz, no noise, today": {
+  "healthy vs fault": 1.0,
+  "healthy half vs half": 0.18,
+  "healthy vs another healthy bearing": 1.0
+ },
+ "1 kHz, no noise, whitened": {
+  "healthy vs fault": 0.45,
+  "healthy half vs half": 0.18,
+  "healthy vs another healthy bearing": 0.46
+ },
+ "42 kHz raw, 2-10 kHz band, today": {
+  "healthy vs fault": 0.99,
+  "healthy half vs half": 0.25,
+  "healthy vs another healthy bearing": 0.82
+ },
+ "42 kHz raw, 2-10 kHz band, whitened": {
+  "healthy vs fault": 1.0,
+  "healthy half vs half": 0.15,
+  "healthy vs another healthy bearing": 0.93
+ }
+}
