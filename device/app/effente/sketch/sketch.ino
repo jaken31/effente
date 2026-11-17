@@ -656,7 +656,7 @@ bool showThermal = false;               // which screen: the readings, or the he
 const bool MLX_MIRROR = true;           // true if the picture comes out left-right swapped in the case
 bool mlxOk = false, mlxHave = false;
 uint8_t mlxState = 0;                   // 0 not found yet, 1 reading its memory, 2 waiting for a frame, 3 reading one
-uint16_t mlxWord = 0, mlxChunk = 32;    // words done of the part being read; words per read (halved if refused)
+uint16_t mlxWord = 0, mlxChunk = 64;    // words done of the part being read; words per read (halved if refused)
 uint8_t mlxFailRun = 0;
 uint16_t mlxWord0 = 0;        // the first word of the frame as the camera gave it
 uint32_t mlxFrames = 0, mlxErrors = 0, mlxPollAt = 0, mlxTryAt = 0;
@@ -681,8 +681,8 @@ static const struct device *const mlxBus = DEVICE_DT_GET(DT_PHANDLE_BY_IDX(DT_PA
 
 bool mlxRead(uint16_t reg, uint16_t n, uint16_t *out) {
   uint8_t ask[2] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF)};
-  uint8_t got[64];
-  if (n > 32) return false;
+  uint8_t got[128];
+  if (n > 64) return false;
   if (i2c_write_read(mlxBus, MLX_ADDR, ask, 2, got, n * 2) != 0) return false;
   for (uint16_t i = 0; i < n; i++) out[i] = ((uint16_t)got[2 * i] << 8) | got[2 * i + 1];
   return true;
@@ -717,13 +717,13 @@ void mlxTake();
 
 void mlxPoll() {
   uint32_t now = millis();
-  uint16_t buf[32];
+  uint16_t buf[64];  // 64 words a read (16 Nov: it was 32): 2.65 ms at 400 kHz, measured on the board
   if (mlxState == 0) {
     if (now - mlxTryAt < 2000) return;
     mlxTryAt = now;
     uint16_t ctrl;
     if (!mlxRead(0x800D, 1, &ctrl)) return;       // not there
-    mlxCtrl = (ctrl & ~(7u << 7)) | (3u << 7);    // 4 half-frames a second
+    mlxCtrl = (ctrl & ~(7u << 7)) | (4u << 7);    // 8 half-frames a second (16 Nov, the user: a quicker picture; it was 4)
     mlxWrite(0x800D, mlxCtrl);
     mlxWord = 0;
     mlxEeCheck = false;
@@ -824,7 +824,7 @@ void mlxPoll() {
     mlxState = 4;
     // A whole frame read with nothing refused: the next size up again. Without this one bad stretch on the
     // bus left the reads at 8 words for good, and the picture at about half its rate (seen 16 Nov).
-    if (mlxChunk < 32) mlxChunk *= 2;
+    if (mlxChunk < 64) mlxChunk *= 2;
   }
 }
 
@@ -1173,11 +1173,19 @@ void loop() {
     }
   }
   uint32_t now = micros();
+  bool readPass = false;  // a pass that reads the sensor and sends its batch is long already
   if (mpuOk && now - lastRead >= READ_EVERY_US) {
     lastRead = now;
+    readPass = true;
     readFifo();
-    if (!sndSend()) mlxSend();
+    if (!sndSend()) {  // two parts a pass (16 Nov): one a pass cannot keep up with a quicker camera
+      mlxSend();
+      mlxSend();
+    }
   }
+  // A second piece of the camera's frame, in the short passes only (16 Nov, on the board). In every pass it
+  // cost the IMU about 0.5 % of its samples, and a third piece about 7 %.
+  if (!readPass) mlxPoll();
   static uint8_t nextPage = 8;  // 8: no frame being drawn
   if (oledOk && nextPage >= 8 && micros() - lastFrameAt >= FRAME_EVERY_MS * 1000) {  // a frame every FRAME_EVERY_MS
     uint32_t at = micros();
