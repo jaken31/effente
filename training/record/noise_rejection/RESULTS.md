@@ -161,3 +161,33 @@ python3 -m training.record.noise_rejection.ottawa_controls /path/to/ottawa-uods 
 ```
 
 The Ottawa folder must hold one subfolder of the `.mat` files from [Mendeley Data, y2px5tg92h](https://data.mendeley.com/datasets/y2px5tg92h) (about 290 MB; not committed).
+
+## NASA IMS run-to-failure: bars, written 17 Nov 2026 before the run
+
+Why this set: Ottawa could not judge B, because each bearing's healthy and fault files are separate recordings. In IMS, one shaft runs from healthy to failure without a remount, with healthy bearings on the same shaft (Qiu et al. 2006). Raw snapshots: 1 s at 20,480 Hz every 10 minutes (every 5 minutes for the first part of test 1).
+
+Bearings, and the defect rate each failure should pulse at (2,000 rpm; Rexnord ZA-2115 rates as commonly quoted from the dataset's documentation, secondary, not checked against the PDF):
+
+| Bearing | Failure | Rate checked |
+|---|---|---|
+| test 1, bearing 3 | inner race | BPFI 296.9 Hz |
+| test 1, bearing 4 | roller | BSF 139.9 Hz or 2 x BSF 279.8 Hz |
+| test 2, bearing 1 | outer race | BPFO 236.4 Hz |
+| test 3, bearing 3 | outer race | BPFO 236.4 Hz |
+| control: test 2, bearing 3 | none reported | its own BPFO, BPFI and BSF, for false hits |
+
+Windows: early = the first 20 % of snapshots, late = the last 10 %. At most 150 snapshots each, evenly spaced. Signals: the device conversion of `datasets/ims.py` (1 kHz, its 260 Hz low-pass, its noise; real signal on one axis), envelope band 100-450 Hz as today; and the raw 20 kHz signal with a 2-9 kHz envelope band, to test whether the kilohertz band is what B needs.
+
+A hit is an envelope peak within 3 % of the rate checked.
+
+**B passes at 1 kHz if,** on at least 2 of the 4 failing bearings:
+- the late hit rate rises 20 points or more over today's, and
+- the early hit rate (false hits before the fault) stays at 10 % or less.
+
+On the control bearing, the late hit rate must also stay at 10 % or less.
+
+**Separation, with a control:** |2 AUC - 1| of envelope prominence, early against late. It must be at least 0.3 higher on the failing bearings (median) than on the control bearing, for whichever envelope is judged. This tells fault from slow drift in the rig.
+
+**C passes if** an envelope spectrum averaged over 6 consecutive snapshots (an hour, as sixty 1 s windows is not possible here) raises the late hit rate by 20 points or more over single snapshots, with the same envelope, on at least 2 failing bearings, and the false-hit limits above hold.
+
+**The kilohertz question:** the same B bar on the 20 kHz signal. If B passes at 20 kHz and not at 1 kHz, the plan's section 6 should say tone removal needs the wide band.
