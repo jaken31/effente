@@ -32,12 +32,13 @@ One of each. Material PETG or PLA, except the belt.
 
 Print the drive roller first and check it fits the TT motor shaft.
 
-### Slot caps (stop a roller climbing out of its slot)
+### L-slots (rollers lock in)
 
-The roller pins sit in open-topped U-slots, and a driven roller can climb out of them. A slot cap straddles the top of the wall over a slot: a tongue fills the slot to 0.3 mm above the pin, and one M3 x 12 bolt and nut through the cap and the wall hold it. Fit the caps after the rollers are in.
+The roller pins sit in L-shaped slots, so a driven roller cannot climb out. The long leg is a little nearer the other roller; the short leg runs toward the frame's end and ends in a pocket 1.5 mm deep (2 mm on the 2x conveyor). Drop the pin down the long leg, push the roller outward along the short leg (this tightens the belt), and it drops into the pocket. Belt tension pulls sideways, and the pin would have to lift to get out. To remove a roller, lift it slightly, slide it inward, and lift it out.
 
-- 1x conveyor: `conveyor_slot_cap_drive_B.stl`, `conveyor_slot_cap_idle_A.stl`, `conveyor_slot_cap_idle_B.stl` (the motor shaft holds the drive roller's wall-A end). Print bridge face down, 100% infill, no supports.
-- `conveyor_frame.stl` now has the bolt holes. A frame printed before this has none: hold each cap in place and drill 3.4 mm through the wall using the cap's hole as the guide (the hole sits 14 mm from the slot centre, toward the frame's end, 4 mm below the wall top).
+- Idle roller: both ends in L-slots.
+- Drive roller (1x): only its wall-B pin has an L-slot; the motor shaft holds the wall-A end. Fit it with the motor bracket unbolted: push the roller onto the motor shaft, drop the hub into the wall-A slot and the pin into the wall-B long leg (the motor turns slightly), swing the pin end outward into the pocket so the motor straightens, then bolt the bracket down.
+- A frame printed before the L-slots has straight slots; reprint `conveyor_frame.stl` to get them.
 
 ## Measured parts
 
@@ -78,7 +79,7 @@ Buy or use from stock: 5 M3 x 20 bolts and nuts (frame joint), 2 M3 x 8-10 bolts
 
 Assembly: bolt the two frame halves together through the joint blocks (nuts in the hex pockets on half A, bolt heads in the counterbores on half B). Push the pinion onto the TT motor shaft, zip-tie the motor into the bracket, and bolt the bracket to the pad on half A. Drop both rollers into their slots, with the drive roller's gear outside wall A meshing with the pinion. Then fit the belt.
 
-Slot caps: 4 (`conveyor2x_slot_cap_*.stl`), one over each roller slot, each with an M3 x 12 bolt and nut; the frame halves have the holes. Print bridge face down, 100% infill, no supports.
+Rollers: all four pin slots are L-slots (see above). Fit the drive roller before the motor bracket, since the pinion is in the way while the roller is in the long leg; then bolt the bracket on so the pinion meshes.
 
 Drive: the 30-tooth gear on the drive roller and the 15-tooth pinion give 2:1, so the belt gets the same pull and speed as the 1x direct drive. Power the motor from 9 V: two 9 V batteries **in parallel** (+ to +, - to -), not in series. 18 V is over the TB6612's limit and far over the TT motor's 3-6 V rating; 9 V is already above that rating, so expect the motor to wear faster.
 

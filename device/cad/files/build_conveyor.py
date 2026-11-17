@@ -5,7 +5,7 @@ machine to diagnose, following conveyor-build-guide.md (3D-printed route)
 but sized for the parts the team has: one yellow TT gear motor.
 
   Frame          One printed part: base, two side walls, a slider bed under
-                 the top belt run, U-slots the roller pins drop into, a pad
+                 the top belt run, L-slots that lock the roller pins, a pad
                  for the motor bracket, and a pocket for the steel probe disc
                  on wall B. No bearings: the printed pins run in the slots
                  (a dab of grease or Vaseline helps).
@@ -55,7 +55,8 @@ F = dict(
     wall_windows=True, win_rail_bot=5.0, win_rail_top=6.0, win_post=8.0,
     win_a=((38.0, 80.0), (88.0, 126.0), (134.0, 168.0)),     # wall A, x ranges
     win_b=((38.0, 42.0), (82.0, 122.0), (130.0, 168.0)),     # wall B (probe panel 44-80)
-    pin_slot=5.4,                           # U-slots the roller pins drop into
+    pin_slot=5.4,                           # L-slots the roller pins drop into
+    slot_toe=6.0, slot_dip=1.5,             # short leg toward the frame end; pocket depth
     hub_slot=11.0,                          # wall A slot the drive hub passes through
     probe_x=60.0, disc_d=20.1, disc_depth=2.0,
     # pad outside wall A that the motor bracket bolts to
@@ -91,18 +92,6 @@ BRACKET = dict(
 # printed TPU belt: a thin tube printed in vase mode, a little short so it
 # stretches tight over the rollers
 BELT = dict(stretch=0.02, wall=1.0, layout_y=160.0)
-
-# Slot caps: the roller pins sit in open-topped U-slots, and a driven roller
-# can climb out of them. Each cap straddles the top of the wall over a free
-# slot, a tongue fills the slot to just above the pin, and one M3 x 12 bolt
-# through the cap and the wall holds it. The motor shaft holds the drive
-# roller's wall-A end, so that slot has no cap.
-CAP = dict(
-    slots=(('drive, wall B', 'drive_x', 'B'), ('idle, wall A', 'idle_x', 'A'),
-           ('idle, wall B', 'idle_x', 'B')),
-    bolt_off=14.0, bolt_d=3.4, leg_w=12.0, leg_h=8.0, leg_t=1.5, top_t=2.5,
-    clear=0.15, pin_gap=0.3,
-)
 
 MM = 0.1  # Fusion API works in cm
 
@@ -268,6 +257,22 @@ def tt_geo():
     return g
 
 
+def cut_l_slot(b, frame, xf, out, y0, y1, width):
+    """L-slot through a wall (y0-y1): drop the pin down the long leg, roll it
+    outward (out = -1 or +1, toward the frame's end) along the short leg, and
+    it drops slot_dip into a pocket at its working position (xf, axis_z).
+    Belt tension pulls sideways; to leave, the pin would have to lift first."""
+    az, T, toe, dip = F['axis_z'], F['top'], F['slot_toe'], F['slot_dip']
+    xe = xf - out * toe                         # long leg, nearer the other roller
+    zc = az + dip                               # short leg runs just above the pocket
+    ya, yb = y0 - 0.5, y1 + 0.5
+    b.ycyl(xf, az, width, ya, yb, 'cut', frame)                     # pocket
+    b.ybox(min(xf, xe), max(xf, xe), zc - width / 2, zc + width / 2, ya, yb, 'cut', frame)
+    b.ycyl(xf, zc, width, ya, yb, 'cut', frame)
+    b.ycyl(xe, zc, width, ya, yb, 'cut', frame)
+    b.ybox(xe - width / 2, xe + width / 2, zc, T + 1, ya, yb, 'cut', frame)   # long leg
+
+
 # ---------------------------------------------------------------- frame
 def build_frame(comp):
     b = Builder(comp)
@@ -297,12 +302,12 @@ def build_frame(comp):
             wx = x0 + i * (ww + bar)
             b.zbox(wx, t + rim / 2, wx + ww, W - t - rim / 2, -0.5, F['base_t'] + 0.5, 'cut', frame)
 
-    # U-slots: drive pin in wall B, idle pins in both walls
+    # L-slots: drive pin in wall B, idle pins in both walls (the motor shaft
+    # holds the drive roller's wall-A end)
     ps = F['pin_slot']
-    for x, (y0, y1) in ((F['drive_x'], (W - t, W)),
-                        (F['idle_x'], (0, t)), (F['idle_x'], (W - t, W))):
-        b.ybox(x - ps / 2, x + ps / 2, az, T + 1, y0 - 0.5, y1 + 0.5, 'cut', frame)
-        b.ycyl(x, az, ps, y0 - 0.5, y1 + 0.5, 'cut', frame)
+    for x, out, (y0, y1) in ((F['drive_x'], -1, (W - t, W)),
+                             (F['idle_x'], 1, (0, t)), (F['idle_x'], 1, (W - t, W))):
+        cut_l_slot(b, frame, x, out, y0, y1, ps)
     # wider U-slot in wall A for the drive roller's hub (the motor shaft
     # carries that end, the hub just passes through)
     hs = F['hub_slot']
@@ -317,7 +322,6 @@ def build_frame(comp):
 
     # probe point: steel disc pocket on wall B's outer face
     b.ycyl(F['probe_x'], az, F['disc_d'], W - F['disc_depth'], W + 0.5, 'cut', frame)
-    cut_cap_bolt_holes(b, frame)
     return frame
 
 
@@ -421,48 +425,6 @@ def build_bracket(comp):
     return body
 
 
-# ---------------------------------------------------------------- slot caps
-def cap_slots():
-    """(name, slot x, wall 'A' or 'B', bolt x) for each capped slot."""
-    k = CAP
-    out = []
-    for name, x, wall in k['slots']:
-        sgn = -1 if F[x] < F['length'] / 2 else 1        # bolt toward the frame's end
-        out.append((name, F[x], wall, F[x] + sgn * k['bolt_off']))
-    return out
-
-
-def cap_wall_y(wall):
-    t, W = F['wall'], F['width']
-    return (0.0, t) if wall == 'A' else (W - t, W)
-
-
-def cut_cap_bolt_holes(b, frame):
-    k = CAP
-    for _name, _sx, wall, bx in cap_slots():
-        wy0, wy1 = cap_wall_y(wall)
-        b.ycyl(bx, F['top'] - k['leg_h'] / 2, k['bolt_d'], wy0 - 0.5, wy1 + 0.5, 'cut', frame)
-
-
-def build_slot_caps(comp):
-    b, k = Builder(comp), CAP
-    T, ps, c, lt, lw, lh = F['top'], F['pin_slot'], k['clear'], k['leg_t'], k['leg_w'], k['leg_h']
-    caps = []
-    for name, sx, wall, bx in cap_slots():
-        wy0, wy1 = cap_wall_y(wall)
-        x0, x1 = min(sx - ps / 2 - 2.0, bx - lw / 2), max(sx + ps / 2 + 2.0, bx + lw / 2)
-        ya, yb = wy0 - c - lt, wy1 + c + lt
-        body = first_body(b.zbox(x0, ya, x1, yb, T, T + k['top_t'], 'new'),
-                          'Slot cap (%s)' % name)
-        for ly0, ly1 in ((ya, wy0 - c), (wy1 + c, yb)):          # legs either side of the wall
-            b.zbox(bx - lw / 2, ly0, bx + lw / 2, ly1, T - lh, T + 0.01, 'join', body)
-        tz0 = F['axis_z'] + ROLLER['pin_d'] / 2 + k['pin_gap']   # tongue stops just above the pin
-        b.zbox(sx - ps / 2 + c, wy0, sx + ps / 2 - c, wy1, tz0, T + 0.01, 'join', body)
-        b.ycyl(bx, T - lh / 2, k['bolt_d'], ya - 0.5, yb + 0.5, 'cut', body)
-        caps.append(body)
-    return caps
-
-
 # ---------------------------------------------------------------- checks
 def tbox(x0, y0, z0, x1, y1, z1):
     tm = adsk.fusion.TemporaryBRepManager.get()
@@ -524,10 +486,6 @@ def run_checks(bodies):
         pairs += [('bolt head %d x bracket' % i, h, br),
                   ('bolt head %d x gearbox' % i, h, d['gearbox']),
                   ('bolt head %d x back stub' % i, h, d['back_stub'])]
-    for cp in bodies['caps']:
-        for nm, other in (('frame', fr), ('drive roller', dr), ('idle roller', ir), ('belt', belt),
-                          ('bracket', br), ('gearbox', d['gearbox']), ('docked head', d['head'])):
-            pairs.append(('%s x %s' % (cp.name, nm), cp, other))
     bad = 0
     for name, a, b2 in pairs:
         vol = overlap(a, b2)
@@ -554,12 +512,11 @@ def run(_context: str):
         belt_print=build_belt_print(new_comp(root, 'Belt (TPU print)')),
         bracket=build_bracket(new_comp(root, 'Motor bracket')),
     )
-    bodies['caps'] = build_slot_caps(new_comp(root, 'Slot caps'))
     app.activeViewport.fit()
 
     bad = [t.name for t in design.timeline if t.healthState != 0]
     print('timeline items with problems:', bad or 'none')
-    for bd in [v for k, v in bodies.items() if k != 'caps'] + bodies['caps']:
+    for bd in bodies.values():
         bb = bd.boundingBox
         size = [round((getattr(bb.maxPoint, a) - getattr(bb.minPoint, a)) * 10, 1)
                 for a in 'xyz']
