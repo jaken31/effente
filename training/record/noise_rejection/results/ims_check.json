@@ -1,0 +1,157 @@
+{
+ "test 1, bearing 3 (inner race)": {
+  "snapshots in run": 2156,
+  "1 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.651
+  },
+  "1 kHz whitened": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.135
+  },
+  "20 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 4.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 7.3,
+   "separation |2 AUC - 1|": 0.159
+  },
+  "20 kHz whitened": {
+   "early hit %": 0.0,
+   "late hit %": 3.3,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 6.7,
+   "separation |2 AUC - 1|": 0.175
+  }
+ },
+ "test 1, bearing 4 (roller)": {
+  "snapshots in run": 2156,
+  "1 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.476
+  },
+  "1 kHz whitened": {
+   "early hit %": 0.7,
+   "late hit %": 2.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.11
+  },
+  "20 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.978
+  },
+  "20 kHz whitened": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.949
+  }
+ },
+ "test 2, bearing 1 (outer race)": {
+  "snapshots in run": 984,
+  "1 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.313
+  },
+  "1 kHz whitened": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.01
+  },
+  "20 kHz today": {
+   "early hit %": 2.0,
+   "late hit %": 100.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 100.0,
+   "separation |2 AUC - 1|": 1.0
+  },
+  "20 kHz whitened": {
+   "early hit %": 76.0,
+   "late hit %": 97.9,
+   "early hit % (hour average)": 96.0,
+   "late hit % (hour average)": 100.0,
+   "separation |2 AUC - 1|": 0.978
+  }
+ },
+ "test 3, bearing 3 (outer race)": {
+  "snapshots in run": 6324,
+  "1 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.102
+  },
+  "1 kHz whitened": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.03
+  },
+  "20 kHz today": {
+   "early hit %": 4.7,
+   "late hit %": 40.0,
+   "early hit % (hour average)": 0.7,
+   "late hit % (hour average)": 40.0,
+   "separation |2 AUC - 1|": 0.447
+  },
+  "20 kHz whitened": {
+   "early hit %": 7.3,
+   "late hit %": 32.0,
+   "early hit % (hour average)": 1.3,
+   "late hit % (hour average)": 38.0,
+   "separation |2 AUC - 1|": 0.168
+  }
+ },
+ "control: test 2, bearing 3": {
+  "snapshots in run": 984,
+  "1 kHz today": {
+   "early hit %": 0.0,
+   "late hit %": 0.0,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.167
+  },
+  "1 kHz whitened": {
+   "early hit %": 3.3,
+   "late hit %": 1.1,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 0.0,
+   "separation |2 AUC - 1|": 0.004
+  },
+  "20 kHz today": {
+   "early hit %": 38.0,
+   "late hit %": 54.3,
+   "early hit % (hour average)": 16.0,
+   "late hit % (hour average)": 36.2,
+   "separation |2 AUC - 1|": 0.048
+  },
+  "20 kHz whitened": {
+   "early hit %": 18.0,
+   "late hit %": 19.1,
+   "early hit % (hour average)": 0.0,
+   "late hit % (hour average)": 2.1,
+   "separation |2 AUC - 1|": 0.249
+  }
+ }
+}
