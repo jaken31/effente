@@ -191,3 +191,64 @@ On the control bearing, the late hit rate must also stay at 10 % or less.
 **C passes if** an envelope spectrum averaged over 6 consecutive snapshots (an hour, as sixty 1 s windows is not possible here) raises the late hit rate by 20 points or more over single snapshots, with the same envelope, on at least 2 failing bearings, and the false-hit limits above hold.
 
 **The kilohertz question:** the same B bar on the 20 kHz signal. If B passes at 20 kHz and not at 1 kHz, the plan's section 6 should say tone removal needs the wide band.
+
+## NASA IMS results
+
+Run 17 Nov 2026 with `ims_check.py` (`results/ims_check.json`). The check marked post hoc was added after the main run (`--posthoc`, `results/ims_check_posthoc.json`).
+
+**In short:** whitening (B) and averaging (C) fail at both sample rates. What works is today's plain envelope moved to a kilohertz band. On the two outer-race failures it finds the defect rate late in the run and almost never early. At 1 kHz it finds nothing on any bearing. This is the first measured support for the wide-band sensor (plan step 2). It does not support tone removal.
+
+Hit % of single snapshots, early / late (hour averages in brackets, late only):
+
+| Bearing | 1 kHz today | 1 kHz whitened | 20 kHz today | 20 kHz whitened |
+|---|---|---|---|---|
+| test 1, b3, inner race | 0 / 0 | 0 / 0 | 0 / 4 (7) | 0 / 3 (7) |
+| test 1, b4, roller | 0 / 0 | 0.7 / 2 | 0 / 0 | 0 / 0 |
+| test 2, b1, outer race | 0 / 0 | 0 / 0 | **2 / 100 (100)** | 76 / 98 (100) |
+| test 3, b3, outer race | 0 / 0 | 0 / 0 | **4.7 / 40 (40)** | 7.3 / 32 (38) |
+| control: test 2, b3 | 0 / 0 | 3.3 / 1.1 | 38 / 54 (36) | 18 / 19 (2) |
+
+Separation |2 AUC - 1|, early against late:
+
+| | 1 kHz today | 1 kHz whitened | 20 kHz today | 20 kHz whitened |
+|---|---|---|---|---|
+| failing bearings, median | 0.39 | 0.07 | 0.71 | 0.56 |
+| control | 0.17 | 0.00 | 0.05 | 0.25 |
+
+**Verdicts against the bars:**
+
+- **B at 1 kHz:** fails. Neither envelope finds a defect rate on any bearing.
+- **Separation:** fails at 1 kHz for both envelopes (failing minus control: 0.23 today, 0.07 whitened; the bar is 0.3). At 20 kHz, today's passes (0.71 against 0.05).
+- **C:** fails. Hour averages add at most 6 points on a failing bearing (test 3, whitened, 32 to 38).
+- **The kilohertz question:** B does not pass at 20 kHz either. It adds no late hits over today's envelope, and it raises early false hits on test 2, bearing 1 to 76 %. So the plan should not say tone removal needs the wide band. It should say the envelope needs it.
+
+**Post hoc, IIS3DWB-like:** the raw signal plus the IIS3DWB's datasheet noise (75 ug/rtHz), envelope band 2-6 kHz, inside its 6.3 kHz band. Today's envelope, early / late hit %:
+
+- test 2, bearing 1: 0.7 / 100
+- test 3, bearing 3: 3.3 / 40
+- inner race and roller: still about 0
+
+This is a rough stand-in. It does not model the chip's own response, its 26.7 kHz rate or its mount.
+
+**Checks on the hits:**
+
+- **The late peak is the outer race, not a shaft harmonic.** BPFO (236.4 Hz) is within 3 % of 7x shaft speed (233.3 Hz). But the late peaks sit at a median of 236 Hz (test 2) and 237 Hz (test 3), three 1 Hz bins from 7x.
+- **The control's false hits come from the rate list, not a fault.** Four rates were checked, and 9x shaft (300 Hz) falls inside BPFI's 3 % window. Its early peaks sit at 15, 30, 280 and 301 Hz. So the 3 % window is too wide for the inner-race rate on this rig. A rerun should use 1 % or two bins.
+- **Inner race and roller are not found at any rate or band.** Test 1, bearing 4 still separates at 20 kHz (0.98): something changes, but not at the rate checked.
+
+## What the IMS run changes in the plan
+
+- **Section 6 of `docs/research/research-grade-claim.md`**, two rows:
+  - "Envelope analysis in a kilohertz band" now has measured support on two real outer-race failures. It is still unshown for inner race and roller.
+  - "Tone removal before the envelope (cepstrum pre-whitening) | Nothing new" is not supported on any real set tried (Ottawa could not judge it; IMS shows no gain at 1 or 20 kHz).
+- That doc belongs to track 5. This branch doesn't edit it.
+- **No change to `effente/` is proposed.** The kilohertz envelope needs the new sensor first; at 1 kHz it finds nothing.
+
+How to rerun:
+
+```
+python3 -m training.record.noise_rejection.ims_check /path/to/nasa-ims                # about 10 minutes
+python3 -m training.record.noise_rejection.ims_check /path/to/nasa-ims --posthoc      # about 5 minutes
+```
+
+The folder layout is the one track 4 keeps (`effente-track4-validation/training/validation/data/nasa-ims`): `extract/test1/1st_test`, `test2/2nd_test`, `extract/test3/4th_test/txt`.
