@@ -59,9 +59,10 @@ HEAD = dict(
     corner_r=2.0,
     magnet_d=12.2, magnet_depth=3.0,       # pocket for a 12 x 3 mm disc magnet
     # MPU-9250/6500 breakout: 10-pin header along a long edge, header plastic
-    # and pins on the back. Measured by you: 25 x 15 mm, 10 mm thick with the
-    # header (board 1.6 + header plastic 2.5 + pins).
-    board=(25.0, 15.0), board_t=1.6,       # long edge (along Y), short edge (up)
+    # and pins on the back. Sized for the listing's 26.2 x 15.6 mm: a cradle
+    # built for that held your board better than one built for your rounded
+    # 25 x 15 mm measurement (10 mm thick with the header).
+    board=(26.2, 15.6), board_t=1.6,       # long edge (along Y), short edge (up)
     # the board stands upright in the cradle, chip side toward -X, header at
     # the TOP edge so the plugs point toward the cable slot in the +X wall
     chip_gap=3.0,                          # chip-side parts and header solder tails
@@ -74,13 +75,12 @@ HEAD = dict(
     lid_t=1.5, lip_h=1.5, lip_w=1.2, lid_clear=0.15,
     relief_len=7.0, relief_w=14.0, relief_z0=1.0,
     tie_slot=(3.0, 2.0), tie_cz=11.5, tie_x=4.0,
-    # lid clamp: a snap clip on each long side of the lid, sitting flush in a
-    # recess in the head's outside wall, whose wedge hook clicks into a window
-    # through the wall. Pry the clip's foot out with a fingernail to open.
-    clip_x=3.0, clip_w=6.0, clip_t=1.2, clip_gap=0.15,
-    clip_recess=1.5,                       # wall left behind the clip: 1.0 mm
-    clip_hook=0.8, clip_win=(11.0, 13.0),  # hook depth; window bottom, top (Z)
-    clip_nail=1.5,                         # recess below the clip foot for a fingernail
+    # lid clamp: two rubber bands (or hair ties, about 1 mm thick) round the
+    # head and lid, each in a recessed groove over the lid, down both long
+    # sides and across the base, so the head still fits its dock and the
+    # magnet still sits flat. Replaces snap clips, which broke off in print.
+    band_xs=(-9.5, 9.5),                   # groove centres, clear of the magnet
+    band_w=2.2, band_depth=1.2, band_lid_depth=0.8,
 )
 
 BODY = dict(
@@ -389,42 +389,27 @@ def add_head_extras(comp):
     b.zbox(g['xb0'], -yb, g['xb1'], yb, g['zb0'], top, 'cut', cr)
     b.zbox(g['x0'] - 1.0, -yr, g['xb0'] + 0.1, yr, g['zb0'], top, 'cut', cr)
     b.zbox(g['xb1'] - 0.1, -yr, g['xc1'] + 1.0, yr, g['zb0'], top, 'cut', cr)
-    # header band left open front and back: the 10-pin header runs almost the
-    # full length of the board, so its solder tails and plugs reach the ends
-    b.zbox(g['x0'] - 1.0, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
+    b.zbox(g['xb1'] - 0.1, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
            g['zb1'] - H['header_band'], top, 'cut', cr)
-    add_head_clips(comp)
+    add_band_grooves(comp)
 
 
-def add_head_clips(comp):
-    """Snap clips that clamp the head lid on: one per long (Y) side."""
+def add_band_grooves(comp):
+    """Recessed grooves for the rubber bands that clamp the head lid on."""
     b, H, g = Builder(comp), HEAD, head_geo()
-    T, W2 = g['T'], g['W'] / 2
+    T, W2, lt = g['T'], g['W'] / 2, H['lid_t']
     head = [bd for bd in comp.bRepBodies if bd.name == 'Sensor head'][0]
     lid = [bd for bd in comp.bRepBodies if bd.name == 'Head lid'][0]
-    cx, hw, t, gap = H['clip_x'], H['clip_w'] / 2, H['clip_t'], H['clip_gap']
-    w0, w1 = H['clip_win']
-    yr = W2 - H['clip_recess']                     # recess floor (wall's new outer face)
-    h0, h1 = w0 + 0.15, w1 - 0.15                  # hook, inside the window
-    for sgn in (-1, 1):
-        # recess in the outside wall, open at the top, with fingernail room
-        ya, yb = sorted((sgn * yr, sgn * (W2 + 1.0)))
-        b.zbox(cx - hw - 0.4, ya, cx + hw + 0.4, yb, w0 - H['clip_nail'], T + 0.5, 'cut', head)
-        # window through the wall that is left
-        ya, yb = sorted((sgn * (g['ih'] / 2 - 0.5), sgn * (yr + 0.5)))
-        b.zbox(cx - hw - 0.3, ya, cx + hw + 0.3, yb, w0, w1, 'cut', head)
-        # clip: hangs from the lid, flush with the head's outside
-        yt = sgn * (yr + gap)                      # clip's inner face
-        ya, yb = sorted((yt, yt + sgn * t))
-        b.zbox(cx - hw, ya, cx + hw, yb, T + 0.5, h0, 'join', lid)
-        # wedge hook: flat top catches the window's top edge, slope lets it in
-        sk = b.sketch('x', cx)
-        lines = sk.sketchCurves.sketchLines
-        pts = [b._sp(sk, cx, yt + sgn * 0.05, h1), b._sp(sk, cx, yt - sgn * H['clip_hook'], h1),
-               b._sp(sk, cx, yt + sgn * 0.05, h0)]
-        for i in range(3):
-            lines.addByTwoPoints(pts[i], pts[(i + 1) % 3])
-        b.extrude(sk.profiles.item(0), H['clip_w'], 'join', lid, symmetric=True)
+    hw, dp = H['band_w'] / 2, H['band_depth']
+    for xg in H['band_xs']:
+        x0, x1 = xg - hw, xg + hw
+        b.zbox(x0, -W2 - 1.0, x1, W2 + 1.0, -0.5, dp, 'cut', head)            # base
+        b.zbox(x0, -W2 - 1.0, x1, W2 + 1.0, T + lt - H['band_lid_depth'], T + lt + 0.5,
+               'cut', lid)                                                    # lid top
+        for sgn in (-1, 1):
+            ya, yb = sorted((sgn * (W2 - dp), sgn * (W2 + 1.0)))
+            b.zbox(x0, ya, x1, yb, -0.5, T + 0.5, 'cut', head)                # long sides
+            b.zbox(x0, ya, x1, yb, T - 0.5, T + lt + 0.5, 'cut', lid)
 
 
 # ---------------------------------------------------------------- handheld body
