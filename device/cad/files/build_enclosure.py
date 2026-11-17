@@ -75,12 +75,13 @@ HEAD = dict(
     lid_t=1.5, lip_h=1.5, lip_w=1.2, lid_clear=0.15,
     relief_len=7.0, relief_w=14.0, relief_z0=1.0,
     tie_slot=(3.0, 2.0), tie_cz=11.5, tie_x=4.0,
-    # lid clamp: two rubber bands (or hair ties, about 1 mm thick) round the
-    # head and lid, each in a recessed groove over the lid, down both long
-    # sides and across the base, so the head still fits its dock and the
-    # magnet still sits flat. Replaces snap clips, which broke off in print.
-    band_xs=(-9.5, 9.5),                   # groove centres, clear of the magnet
-    band_w=2.2, band_depth=1.2, band_lid_depth=0.8,
+    # lid clamp: a hidden friction fit. Four small crush ribs on the outside
+    # of the lid's locating lip press into the head's long walls. Pry the lid
+    # off with a fingernail at the notch in the top of the -X end wall.
+    # UNVERIFIED: crush 0.15 mm suits a typical MK4S print. Too tight: shave
+    # the ribs with a knife. Too loose: set 0.25 and reprint the head lid.
+    crush=0.15, crush_xs=(-6.0, 6.0), crush_w=1.0,
+    notch_w=6.0, notch_depth=1.2,
 )
 
 BODY = dict(
@@ -391,25 +392,23 @@ def add_head_extras(comp):
     b.zbox(g['xb1'] - 0.1, -yr, g['xc1'] + 1.0, yr, g['zb0'], top, 'cut', cr)
     b.zbox(g['xb1'] - 0.1, -g['yc'] - 1.0, g['xc1'] + 1.0, g['yc'] + 1.0,
            g['zb1'] - H['header_band'], top, 'cut', cr)
-    add_band_grooves(comp)
+    add_lid_friction_fit(comp)
 
 
-def add_band_grooves(comp):
-    """Recessed grooves for the rubber bands that clamp the head lid on."""
+def add_lid_friction_fit(comp):
+    """Crush ribs on the head lid's lip, and a fingernail notch to pry it off."""
     b, H, g = Builder(comp), HEAD, head_geo()
-    T, W2, lt = g['T'], g['W'] / 2, H['lid_t']
+    T, L = g['T'], g['L']
     head = [bd for bd in comp.bRepBodies if bd.name == 'Sensor head'][0]
     lid = [bd for bd in comp.bRepBodies if bd.name == 'Head lid'][0]
-    hw, dp = H['band_w'] / 2, H['band_depth']
-    for xg in H['band_xs']:
-        x0, x1 = xg - hw, xg + hw
-        b.zbox(x0, -W2 - 1.0, x1, W2 + 1.0, -0.5, dp, 'cut', head)            # base
-        b.zbox(x0, -W2 - 1.0, x1, W2 + 1.0, T + lt - H['band_lid_depth'], T + lt + 0.5,
-               'cut', lid)                                                    # lid top
+    oy = g['ih'] / 2 - H['lid_clear']              # outer face of the lip's long sides
+    rw = H['crush_w'] / 2
+    for xr in H['crush_xs']:
         for sgn in (-1, 1):
-            ya, yb = sorted((sgn * (W2 - dp), sgn * (W2 + 1.0)))
-            b.zbox(x0, ya, x1, yb, -0.5, T + 0.5, 'cut', head)                # long sides
-            b.zbox(x0, ya, x1, yb, T - 0.5, T + lt + 0.5, 'cut', lid)
+            ya, yb = sorted((sgn * (oy - 0.3), sgn * (g['ih'] / 2 + H['crush'])))
+            b.zbox(xr - rw, ya, xr + rw, yb, T + 0.5, T - H['lip_h'], 'join', lid)
+    nw = H['notch_w'] / 2
+    b.zbox(-L / 2 - 0.5, -nw, -g['iw'] / 2 + 0.5, nw, T - H['notch_depth'], T + 0.5, 'cut', head)
 
 
 # ---------------------------------------------------------------- handheld body
@@ -819,8 +818,7 @@ def run_checks(head_comp, body_comp):
         for pn, pb in (('sensor head', head), ('IMU cradle', cradle), ('head lid', hlid)):
             if not (name == 'imu' and pn == 'head lid'):
                 pairs.append((name, d[name], pn, pb))
-    pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid),
-              ('head lid', hlid, 'sensor head', head)]
+    pairs += [('IMU cradle', cradle, 'sensor head', head), ('IMU cradle', cradle, 'head lid', hlid)]
     if 'Bank holder' in bb:
         hold, g = bb['Bank holder'], bank_geo()
         ext_bank = tbox(g['xb0'], g['yb0'], g['zb0'], g['xb1'], g['yb1'], g['zb1'])
@@ -849,6 +847,8 @@ def run_checks(head_comp, body_comp):
     print('expected contacts (mm3): UNO Q x back shell, pins in its holes %.3f; '
           'MPU board x head lid, press rib %.3f; bank x back shell, wall fillet %.3f'
           % (overlap(d['uno'], shell), overlap(d['imu'], hlid), overlap(d['bank'], shell)))
+    print('expected contact (mm3): head lid crush ribs x head walls %.3f (4 ribs, %.2f mm each)'
+          % (overlap(hlid, head), HEAD['crush']))
 
 
 # ---------------------------------------------------------------- entry point
