@@ -38,6 +38,13 @@ Dropped, with the reason:
 
 **For all three:** a method that passes still needs a run on a real recording before it is proposed for `effente/`.
 
+**B on real bearings (Ottawa), added 17 Nov after the simulator runs, before this one.** Each of the 20 bearings' files goes through `datasets/ottawa.py`'s conversion to what our device would record (1 kHz, the MPU's 218 Hz low-pass, its noise). Windows of 1 s every 0.25 s. The dataset gives no bearing geometry, so the true defect rate is unknown. Two measures instead:
+
+- Separation: AUC of envelope prominence, the bearing's healthy file against each of its two fault files. The median over the 40 fault files.
+- Off the shaft orders: the share of files whose most common envelope rate is more than 0.1 of an order from any whole multiple of the running speed. Bearing defects pulse at rates that are not whole multiples; whole multiples read as unbalance or misalignment, which is the naming failure in `OTTAWA_RESULTS.md`.
+
+Passes if: the median AUC rises by 0.1 or more, the off-order share of fault files rises by 20 points or more, and the off-order share of healthy files rises by no more than 10 points (otherwise whitening only turns noise into random peaks).
+
 ## Results
 
 Not run yet.

@@ -1,0 +1,138 @@
+{
+ "seed": 1,
+ "A speed: % of running windows more than 3 % off": {
+  "healthy": {
+   "today": 0.0,
+   "halving": 0.0,
+   "family": 0.0,
+   "windows": 200,
+   "with site neighbour": 121
+  },
+  "misalignment": {
+   "today": 100.0,
+   "halving": 0.0,
+   "family": 0.0,
+   "windows": 200,
+   "with site neighbour": 114
+  },
+  "misalignment subtle": {
+   "today": 9.0,
+   "halving": 0.0,
+   "family": 0.0,
+   "windows": 200,
+   "with site neighbour": 122
+  },
+  "looseness": {
+   "today": 3.0,
+   "halving": 97.0,
+   "family": 0.0,
+   "windows": 200,
+   "with site neighbour": 118
+  },
+  "looseness subtle": {
+   "today": 0.0,
+   "halving": 96.0,
+   "family": 0.0,
+   "windows": 200,
+   "with site neighbour": 109
+  },
+  "unbalance": {
+   "today": 0.0,
+   "halving": 0.0,
+   "family": 0.5,
+   "windows": 200,
+   "with site neighbour": 119
+  },
+  "healthy + tone 0.3 Hz above 1x": {
+   "today": 0.0,
+   "halving": 0.0,
+   "family": 0.0,
+   "windows": 200,
+   "with site neighbour": 119
+  }
+ },
+ "B envelope, per 1 s window": {
+  "healthy median prominence": {
+   "today": 28.29,
+   "whitened": 4.75
+  },
+  "motor_bearing 0.3": {
+   "hit % today": 0.0,
+   "hit % whitened": 60.0,
+   "AUC today": 0.412,
+   "AUC whitened": 0.725,
+   "defect Hz (median)": 104.9
+  },
+  "motor_bearing 1.0": {
+   "hit % today": 71.0,
+   "hit % whitened": 100.0,
+   "AUC today": 0.123,
+   "AUC whitened": 1.0,
+   "defect Hz (median)": 104.9
+  },
+  "idler_bearing 0.3": {
+   "hit % today": 0.0,
+   "hit % whitened": 4.5,
+   "AUC today": 0.652,
+   "AUC whitened": 0.541,
+   "defect Hz (median)": 20.3
+  },
+  "idler_bearing 1.0": {
+   "hit % today": 47.5,
+   "hit % whitened": 88.0,
+   "AUC today": 0.574,
+   "AUC whitened": 0.979,
+   "defect Hz (median)": 20.3
+  }
+ },
+ "C envelope, per minute": {
+  "motor_bearing 0.3 (plain)": {
+   "AUC median of 1 s": 0.334,
+   "AUC averaged 60 s": 0.35,
+   "hit % 1 s": 0.0,
+   "hit % averaged": 0.0
+  },
+  "motor_bearing 1.0 (plain)": {
+   "AUC median of 1 s": 0.041,
+   "AUC averaged 60 s": 0.062,
+   "hit % 1 s": 75.1,
+   "hit % averaged": 76.7
+  },
+  "idler_bearing 0.3 (plain)": {
+   "AUC median of 1 s": 0.573,
+   "AUC averaged 60 s": 0.602,
+   "hit % 1 s": 0.0,
+   "hit % averaged": 0.0
+  },
+  "idler_bearing 1.0 (plain)": {
+   "AUC median of 1 s": 0.557,
+   "AUC averaged 60 s": 0.58,
+   "hit % 1 s": 45.4,
+   "hit % averaged": 56.7
+  },
+  "motor_bearing 0.3 (whitened)": {
+   "AUC median of 1 s": 0.784,
+   "AUC averaged 60 s": 0.996,
+   "hit % 1 s": 52.0,
+   "hit % averaged": 100.0
+  },
+  "motor_bearing 1.0 (whitened)": {
+   "AUC median of 1 s": 1.0,
+   "AUC averaged 60 s": 1.0,
+   "hit % 1 s": 100.0,
+   "hit % averaged": 100.0
+  },
+  "idler_bearing 0.3 (whitened)": {
+   "AUC median of 1 s": 0.872,
+   "AUC averaged 60 s": 0.897,
+   "hit % 1 s": 7.8,
+   "hit % averaged": 70.0
+  },
+  "idler_bearing 1.0 (whitened)": {
+   "AUC median of 1 s": 1.0,
+   "AUC averaged 60 s": 1.0,
+   "hit % 1 s": 88.2,
+   "hit % averaged": 100.0
+  }
+ }
+}
