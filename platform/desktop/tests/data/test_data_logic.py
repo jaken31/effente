@@ -387,7 +387,8 @@ def test_decode_frame():
     f = L.decode_frame(frame("2026-11-14T16:02:11Z", lambda i: 255 if i == 5 else 4, 20, 0.25))
     assert len(f["pixels"]) == 768
     assert f["pixels"][0] == 21
-    assert f["pixels"][5] == 20 + 255 * 0.25
+    assert f["pixels"][5] == 21
+    assert f["pixels"][26] == 20 + 255 * 0.25  # byte 5 of the first row, shown mirrored: column 31 - 5
     assert f["at_ms"] == L.parse_time("2026-11-14T16:02:11Z")
     assert L.decode_frame({"at": "x", "min_c": 20, "step_c": 0.25, "data": base64.b64encode(bytes(10)).decode()}) is None
     assert L.decode_frame({"at": "x", "min_c": 20, "step_c": 0, "data": base64.b64encode(bytes(768)).decode()}) is None
@@ -408,7 +409,7 @@ def test_heat_view():
     assert v["kind"] == "camera"
     assert len(v["frames"]) == 2
     assert [v["max_c"], v["hot_row"], v["hot_col"], v["background_c"], v["scene_match"], v["frozen"]] == [
-        61.2, 9, 21, 25, 0.93, False]
+        61.2, 9, 10, 25, 0.93, False]  # hot_col 21 in the record, shown mirrored: 31 - 21
     g = L.heat_view(rec(heat=cam_heat(frames=...)))
     assert g["kind"] == "camera"
     assert len(g["frames"]) == 0

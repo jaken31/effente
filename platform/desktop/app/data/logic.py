@@ -583,6 +583,21 @@ def _b64_bytes(text):
         return None
 
 
+# The heat picture is shown left-right mirrored (the user, 16 Nov), as on the device's own screen
+# (MLX_MIRROR in the sketch). Display only: records, recordings and models keep the camera's own order.
+# Everything drawn comes through decode_frame and heat_view, so the image, the 8 x 6 grids and the
+# hottest point's column are all turned here and nowhere else.
+HEAT_MIRROR = True
+
+
+def _mirror_rows(values, width: int):
+    """The same rows, each one right to left."""
+    out = values[:]
+    for r in range(0, len(values), width):
+        out[r : r + width] = values[r : r + width][::-1]
+    return out
+
+
 def decode_frame(frame):
     """One contract 3.3 image -> {"at_ms", "pixels": 768 floats in degC (float32, as the JS)},
     or None if it is not 768 bytes with a usable min_c and step_c."""
@@ -595,6 +610,8 @@ def decode_frame(frame):
         return None
     min_c, step_c = frame["min_c"], frame["step_c"]
     pixels = array("f", (min_c + b * step_c for b in raw))
+    if HEAT_MIRROR:
+        pixels = _mirror_rows(pixels, HEAT_W)
     return {"at_ms": parse_time(frame.get("at")), "pixels": pixels}
 
 
@@ -621,10 +638,14 @@ def heat_view(rec) -> dict:
 
     def grid(v):
         ok = isinstance(v, list) and len(v) == HEAT_ROWS * HEAT_COLS and all(_is_num(x) for x in v)
-        return v if ok else None
+        if not ok:
+            return None
+        return _mirror_rows(v, HEAT_COLS) if HEAT_MIRROR else v
 
     frames = [f for f in (decode_frame(x) for x in (h["frames"] if isinstance(h.get("frames"), list) else [])) if f]
     hot_row, hot_col = h.get("hot_row"), h.get("hot_col")
+    if HEAT_MIRROR and _js_is_integer(hot_col) and 0 <= hot_col < HEAT_W:
+        hot_col = HEAT_W - 1 - int(hot_col)
     view = {
         "kind": "camera",
         "imu_temp_c": imu,

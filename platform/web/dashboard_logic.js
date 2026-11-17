@@ -456,6 +456,21 @@
     return out;
   }
 
+  // The heat picture is shown left-right mirrored (the user, 16 Nov), as on the device's own screen
+  // (MLX_MIRROR in the sketch) and in the desktop app (HEAT_MIRROR in logic.py). Display only: records
+  // keep the camera's own order. The image, the 8 x 6 grids and the hottest point's column are all
+  // turned here, in decodeFrame and heatView, and nowhere else.
+  const HEAT_MIRROR = true;
+
+  // The same rows, each one right to left (a new array of the same kind).
+  function mirrorRows(values, width) {
+    const out = values.slice();
+    for (let r = 0; r < values.length; r += width) {
+      for (let c = 0; c < width; c++) out[r + c] = values[r + width - 1 - c];
+    }
+    return out;
+  }
+
   // One contract 3.3 image -> {atMs, pixels: Float32Array(768) in degC}, or
   // null if it is not 768 bytes with a usable min_c and step_c.
   function decodeFrame(frame) {
@@ -464,7 +479,7 @@
     if (!raw || raw.length !== HEAT_W * HEAT_H) return null;
     const px = new Float32Array(raw.length);
     for (let i = 0; i < raw.length; i++) px[i] = frame.min_c + raw[i] * frame.step_c;
-    return { atMs: parseTime(frame.at), pixels: px };
+    return { atMs: parseTime(frame.at), pixels: HEAT_MIRROR ? mirrorRows(px, HEAT_W) : px };
   }
 
   // What the heat panel can draw from a record.
@@ -479,7 +494,11 @@
     const imu = isNum(h.imu_temp_c) ? h.imu_temp_c : null;
     if (h.source === "imu") return { kind: "imu", imuTempC: imu };
     if (h.source !== "camera") return { kind: "bad" };
-    const grid = (v) => (Array.isArray(v) && v.length === HEAT_ROWS * HEAT_COLS && v.every(isNum) ? v : null);
+    const grid = (v) => {
+      if (!(Array.isArray(v) && v.length === HEAT_ROWS * HEAT_COLS && v.every(isNum))) return null;
+      return HEAT_MIRROR ? mirrorRows(v, HEAT_COLS) : v;
+    };
+    const hotCol = Number.isInteger(h.hot_col) && h.hot_col >= 0 && h.hot_col < HEAT_W ? h.hot_col : null;
     const frames = (Array.isArray(h.frames) ? h.frames : []).map(decodeFrame).filter(Boolean);
     const view = {
       kind: "camera",
@@ -487,7 +506,7 @@
       maxC: isNum(h.max_c) ? h.max_c : null,
       backgroundC: isNum(h.background_c) ? h.background_c : null,
       hotRow: Number.isInteger(h.hot_row) && h.hot_row >= 0 && h.hot_row < HEAT_H ? h.hot_row : null,
-      hotCol: Number.isInteger(h.hot_col) && h.hot_col >= 0 && h.hot_col < HEAT_W ? h.hot_col : null,
+      hotCol: hotCol != null && HEAT_MIRROR ? HEAT_W - 1 - hotCol : hotCol,
       cells: grid(h.cells),
       spots: grid(h.spots),
       frozen: h.frozen === true,
