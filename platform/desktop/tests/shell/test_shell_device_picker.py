@@ -94,3 +94,12 @@ def test_nothing_found_says_why(qtbot, finder):
     assert w.status.text() == "1 device found."
     w.reject()
     assert w.result() == QDialog.DialogCode.Rejected
+
+
+def test_its_own_search_asks_near_the_address_connected_to_last(qtbot, monkeypatch):
+    asked = []
+    monkeypatch.setattr(dp.finding, "find", lambda last="": asked.append(last) or [CONVEYOR])
+    w = dp.DevicePicker(last="10.110.213.214", networks=lambda: ["10.110.173.0/24"])
+    qtbot.addWidget(w)
+    qtbot.waitUntil(lambda: w.device_url() == CONVEYOR["url"], timeout=5000)
+    assert asked == ["10.110.213.214"]

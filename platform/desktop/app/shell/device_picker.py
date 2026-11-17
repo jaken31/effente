@@ -1,6 +1,9 @@
 """The pairing window shown before the main window: the devices found on the laptop's network, and
 "No device". The person picks one and presses Pair; Refresh looks again.
 
+The search also asks the addresses near the one connected to last time (`last`), as the Device page's
+Find boards does: on a large network the device is often not near the laptop's own address.
+
 `device_url()` is the picked device's own port (http://ADDRESS:8765) for `ReceiverHost(device_url=...)`,
 or None for "No device". Closing the window without choosing rejects it: main.py then quits.
 """
@@ -24,8 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 TITLE = "Pair a device"
-INTRO = ("Pick the device this laptop reads. Devices on the same WiFi as this laptop show here, and a "
-         "board on USB that is forwarded with adb.")
+INTRO = ("Pick the device this laptop reads. Devices on the same WiFi as this laptop show here, a board "
+         "on USB, and the device connected to last time.")
 NO_DEVICE = "No device"
 NO_DEVICE_SIM = "No device: use the simulated device"
 LOOKING = "Looking for devices on this network…"
@@ -59,11 +62,13 @@ def _label(text: str, role: str, font=None) -> QLabel:
 
 
 class DevicePicker(QDialog):
-    def __init__(self, parent: QWidget | None = None, *, with_sim: bool = True, finder=None, networks=None):
+    def __init__(self, parent: QWidget | None = None, *, with_sim: bool = True, finder=None, networks=None,
+                 last: str = ""):
+        """`last` is the address connected to last time: the addresses near it are asked too."""
         super().__init__(parent)
         self.setWindowTitle(TITLE)
         self.setMinimumSize(460, 380)
-        self.finder = finder or finding.Finder(self)
+        self.finder = finder or finding.Finder(self, find=lambda: finding.find(last=last))
         self.finder.found.connect(self.show_devices)
         self._networks = networks or finding.networks
         self._no_device = NO_DEVICE_SIM if with_sim else NO_DEVICE

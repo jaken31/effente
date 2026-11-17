@@ -34,7 +34,9 @@ def serve(body: bytes):
 
 @pytest.fixture
 def device_port():
-    server, port = serve(json.dumps({"device_id": "uno-q-1", "machine_id": "conveyor-07", "mode": "watching"}).encode())
+    # The shape device/intake/stream.py `latest_json` serves: the status is under "status".
+    status = {"device_id": "uno-q-1", "machine_id": "conveyor-07", "mode": "watching"}
+    server, port = serve(json.dumps({"results": None, "features": None, "events": None, "status": status}).encode())
     yield port
     server.shutdown()
     server.server_close()
@@ -46,7 +48,9 @@ def test_a_device_is_what_answers_latest_with_its_ids(device_port):
         "machine_id": "conveyor-07", "device_id": "uno-q-1"}
 
 
-@pytest.mark.parametrize("body", [b"not json", b"[1, 2]", b'{"mode": "watching"}', b'{"machine_id": ""}'])
+@pytest.mark.parametrize("body", [b"not json", b"[1, 2]", b'{"mode": "watching"}', b'{"machine_id": ""}',
+                                  b'{"status": {"mode": "watching"}}', b'{"status": {"device_id": ""}}',
+                                  b'{"device_id": "uno-q-1", "machine_id": "conveyor-07"}'])  # not under "status"
 def test_another_server_on_the_port_is_not_a_device(body):
     server, port = serve(body)
     try:
@@ -76,6 +80,32 @@ def test_the_addresses_asked_are_the_laptops_local_networks(monkeypatch):
     monkeypatch.setattr(scans_module, "_route_address", lambda: None)
     monkeypatch.setattr(scans_module, "_interface_addresses", list)
     assert devices.networks() == [] and devices.candidates() == [devices.THIS_LAPTOP]
+
+
+def test_the_addresses_near_the_one_last_connected_to_are_asked_too(monkeypatch):
+    """On a large network the device is often in another /24 than the laptop (seen 16 Nov 2026:
+    laptop 10.110.173.89, board 10.110.213.214). The Device page's Find boards asks there too."""
+    monkeypatch.setattr(scans_module, "_route_address", lambda: "10.110.173.89")
+    monkeypatch.setattr(scans_module, "_interface_addresses", lambda: ["10.110.173.89"])
+    hosts = devices.candidates("10.110.213.214")
+    assert len(hosts) == 1 + 253 + 254 and len(set(hosts)) == len(hosts)
+    assert "10.110.213.214" in hosts and "10.110.173.89" not in hosts
+    assert devices.candidates("10.110.173.20") == devices.candidates()  # the same network: asked once
+    assert devices.candidates("not an address !") == devices.candidates()
+
+
+def test_find_asks_a_usb_boards_wifi_address_and_near_the_last(monkeypatch, device_port):
+    asked = []
+    monkeypatch.setattr(devices, "usb_addresses", lambda: ["10.9.8.7"])
+    monkeypatch.setattr(devices, "candidates", lambda last="": ["127.0.0.1", "10.9.8.7", f"near {last}"])
+    monkeypatch.setattr(devices, "probe", lambda host, port: asked.append(host))
+    assert devices.find(port=device_port, last="10.1.2.3") == []
+    assert asked == ["10.9.8.7", "127.0.0.1", "near 10.1.2.3"]
+
+
+def test_the_address_in_a_devices_url():
+    assert devices.host_of("http://10.110.213.214:8765") == "10.110.213.214"
+    assert devices.host_of(None) == "" and devices.host_of("") == ""
 
 
 def test_the_finder_answers_with_the_newest_search_only(qtbot):

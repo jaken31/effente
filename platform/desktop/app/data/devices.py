@@ -1,15 +1,19 @@
 """Find effente devices on the laptop's local network, for the pairing window shown at start.
 
 A device serves its own data on port 8765 (device/intake/stream.py). `find()` asks every address
-of the laptop's local network for `GET /latest` on that port, and this laptop itself (a board on
-USB with `adb forward`). What answers with a device's status is a device.
+of the laptop's local network for `GET /latest` on that port, this laptop itself (a board on
+USB with `adb forward`), the WiFi address a board on USB says it has, and the addresses near the
+one last connected to. What answers with a device's status is a device: the same test as the
+Device page's Find boards (app/data/find_boards.py `probe`), so both find the same boards.
 
 Limits, as built:
   - Only the 254 addresses that share the laptop's first three numbers (a /24) are asked, whatever
-    the network's real size. A device elsewhere on a larger network is not found.
+    the network's real size. A device elsewhere on a larger network is found only when it is on
+    USB too, or near the address last connected to.
   - A network that keeps its clients apart (many guest and campus WiFis) lets nothing answer.
   - IPv4 only.
-UNVERIFIED on a real board: run only against a stand-in server in the tests.
+On 16 Nov 2026 it found the real board on a university WiFi, through the address last connected
+to (the board was in another /24 than the laptop). The USB way is UNVERIFIED on a real board.
 
 Standard library and Qt only.
 """
@@ -17,15 +21,12 @@ Standard library and Qt only.
 from __future__ import annotations
 
 import ipaddress
-import json
-import socket
 import threading
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal
 
-from . import scans
+from . import find_boards, scans
 
 DEVICE_PORT = 8765  # device/intake/stream.py
 CONNECT_TIMEOUT_S = 0.4  # a laptop on the same WiFi answers a connect well inside this
@@ -45,36 +46,42 @@ def networks() -> list:
     return out
 
 
-def candidates() -> list:
-    """Every address to ask: this laptop first, then each local network's, without the laptop's own."""
+def candidates(last: str = "") -> list:
+    """Every address to ask: this laptop first, then each local network's, then those near `last`
+    (the address last connected to, app/data/device_address.py ADDRESS_KEY). Never the laptop's own."""
     own = set(scans._interface_addresses())
     hosts = [THIS_LAPTOP]
     for network in networks():
         hosts += [str(h) for h in network.hosts() if str(h) not in own]
-    return hosts
+    seen = own | set(hosts)
+    return hosts + [h for h in find_boards.nearby([], last) if h not in seen]
+
+
+def usb_addresses() -> list:
+    """The WiFi address of each board on USB, as the board says it (through adb). Empty without adb."""
+    try:
+        return [address for _serial, address in find_boards.usb_boards()]
+    except Exception:  # noqa: BLE001  an adb that fails is no board on USB
+        return []
 
 
 def probe(host: str, port: int = DEVICE_PORT) -> dict | None:
     """The device at this address, or None when nothing answers as one. A device is whatever gives
-    its status on `/latest` with a machine id or a device id (device/intake/stream.py)."""
-    try:
-        socket.create_connection((host, port), timeout=CONNECT_TIMEOUT_S).close()
-        with urllib.request.urlopen(f"http://{host}:{port}/latest", timeout=READ_TIMEOUT_S) as reply:
-            status = json.loads(reply.read(1_000_000))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(status, dict):
+    a status with a device id under "status" on `/latest` (device/intake/stream.py `latest_json`):
+    find_boards.probe reads it, the one place that knows the reply's shape."""
+    status = find_boards.probe(host, port, CONNECT_TIMEOUT_S, READ_TIMEOUT_S)
+    if status is None:
         return None
     ids = {k: status[k] for k in ("machine_id", "device_id") if isinstance(status.get(k), str) and status[k]}
-    if not ids:
-        return None
     mode = status.get("mode")
     return {"url": f"http://{host}:{port}", "host": host, "mode": mode if isinstance(mode, str) else "", **ids}
 
 
-def find(hosts=None, port: int = DEVICE_PORT) -> list:
-    """The devices that answer, in the order of `hosts` (default `candidates()`). Takes a few seconds."""
-    hosts = candidates() if hosts is None else list(hosts)
+def find(hosts=None, port: int = DEVICE_PORT, last: str = "") -> list:
+    """The devices that answer, in the order of `hosts`. By default those are the WiFi addresses of
+    the boards on USB, then `candidates(last)`. Takes a few seconds."""
+    if hosts is None:
+        hosts = list(dict.fromkeys([*usb_addresses(), *candidates(last)]))
     if not hosts:
         return []
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -113,3 +120,8 @@ class Finder(QObject):
         """Drop the search that is running: its result is not sent."""
         self._search += 1
         self.searching = False
+
+
+def host_of(url) -> str:
+    """The address in a device's URL as `probe` gives it: "10.0.0.7" of "http://10.0.0.7:8765". "" for None."""
+    return str(url).split("//", 1)[-1].rsplit(":", 1)[0] if url else ""
