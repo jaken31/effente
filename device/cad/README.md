@@ -54,6 +54,27 @@ Print it floor down, as exported, with no supports. The latch tongues must flex,
 
 With the tray on, the handheld is about 147 x 145 mm and the bank adds 360 g on the right.
 
+## 2x conveyor
+
+`files/build_conveyor_2x.py` builds the same conveyor at twice the size (400 x 144 x 78 mm, 60 mm rollers, 80 mm belt), still driven by the TT motor. The 1x conveyor above is unchanged.
+
+| File | Qty | Settings | Orientation |
+|------|-----|----------|-------------|
+| `conveyor2x_frame_half_A.stl` | 1 | 15-20% gyroid, 4 walls | As exported, base down (one printer) |
+| `conveyor2x_frame_half_B.stl` | 1 | 15-20% gyroid, 4 walls | As exported, base down (the other printer) |
+| `conveyor2x_drive_roller_gear.stl` | 1 | 4 walls, 15% gyroid, brim; supports on, build plate only | Standing, gear end down |
+| `conveyor2x_idle_roller.stl` | 1 | 4 walls, 15% gyroid, brim; supports on, build plate only | Standing |
+| `conveyor2x_pinion.stl` | 1 | 100% | Flat |
+| `conveyor2x_motor_bracket.stl` | 1 | 100% | As exported, foot down |
+
+Buy or use from stock: 5 M3 x 20 bolts and nuts (frame joint), 2 M3 x 8-10 bolts and nuts (motor bracket, the loose-mount fault), 2 zip ties, a 20 mm steel disc, and duct tape for the belt (about 816 mm loop, 80 mm wide, folded sticky-side in). The belt is too big to print as one TPU tube on a 250 x 210 bed.
+
+Assembly: bolt the two frame halves together through the joint blocks (nuts in the hex pockets on half A, bolt heads in the counterbores on half B). Push the pinion onto the TT motor shaft, zip-tie the motor into the bracket, and bolt the bracket to the pad on half A. Drop both rollers into their slots, with the drive roller's gear outside wall A meshing with the pinion. Then fit the belt.
+
+Drive: the 30-tooth gear on the drive roller and the 15-tooth pinion give 2:1, so the belt gets the same pull and speed as the 1x direct drive. Power the motor from 9 V: two 9 V batteries **in parallel** (+ to +, - to -), not in series. 18 V is over the TB6612's limit and far over the TT motor's 3-6 V rating; 9 V is already above that rating, so expect the motor to wear faster.
+
+Not checked: nobody has measured the TT motor's torque, and the 2x belt and rollers add friction. Before printing everything, run the motor at 9 V and press on the 1x belt: if it stalls easily, use a bigger 9-12 V gear motor instead. Gear teeth are module 1.5 with 0.1 mm backlash per gear; if they bind, scale the pinion to 99% in X and Y.
+
 ## Not yet measured
 
 TT motor shaft and gearbox, button cap height, the OLED's glass-to-PCB thickness, and the height of the sockets under the UNO Q. See the UNVERIFIED notes in each script.
