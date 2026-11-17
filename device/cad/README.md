@@ -32,6 +32,14 @@ One of each. Material PETG or PLA, except the belt.
 
 Print the drive roller first and check it fits the TT motor shaft.
 
+### L-slots (rollers lock in)
+
+The roller pins sit in L-shaped slots, so a driven roller cannot climb out. The long leg is a little nearer the other roller; the short leg runs toward the frame's end and ends in a pocket 1.5 mm deep (2 mm on the 2x conveyor). Drop the pin down the long leg, push the roller outward along the short leg (this tightens the belt), and it drops into the pocket. Belt tension pulls sideways, and the pin would have to lift to get out. To remove a roller, lift it slightly, slide it inward, and lift it out.
+
+- Idle roller: both ends in L-slots.
+- Drive roller (1x): only its wall-B pin has an L-slot; the motor shaft holds the wall-A end. Fit it with the motor bracket unbolted: push the roller onto the motor shaft, drop the hub into the wall-A slot and the pin into the wall-B long leg (the motor turns slightly), swing the pin end outward into the pocket so the motor straightens, then bolt the bracket down.
+- A frame printed before the L-slots has straight slots; reprint `conveyor_frame.stl` to get them.
+
 ## Measured parts
 
 - **MPU board:** measured about 25 x 15 mm (10 mm thick with its header), but a cradle sized for the listing's 26.2 x 15.6 mm held it better, so the IMU cradle is built for 26.2 x 15.6 again, with full-height front lips and only the back of the header band open. The sensor head stays 29 x 33.5 x 21.5 mm, so it still fits the dock in the front lid.
@@ -53,6 +61,29 @@ The bank lies flat, display up, USB-C end at the top of the device, so its batte
 Print it floor down, as exported, with no supports. The latch tongues must flex, so PETG is better than PLA here.
 
 With the tray on, the handheld is about 147 x 145 mm and the bank adds 360 g on the right.
+
+## 2x conveyor
+
+`files/build_conveyor_2x.py` builds the same conveyor at twice the size (400 x 144 x 78 mm, 60 mm rollers, 80 mm belt), still driven by the TT motor. The 1x conveyor above is unchanged.
+
+| File | Qty | Settings | Orientation |
+|------|-----|----------|-------------|
+| `conveyor2x_frame_half_A.stl` | 1 | 15-20% gyroid, 4 walls | As exported, base down (one printer) |
+| `conveyor2x_frame_half_B.stl` | 1 | 15-20% gyroid, 4 walls | As exported, base down (the other printer) |
+| `conveyor2x_drive_roller_gear.stl` | 1 | 4 walls, 15% gyroid, brim; supports on, build plate only | Standing, gear end down |
+| `conveyor2x_idle_roller.stl` | 1 | 4 walls, 15% gyroid, brim; supports on, build plate only | Standing |
+| `conveyor2x_pinion.stl` | 1 | 100% | Flat |
+| `conveyor2x_motor_bracket.stl` | 1 | 100% | As exported, foot down |
+
+Buy or use from stock: 5 M3 x 20 bolts and nuts (frame joint), 2 M3 x 8-10 bolts and nuts (motor bracket, the loose-mount fault), 2 zip ties, a 20 mm steel disc, and duct tape for the belt (about 816 mm loop, 80 mm wide, folded sticky-side in). The belt is too big to print as one TPU tube on a 250 x 210 bed.
+
+Assembly: bolt the two frame halves together through the joint blocks (nuts in the hex pockets on half A, bolt heads in the counterbores on half B). Push the pinion onto the TT motor shaft, zip-tie the motor into the bracket, and bolt the bracket to the pad on half A. Drop both rollers into their slots, with the drive roller's gear outside wall A meshing with the pinion. Then fit the belt.
+
+Rollers: all four pin slots are L-slots (see above). Fit the drive roller before the motor bracket, since the pinion is in the way while the roller is in the long leg; then bolt the bracket on so the pinion meshes.
+
+Drive: the 30-tooth gear on the drive roller and the 15-tooth pinion give 2:1, so the belt gets the same pull and speed as the 1x direct drive. Power the motor from 9 V: two 9 V batteries **in parallel** (+ to +, - to -), not in series. 18 V is over the TB6612's limit and far over the TT motor's 3-6 V rating; 9 V is already above that rating, so expect the motor to wear faster.
+
+Not checked: nobody has measured the TT motor's torque, and the 2x belt and rollers add friction. Before printing everything, run the motor at 9 V and press on the 1x belt: if it stalls easily, use a bigger 9-12 V gear motor instead. Gear teeth are module 1.5 with 0.1 mm backlash per gear; if they bind, scale the pinion to 99% in X and Y.
 
 ## Not yet measured
 

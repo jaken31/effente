@@ -5,7 +5,7 @@ machine to diagnose, following conveyor-build-guide.md (3D-printed route)
 but sized for the parts the team has: one yellow TT gear motor.
 
   Frame          One printed part: base, two side walls, a slider bed under
-                 the top belt run, U-slots the roller pins drop into, a pad
+                 the top belt run, L-slots that lock the roller pins, a pad
                  for the motor bracket, and a pocket for the steel probe disc
                  on wall B. No bearings: the printed pins run in the slots
                  (a dab of grease or Vaseline helps).
@@ -55,7 +55,8 @@ F = dict(
     wall_windows=True, win_rail_bot=5.0, win_rail_top=6.0, win_post=8.0,
     win_a=((38.0, 80.0), (88.0, 126.0), (134.0, 168.0)),     # wall A, x ranges
     win_b=((38.0, 42.0), (82.0, 122.0), (130.0, 168.0)),     # wall B (probe panel 44-80)
-    pin_slot=5.4,                           # U-slots the roller pins drop into
+    pin_slot=5.4,                           # L-slots the roller pins drop into
+    slot_toe=6.0, slot_dip=1.5,             # short leg toward the frame end; pocket depth
     hub_slot=11.0,                          # wall A slot the drive hub passes through
     probe_x=60.0, disc_d=20.1, disc_depth=2.0,
     # pad outside wall A that the motor bracket bolts to
@@ -256,6 +257,22 @@ def tt_geo():
     return g
 
 
+def cut_l_slot(b, frame, xf, out, y0, y1, width):
+    """L-slot through a wall (y0-y1): drop the pin down the long leg, roll it
+    outward (out = -1 or +1, toward the frame's end) along the short leg, and
+    it drops slot_dip into a pocket at its working position (xf, axis_z).
+    Belt tension pulls sideways; to leave, the pin would have to lift first."""
+    az, T, toe, dip = F['axis_z'], F['top'], F['slot_toe'], F['slot_dip']
+    xe = xf - out * toe                         # long leg, nearer the other roller
+    zc = az + dip                               # short leg runs just above the pocket
+    ya, yb = y0 - 0.5, y1 + 0.5
+    b.ycyl(xf, az, width, ya, yb, 'cut', frame)                     # pocket
+    b.ybox(min(xf, xe), max(xf, xe), zc - width / 2, zc + width / 2, ya, yb, 'cut', frame)
+    b.ycyl(xf, zc, width, ya, yb, 'cut', frame)
+    b.ycyl(xe, zc, width, ya, yb, 'cut', frame)
+    b.ybox(xe - width / 2, xe + width / 2, zc, T + 1, ya, yb, 'cut', frame)   # long leg
+
+
 # ---------------------------------------------------------------- frame
 def build_frame(comp):
     b = Builder(comp)
@@ -285,12 +302,12 @@ def build_frame(comp):
             wx = x0 + i * (ww + bar)
             b.zbox(wx, t + rim / 2, wx + ww, W - t - rim / 2, -0.5, F['base_t'] + 0.5, 'cut', frame)
 
-    # U-slots: drive pin in wall B, idle pins in both walls
+    # L-slots: drive pin in wall B, idle pins in both walls (the motor shaft
+    # holds the drive roller's wall-A end)
     ps = F['pin_slot']
-    for x, (y0, y1) in ((F['drive_x'], (W - t, W)),
-                        (F['idle_x'], (0, t)), (F['idle_x'], (W - t, W))):
-        b.ybox(x - ps / 2, x + ps / 2, az, T + 1, y0 - 0.5, y1 + 0.5, 'cut', frame)
-        b.ycyl(x, az, ps, y0 - 0.5, y1 + 0.5, 'cut', frame)
+    for x, out, (y0, y1) in ((F['drive_x'], -1, (W - t, W)),
+                             (F['idle_x'], 1, (0, t)), (F['idle_x'], 1, (W - t, W))):
+        cut_l_slot(b, frame, x, out, y0, y1, ps)
     # wider U-slot in wall A for the drive roller's hub (the motor shaft
     # carries that end, the hub just passes through)
     hs = F['hub_slot']
