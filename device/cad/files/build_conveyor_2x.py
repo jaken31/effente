@@ -95,6 +95,18 @@ BRACKET = dict(
     tie_w=4.0, tie_h=2.0, tie_xs=(30.0, 42.0),   # zip ties, clear of the pinion
 )
 
+# Slot caps: the roller pins sit in open-topped U-slots, and the gear mesh and
+# belt can lift a roller out of them. Each cap straddles the top of the wall
+# over a slot, a tongue fills the slot to just above the pin, and one M3 x 12
+# bolt through the cap and the wall holds it. The bolt sits beside the slot,
+# toward the frame's end, clear of the gear.
+CAP = dict(
+    slots=(('drive, wall A', 'drive_x', 'A'), ('drive, wall B', 'drive_x', 'B'),
+           ('idle, wall A', 'idle_x', 'A'), ('idle, wall B', 'idle_x', 'B')),
+    bolt_off=30.0, bolt_d=3.4, leg_w=12.0, leg_h=10.0, leg_t=1.5, top_t=3.0,
+    clear=0.15, pin_gap=0.3,
+)
+
 MM = 0.1  # Fusion API works in cm
 
 
@@ -355,6 +367,8 @@ def build_frame(comp):
     # probe point: steel disc pocket on wall B's outer face
     b.ycyl(F['probe_x'], az, F['disc_d'], W - F['disc_depth'], W + 0.5, 'cut', frame)
 
+    cut_cap_bolt_holes(b, frame)
+
     # split into the two printed halves
     spin = b.f.splitBodyFeatures.createInput(frame, b.plane('x', sx), True)
     b.f.splitBodyFeatures.add(spin)
@@ -458,6 +472,48 @@ def build_bracket(comp):
     return body
 
 
+# ---------------------------------------------------------------- slot caps
+def cap_slots():
+    """(name, slot x, wall 'A' or 'B', bolt x) for each capped slot."""
+    k = CAP
+    out = []
+    for name, x, wall in k['slots']:
+        sgn = -1 if F[x] < F['length'] / 2 else 1        # bolt toward the frame's end
+        out.append((name, F[x], wall, F[x] + sgn * k['bolt_off']))
+    return out
+
+
+def cap_wall_y(wall):
+    t, W = F['wall'], F['width']
+    return (0.0, t) if wall == 'A' else (W - t, W)
+
+
+def cut_cap_bolt_holes(b, frame):
+    k = CAP
+    for _name, _sx, wall, bx in cap_slots():
+        wy0, wy1 = cap_wall_y(wall)
+        b.ycyl(bx, F['top'] - k['leg_h'] / 2, k['bolt_d'], wy0 - 0.5, wy1 + 0.5, 'cut', frame)
+
+
+def build_slot_caps(comp):
+    b, k = Builder(comp), CAP
+    T, ps, c, lt, lw, lh = F['top'], F['pin_slot'], k['clear'], k['leg_t'], k['leg_w'], k['leg_h']
+    caps = []
+    for name, sx, wall, bx in cap_slots():
+        wy0, wy1 = cap_wall_y(wall)
+        x0, x1 = min(sx - ps / 2 - 2.0, bx - lw / 2), max(sx + ps / 2 + 2.0, bx + lw / 2)
+        ya, yb = wy0 - c - lt, wy1 + c + lt
+        body = first_body(b.zbox(x0, ya, x1, yb, T, T + k['top_t'], 'new'),
+                          'Slot cap (%s)' % name)
+        for ly0, ly1 in ((ya, wy0 - c), (wy1 + c, yb)):          # legs either side of the wall
+            b.zbox(bx - lw / 2, ly0, bx + lw / 2, ly1, T - lh, T + 0.01, 'join', body)
+        tz0 = F['axis_z'] + ROLLER['pin_d'] / 2 + k['pin_gap']   # tongue stops just above the pin
+        b.zbox(sx - ps / 2 + c, wy0, sx + ps / 2 - c, wy1, tz0, T + 0.01, 'join', body)
+        b.ycyl(bx, T - lh / 2, k['bolt_d'], ya - 0.5, yb + 0.5, 'cut', body)
+        caps.append(body)
+    return caps
+
+
 # ---------------------------------------------------------------- checks
 def tbox(x0, y0, z0, x1, y1, z1):
     tm = adsk.fusion.TemporaryBRepManager.get()
@@ -524,6 +580,11 @@ def run_checks(bodies):
                   ('bolt head %d x gearbox' % i, h, d['gearbox'])]
     for i, tie in enumerate(d['ties']):
         pairs += [('zip tie %d x pinion' % i, tie, pn), ('zip tie %d x roller gear' % i, tie, dr)]
+    for cp in bodies['caps']:
+        for nm, other in (('frame A', fa), ('frame B', fb), ('drive roller', dr), ('idle roller', ir),
+                          ('belt', belt), ('bracket', br), ('pinion', pn), ('gearbox', d['gearbox']),
+                          ('docked head', d['head'])):
+            pairs.append(('%s x %s' % (cp.name, nm), cp, other))
     bad = 0
     for name, a, b2 in pairs:
         vol = overlap(a, b2)
@@ -551,12 +612,13 @@ def run(_context: str):
         belt=build_belt(new_comp(root, 'Belt (reference)')),
         bracket=build_bracket(new_comp(root, 'Motor bracket')),
     )
+    bodies['caps'] = build_slot_caps(new_comp(root, 'Slot caps'))
     app.activeViewport.fit()
 
     bad = [t.name for t in design.timeline if t.healthState != 0]
     print('timeline items with problems:', bad or 'none')
     flat = [bodies['frame']['a'], bodies['frame']['b']] + \
-        [bodies[k] for k in ('drive', 'idle', 'pinion', 'belt', 'bracket')]
+        [bodies[k] for k in ('drive', 'idle', 'pinion', 'belt', 'bracket')] + bodies['caps']
     for bd in flat:
         bb = bd.boundingBox
         size = [round((getattr(bb.maxPoint, a) - getattr(bb.minPoint, a)) * 10, 1)

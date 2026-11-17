@@ -32,6 +32,13 @@ One of each. Material PETG or PLA, except the belt.
 
 Print the drive roller first and check it fits the TT motor shaft.
 
+### Slot caps (stop a roller climbing out of its slot)
+
+The roller pins sit in open-topped U-slots, and a driven roller can climb out of them. A slot cap straddles the top of the wall over a slot: a tongue fills the slot to 0.3 mm above the pin, and one M3 x 12 bolt and nut through the cap and the wall hold it. Fit the caps after the rollers are in.
+
+- 1x conveyor: `conveyor_slot_cap_drive_B.stl`, `conveyor_slot_cap_idle_A.stl`, `conveyor_slot_cap_idle_B.stl` (the motor shaft holds the drive roller's wall-A end). Print bridge face down, 100% infill, no supports.
+- `conveyor_frame.stl` now has the bolt holes. A frame printed before this has none: hold each cap in place and drill 3.4 mm through the wall using the cap's hole as the guide (the hole sits 14 mm from the slot centre, toward the frame's end, 4 mm below the wall top).
+
 ## Measured parts
 
 - **MPU board:** measured about 25 x 15 mm (10 mm thick with its header), but a cradle sized for the listing's 26.2 x 15.6 mm held it better, so the IMU cradle is built for 26.2 x 15.6 again, with full-height front lips and only the back of the header band open. The sensor head stays 29 x 33.5 x 21.5 mm, so it still fits the dock in the front lid.
@@ -70,6 +77,8 @@ With the tray on, the handheld is about 147 x 145 mm and the bank adds 360 g on 
 Buy or use from stock: 5 M3 x 20 bolts and nuts (frame joint), 2 M3 x 8-10 bolts and nuts (motor bracket, the loose-mount fault), 2 zip ties, a 20 mm steel disc, and duct tape for the belt (about 816 mm loop, 80 mm wide, folded sticky-side in). The belt is too big to print as one TPU tube on a 250 x 210 bed.
 
 Assembly: bolt the two frame halves together through the joint blocks (nuts in the hex pockets on half A, bolt heads in the counterbores on half B). Push the pinion onto the TT motor shaft, zip-tie the motor into the bracket, and bolt the bracket to the pad on half A. Drop both rollers into their slots, with the drive roller's gear outside wall A meshing with the pinion. Then fit the belt.
+
+Slot caps: 4 (`conveyor2x_slot_cap_*.stl`), one over each roller slot, each with an M3 x 12 bolt and nut; the frame halves have the holes. Print bridge face down, 100% infill, no supports.
 
 Drive: the 30-tooth gear on the drive roller and the 15-tooth pinion give 2:1, so the belt gets the same pull and speed as the 1x direct drive. Power the motor from 9 V: two 9 V batteries **in parallel** (+ to +, - to -), not in series. 18 V is over the TB6612's limit and far over the TT motor's 3-6 V rating; 9 V is already above that rating, so expect the motor to wear faster.
 
