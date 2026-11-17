@@ -354,3 +354,17 @@ def test_a_device_with_no_image_is_not_asked_four_times_a_second():
         link.heat_step()
         link.heat_step()
     assert asked == ["http://device/heat"] * 2
+
+
+def test_an_answer_with_no_image_is_asked_again_sooner_than_no_answer(monkeypatch):
+    """A real board's images come unevenly (16 Nov 2026: 1 to 13 s apart): the next one is not waited 5 s for."""
+    link = dl.DeviceLink("http://device", "http://platform", log=lambda m: None, on_heat=lambda m, f: None)
+    link.machine_id = "conveyor-07"
+    monkeypatch.setattr(dl.time, "monotonic", lambda: 100.0)
+    link._get = lambda url: {"ok": True, "frames": []}
+    link.heat_step()
+    assert link._heat_wait_until == 100.0 + dl.HEAT_EMPTY_RETRY_S
+    link._heat_wait_until = 0.0
+    link._get = lambda url: None
+    link.heat_step()
+    assert link._heat_wait_until == 100.0 + dl.HEAT_RETRY_S and dl.HEAT_EMPTY_RETRY_S < dl.HEAT_RETRY_S

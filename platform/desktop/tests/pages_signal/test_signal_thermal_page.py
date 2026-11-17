@@ -276,7 +276,7 @@ def test_the_boards_images_show_when_its_records_carry_no_camera_summary(page):
     st.push("record", next_record(st, heat=summary))  # a record with the camera's summary: its own numbers again
     assert not p._view.get("from_image")
     st.push("record", next_record(st, heat={"source": "imu", "imu_temp_c": 28.3}))
-    p._live_at -= 10  # the board's images stopped
+    p._live_at -= 60  # the board's images stopped
     st.push("record", next_record(st, heat={"source": "imu", "imu_temp_c": 28.3}))
     assert p.is_empty()
 

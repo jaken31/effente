@@ -350,6 +350,6 @@ def test_the_boards_own_image_shows_when_the_record_has_no_camera_image(live, st
     assert not live.heat_image.isHidden() and live.heat_empty.isHidden()
     state.push("record", dict(state.latest(), seq=state.latest()["seq"] + 1))
     assert not live.heat_image.isHidden()  # the next such record leaves the board's image on screen
-    live._heat_live_at -= 10  # the board's images stopped
+    live._heat_live_at -= 60  # the board's images stopped
     state.push("record", dict(state.latest(), seq=state.latest()["seq"] + 1))
     assert live.heat_image.isHidden() and not live.heat_empty.isHidden()

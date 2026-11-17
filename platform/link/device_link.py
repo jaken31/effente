@@ -60,7 +60,10 @@ LOG_REPEAT_S = 30.0
 NO_HEAT_ADDRESS_S = 30.0  # a device whose port has no /heat is asked again this often
 MAX_FRAMES = 2  # images in one message (contract section 2)
 HEAT_POLL_S = 0.25  # on_heat: how often the device is asked for a new image (the camera gives 2 a second)
-HEAT_RETRY_S = 5.0  # on_heat: after no answer or no image, asked again this much later
+HEAT_RETRY_S = 5.0  # on_heat: after no answer, asked again this much later
+# on_heat: the device answered with no image under 3 s old. Asked again this soon, because a real board's
+# images come unevenly (16 Nov 2026: 1 to 13 s apart, a third of the answers empty) and 5 s lost the next ones.
+HEAT_EMPTY_RETRY_S = 1.0
 WALL_CLOCK_AFTER_S = 1e9  # as device/intake: above this, a device time is Unix time
 CHECK_IN_MODES = ("display", "calibrating", "recording", "training")
 QUIET = ("normal", "warming_up", "stopped")  # diagnoses that are not "something is wrong"
@@ -344,8 +347,8 @@ class DeviceLink:
 
     def heat_step(self) -> None:
         """Hand on_heat the device's images it has not had yet. Asked only once the device's status has
-        named its machine; a device that does not answer `/heat`, or has no image, is asked again
-        HEAT_RETRY_S later."""
+        named its machine; a device that does not answer `/heat` is asked again HEAT_RETRY_S later,
+        one that answers with no image HEAT_EMPTY_RETRY_S later."""
         machine = self.machine_id
         if self.on_heat is None or machine is None or time.monotonic() < self._heat_wait_until:
             return
@@ -353,7 +356,8 @@ class DeviceLink:
         new = new_frames(got, self._heat_at)
         if not new:
             if not (isinstance(got, dict) and got.get("frames")):  # no answer, no camera, or its images are old
-                self._heat_wait_until = time.monotonic() + HEAT_RETRY_S
+                answered = isinstance(got, dict) and isinstance(got.get("frames"), list)
+                self._heat_wait_until = time.monotonic() + (HEAT_EMPTY_RETRY_S if answered else HEAT_RETRY_S)
             return
         self._heat_at = new[-1]["at"]
         self.on_heat(machine, new)

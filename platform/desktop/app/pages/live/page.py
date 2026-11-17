@@ -29,7 +29,7 @@ from ...theme import tokens as t
 from ...widgets import DataTable, Panel, Pill
 from ..spectrum.band_chart import BandChart, baseline_from
 from ..thermal.heat_image import ColourBar, HeatImage
-from ..thermal.page import LIVE_HOLD_S
+from ..thermal.page import IMAGE_HOLD_S, LIVE_HOLD_S
 from .charts import DiagnosisBand
 from .common import (
     clock,
@@ -264,7 +264,7 @@ class LivePage(QWidget):
             self.heat_image.show()
             self.heat_bar.show()
             self.heat_empty.hide()
-        elif time.monotonic() - self._heat_live_at < LIVE_HOLD_S:
+        elif time.monotonic() - self._heat_live_at < IMAGE_HOLD_S:
             return  # no camera image in the record, but the board's own image is on screen (_live_heat)
         else:
             self.heat_image.clear()

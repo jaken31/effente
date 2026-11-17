@@ -79,6 +79,9 @@ def _legend_item(color: QColor, text: str) -> QWidget:
 
 
 LIVE_HOLD_S = 1.5  # after the board's last own image, a record's images are played again
+# With no camera summary in the records the board's own image is all there is, and it stays this long
+# after it came. Measured on the real board on 16 Nov 2026: a new image every 1 to 13 s, not 2 a second.
+IMAGE_HOLD_S = 20.0
 
 
 class ThermalPage(QWidget):
@@ -301,7 +304,8 @@ class ThermalPage(QWidget):
             self._redraw()
 
     def _is_live(self) -> bool:
-        return self._live is not None and time.monotonic() - self._live_at < LIVE_HOLD_S
+        hold = LIVE_HOLD_S if self._record_has_camera else IMAGE_HOLD_S
+        return self._live is not None and time.monotonic() - self._live_at < hold
 
     def _frame(self) -> dict | None:
         """The image on screen: the board's own while those come, else the record's frame that is due."""
