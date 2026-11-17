@@ -66,3 +66,9 @@ def test_auc():
     assert L.auc([0, 1], [2, 3]) == 1.0
     assert L.auc([2, 3], [0, 1]) == 0.0
     assert L.auc([1, 1], [1, 1]) == 0.5
+
+
+def test_family_skips_twice_mains_hum():
+    a = _tones([(30.3, 0.01, 0), (60.6, 0.004, 1), (91.0, 0.006, 0), (120.0, 0.05, 0)])  # a 120 Hz hum on top
+    assert L.today(a)[L.F.INDEX["vib_speed_hz"]] > 115  # today's tracker reads the hum
+    assert abs(L.speed_family(a) - 30.3) < 1.0

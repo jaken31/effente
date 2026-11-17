@@ -123,21 +123,31 @@ def speed_halving(a: np.ndarray, rate: float = ACCEL_HZ) -> float:
     return sp / 2 if _level_at(total, f, sp / 2, f[1] - f[0]) > F.MIN_PROMINENCE * med else sp
 
 
-def speed_family(a: np.ndarray, rate: float = ACCEL_HZ) -> float:
+TWICE_LINE_HZ = (100.0, 120.0)  # magnetic vibration at twice the mains frequency: electrical, never a shaft speed
+V1 = dict(divisors=(1, 2, 3), n_peaks=4, skip_hz=())  # the version the bars were written for (RESULTS.md)
+V2 = dict(divisors=(1, 2, 3, 4), n_peaks=6, skip_hz=TWICE_LINE_HZ)  # after the Ottawa run (RESULTS.md)
+
+
+def speed_family(a: np.ndarray, rate: float = ACCEL_HZ, divisors=V2["divisors"], n_peaks: int = V2["n_peaks"],
+                 skip_hz=V2["skip_hz"]) -> float:
     """The candidate whose first HARMONICS multiples hold the most vibration on average.
 
-    Candidates are the clear peaks and their halves and thirds. A candidate must itself be a clear peak, and
-    the score is the mean over its multiples, so half the true speed (whose odd multiples are empty) loses to
-    the true speed, and the true speed wins over its own 2x when 1x and 3x are present at all."""
+    Candidates are the clear peaks and these fractions of them (`divisors`). A candidate must itself be a clear
+    peak, and the score is the mean over its multiples, so half the true speed (whose odd multiples are empty)
+    loses to the true speed, and the true speed wins over its own 2x when 1x and 3x are present at all.
+    Bins at `skip_hz` (twice mains) are zeroed first: on the Ottawa rig a 120 Hz hum is the strongest peak.
+    A drive run above mains frequency by an inverter could put its real speed there (unverified case)."""
     total, f = spectrum(a, rate)
     df = f[1] - f[0]
+    for hz in skip_hz:
+        total = np.where(np.abs(f - hz) <= 1.5 * df, 0.0, total)
     lo_hz, hi_hz = F.SPEED_SEARCH_HZ
     sel = (f >= lo_hz) & (f <= hi_hz)
     med = float(np.median(total[sel]))
-    peaks = [p for p, _ in F.strongest_peaks(total, f, lo_hz, hi_hz, n=4) if p > 0]
+    peaks = [p for p, _ in F.strongest_peaks(total, f, lo_hz, hi_hz, n=n_peaks) if p > 0]
     if not peaks:
         return 0.0
-    cands = {round(c, 3) for p in peaks for c in (p, p / 2, p / 3) if lo_hz <= c <= hi_hz}
+    cands = {round(p / d, 3) for p in peaks for d in divisors if lo_hz <= p / d <= hi_hz}
     best, best_score = peaks[0], -1.0
     for c in sorted(cands):
         if _level_at(total, f, c, df) <= F.MIN_PROMINENCE * med:
@@ -158,7 +168,7 @@ def run_speed(n: int, seed: int) -> dict:
     out = {}
     for name, kind, sev, tone in cases:
         lab = Lab(kind, sev, seed=seed)
-        err = {"today": 0, "halving": 0, "family": 0}
+        err = {"today": 0, "halving": 0, "family v1": 0, "family": 0}
         neighbour = 0
         secs = lab.seconds(n, rng)
         for s in secs:
@@ -168,7 +178,7 @@ def run_speed(n: int, seed: int) -> dict:
             if "neighbour_machine" in lab.src.nuisance_at(s + 0.5):
                 neighbour += 1
             got = {"today": float(today(a)[F.INDEX["vib_speed_hz"]]), "halving": speed_halving(a),
-                   "family": speed_family(a)}
+                   "family v1": speed_family(a, **V1), "family": speed_family(a)}
             for k, v in got.items():
                 err[k] += abs(v - truth) > SPEED_TOL * truth
         out[name] = {k: round(100 * v / len(secs), 1) for k, v in err.items()}

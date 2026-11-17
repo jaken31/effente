@@ -4,6 +4,7 @@
   "healthy": {
    "today": 0.0,
    "halving": 0.0,
+   "family v1": 0.0,
    "family": 0.0,
    "windows": 200,
    "with site neighbour": 121
@@ -11,6 +12,7 @@
   "misalignment": {
    "today": 100.0,
    "halving": 0.0,
+   "family v1": 0.0,
    "family": 0.0,
    "windows": 200,
    "with site neighbour": 114
@@ -18,6 +20,7 @@
   "misalignment subtle": {
    "today": 9.0,
    "halving": 0.0,
+   "family v1": 0.0,
    "family": 0.0,
    "windows": 200,
    "with site neighbour": 122
@@ -25,6 +28,7 @@
   "looseness": {
    "today": 3.0,
    "halving": 97.0,
+   "family v1": 0.0,
    "family": 0.0,
    "windows": 200,
    "with site neighbour": 118
@@ -32,6 +36,7 @@
   "looseness subtle": {
    "today": 0.0,
    "halving": 96.0,
+   "family v1": 0.0,
    "family": 0.0,
    "windows": 200,
    "with site neighbour": 109
@@ -39,6 +44,7 @@
   "unbalance": {
    "today": 0.0,
    "halving": 0.0,
+   "family v1": 0.5,
    "family": 0.5,
    "windows": 200,
    "with site neighbour": 119
@@ -46,6 +52,7 @@
   "healthy + tone 0.3 Hz above 1x": {
    "today": 0.0,
    "halving": 0.0,
+   "family v1": 0.0,
    "family": 0.0,
    "windows": 200,
    "with site neighbour": 119
