@@ -149,13 +149,18 @@ def main(argv=None) -> int:
                                    lambda: shown and single.bring_forward(shown[0]), parent=app)
 
     if not (args.fake or args.device or args.no_picker):
+        from app.data import device_address, devices
         from app.shell.device_picker import DevicePicker
         from PySide6.QtWidgets import QDialog
 
-        picker = DevicePicker(with_sim=not args.no_sim)
+        picker = DevicePicker(with_sim=not args.no_sim,
+                              last=str(settings.store().value(device_address.ADDRESS_KEY, "") or ""))
         if picker.exec() != QDialog.DialogCode.Accepted:
             return 0  # closed without choosing: the app does not start
         args.device = picker.device_url()  # None for "No device"
+        picked = devices.host_of(args.device)
+        if picked and picked != devices.THIS_LAPTOP:  # found again next time, as one connected on the Device page
+            settings.store().setValue(device_address.ADDRESS_KEY, picked)
 
     host = state = None
     if args.fake:
