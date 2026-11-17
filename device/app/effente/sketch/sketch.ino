@@ -820,7 +820,12 @@ void mlxPoll() {
   for (uint16_t i = 0; i < k; i++) mlxRaw[mlxWord + i] = (int16_t)((int16_t)buf[i] - mlxOffset[mlxWord + i]);
   mlxFailRun = 0;
   mlxWord += k;
-  if (mlxWord >= 768) mlxState = 4;
+  if (mlxWord >= 768) {
+    mlxState = 4;
+    // A whole frame read with nothing refused: the next size up again. Without this one bad stretch on the
+    // bus left the reads at 8 words for good, and the picture at about half its rate (seen 16 Nov).
+    if (mlxChunk < 32) mlxChunk *= 2;
+  }
 }
 
 // One notification for the Linux side, if one is due: the next part of a half-frame, or else, every half
