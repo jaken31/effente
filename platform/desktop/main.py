@@ -5,6 +5,10 @@
     python3 platform/desktop/main.py --device http://10.110.213.214:8765
                                                 # a real device, read from its own port
     python3 platform/desktop/main.py --fake     # no receiver: fixed sample data (FakeState)
+    python3 platform/desktop/main.py --no-picker   # do not ask which device at start
+
+At start a window lists the devices found on the laptop's network, with "No device"
+(app/shell/device_picker.py). It is not shown with --device, --fake or --no-picker.
 
 Arguments match platform/run.py. Closing the window stops everything, the model
 server included if the app started it (Agents page).
@@ -53,6 +57,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                              "(platform/link); no simulated device")
     parser.add_argument("--no-usb", action="store_true",
                         help="do not look for a board plugged into this laptop (platform/link/usb_link.py)")
+    parser.add_argument("--no-picker", action="store_true",
+                        help="do not show the pairing window at start (as with --device or --fake)")
     parser.add_argument("--fresh", action="store_true", help="start with no stored history; the old history is moved to platform/server/kept/, not deleted")
     parser.add_argument("--case", default="normal", help="case the simulator starts in (see platform/sim/README.md)")
     parser.add_argument("--fake", action="store_true", help="no receiver: show fixed sample data (tests/fakes.py)")
@@ -141,6 +147,15 @@ def main(argv=None) -> int:
         # at nearly the same moment still find each other.
         listener = single.Listener(args.port, showing(args),
                                    lambda: shown and single.bring_forward(shown[0]), parent=app)
+
+    if not (args.fake or args.device or args.no_picker):
+        from app.shell.device_picker import DevicePicker
+        from PySide6.QtWidgets import QDialog
+
+        picker = DevicePicker(with_sim=not args.no_sim)
+        if picker.exec() != QDialog.DialogCode.Accepted:
+            return 0  # closed without choosing: the app does not start
+        args.device = picker.device_url()  # None for "No device"
 
     host = state = None
     if args.fake:

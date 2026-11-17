@@ -98,10 +98,17 @@ class Fitted(Elided):
         p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
 
 
+PROBE_HERE_NOTE = ("Say the probe sits on this part now. Its records are then kept for this part. "
+                   "Selecting a part does not move the probe.")
+PROBE_OFF_NOTE = ("The probe is on this part. Press to say it is on no part: records that arrive are then "
+                  "kept for the machine only.")
+
+
 class PartHead(QWidget):
     """The part's mark, name, kind and state, what that state means, and the probe and pin buttons."""
 
     probe_here = Signal()
+    probe_off = Signal()  # the probe is on this part and the button was pressed: it is on no part now
     move_pin = Signal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -120,9 +127,8 @@ class PartHead(QWidget):
         self.pin_button.setToolTip("Then click the model where this part is")
         self.pin_button.clicked.connect(self.move_pin)
         self.probe_button = Button(rd.PROBE_HERE, small=True)
-        self.probe_button.setToolTip("Say the probe sits on this part now. Its records are then kept for this "
-                                     "part. Selecting a part does not move the probe.")
-        self.probe_button.clicked.connect(self.probe_here)
+        self._probe_on_this = False
+        self.probe_button.clicked.connect(self._probe_pressed)
         row.addWidget(self.mark, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.name)
         row.addWidget(self.kind, 0, Qt.AlignmentFlag.AlignBaseline)
@@ -150,8 +156,12 @@ class PartHead(QWidget):
         self.means.setText(detail["means"] + (f" {detail['pin_note']}" if detail["pin_note"] else ""))
         self.pin_button.setText(detail["pin_action"])
         self.pin_button.setVisible(bool(detail["pin_action"]))
-        self.probe_button.setText(rd.PROBE_ON_THIS if probe_on_this else rd.PROBE_HERE)
-        self.probe_button.setEnabled(not probe_on_this)
+        self._probe_on_this = probe_on_this
+        self.probe_button.setText(rd.PROBE_OFF if probe_on_this else rd.PROBE_HERE)
+        self.probe_button.setToolTip(PROBE_OFF_NOTE if probe_on_this else PROBE_HERE_NOTE)
+
+    def _probe_pressed(self) -> None:
+        (self.probe_off if self._probe_on_this else self.probe_here).emit()
 
 
 class Tile(QFrame):

@@ -264,7 +264,7 @@ def never_read(part: dict | None) -> bool:
 
 NO_PROBE = "Probe on no part. Records that arrive now are kept for the machine, not for a part."
 PROBE_HERE = "Probe is here"
-PROBE_ON_THIS = "Probe on this part"
+PROBE_OFF = "Take probe off"
 CLEAR = "Clear"
 
 

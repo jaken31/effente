@@ -78,6 +78,17 @@ Calibration was written four times and the model library twice, by sessions that
 - The four-case demo must run end to end by Saturday 1pm. After that, anything not working is cut, not rescued.
 - Make the smallest change that does the job. Do not refactor code you were not asked to touch.
 
+## Update the app on the machine
+
+The desktop app in the launcher (`effente` and `effente (real device)` on macOS, the desktop entry on Linux) runs one checkout with one Python. It does not follow your branch by itself. When you finish a task that changes `platform/desktop/` or code the app runs (`platform/server/`, `platform/link/`, `platform/sim/`, `effente/`), update it before you report the task as done:
+
+- From the checkout that holds the finished work, run `python3 platform/desktop/install_launcher.py` with a Python that has `platform/desktop/requirements.txt` installed. Install the requirements into it first if any are missing. The launcher then starts that checkout with that Python.
+- Only from a checkout that stays on the machine. Never from a temporary worktree or a scratch folder: the launcher would break when it is deleted.
+- If the launcher already starts the checkout you worked in, nothing needs installing. Say so.
+- Tell your person to quit and open the app again: a running window keeps the old code.
+- Say in your report which checkout and branch the app now runs, and whether that includes uncommitted changes.
+- If the update fails, say so with the output. Do not report the app as updated.
+
 ## Checks
 
 Run whatever checks exist for the files you changed (tests, lint, type checks) and fix failures before committing. If you add a tool for this, document the command here.
