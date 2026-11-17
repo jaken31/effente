@@ -12,7 +12,7 @@ The plan's section 6 listed methods without tying them to a measured gap. What t
 |---|---|---|
 | Speed reads double under misalignment, so every per-turn reading is off by 2 | `conveyor_eval/REALISM.md`, "Known weakness" | A. Speed from the harmonic family, not the single strongest peak |
 | Subtle motor bearing and idler bearing are missed in every rotation | `conveyor_eval/SYSTEM_SEARCH.md`, "What A still misses" | B. Tone removal before the envelope (cepstrum pre-whitening). C. Envelope spectra averaged over 60 s |
-| Bearing faults named `bearing_defect_like` in 1 of 40 Ottawa files | `datasets/OTTAWA_RESULTS.md` | B, on the Ottawa files (not run yet: the data is not on this machine) |
+| Bearing faults named `bearing_defect_like` in 1 of 40 Ottawa files | `datasets/OTTAWA_RESULTS.md` | B, on the Ottawa files |
 
 Dropped, with the reason:
 
@@ -45,7 +45,7 @@ Dropped, with the reason:
 
 Passes if: the median AUC rises by 0.1 or more, the off-order share of fault files rises by 20 points or more, and the off-order share of healthy files rises by no more than 10 points (otherwise whitening only turns noise into random peaks).
 
-**A on real bearings (Ottawa), added after B's Ottawa run, before this one.** The files log the shaft speed, so the speed reading can be checked against it. Same conversion and windows as above, all 60 files.
+**A on real bearings (Ottawa), added after B's Ottawa run, before this one.** Unlike the others, this bar went into the same commit as its results; it was written before the run, but the git history cannot show that. The files log the shaft speed, so the speed reading can be checked against it. Same conversion and windows as above, all 60 files.
 
 Passes if: the harmonic-family reading is more than 3 % off in no more windows than today's, in each of the five groups (healthy, inner race, outer race, ball, cage), and in 5 % of windows or fewer overall.
 
@@ -53,12 +53,12 @@ Passes if: the harmonic-family reading is more than 3 % off in no more windows t
 
 Run 17 Nov 2026. Simulator seeds 1 and 2 (site noise seeds 1001 and 1002): `results/sim_seed1.json`, `results/sim_seed2.json`. Ottawa: `results/ottawa_check.json`.
 
-**In short:** none of the three methods is ready to propose for `effente/`. The simulator flattered all of them, and the real bearings showed why.
+**In short:** none of the three methods is ready to propose for `effente/`.
 
-- **A** fixes the doubled speed in the simulator. On real bearings, neither today's speed reading nor the candidate finds the shaft speed.
-- **B and C** look large in the simulator and fail on real bearings.
+- **A** fixes the doubled speed in the simulator. On the Ottawa rig, neither today's speed reading nor the candidate finds the shaft speed: a 120 Hz hum and a 92 Hz peak beat the shaft's own 1x.
+- **B and C** look large in the simulator. B failed its Ottawa bar, but controls run afterwards show that bar cannot tell a fault from a different recording, so Ottawa does not judge B either way. C could not be run on 10 s files.
 
-The one firm finding is about the hardware: speed needs a tachometer, and the envelope methods need the kilohertz band. That matches steps 2 and 6 of the plan's order of work.
+What is firm: on this rig, the device's speed reading never found the shaft. A once-per-turn tachometer (plan step 6) is the direct fix. That B and C need the kilohertz band (plan step 2) is plausible but not shown here.
 
 ### A. Speed
 
@@ -81,7 +81,7 @@ Simulator, % of running windows more than 3 % off (seed 1 / seed 2):
 - **What is left after that:** a peak near 92 Hz on most bearings. It is not a whole multiple of the speed (3.2 times it on bearing 11), and the shaft's own 1x is only 3 to 6 times the median level. That is barely a clear peak at this sensor's noise.
 - **Consequence for `OTTAWA_RESULTS.md` (my inference, not checked):** every per-turn reading there (1x, 2x, envelope order) was taken against 120 Hz, not the shaft. That may explain part of the "misalignment" and "unbalance" names.
 
-**Verdict:** fails the bar. Do not propose it yet. The case for a once-per-turn tachometer (plan step 6) is now measured, not argued. Check the twice-mains guard on its own on a recording from our own rig before proposing it: today's reading has the same weakness on any motor with a strong hum.
+**Verdict:** fails the bar. Do not propose it yet. On this rig (one lab bearing rig, one real axis, unit assumed), vibration alone never gave the shaft speed, which is the case for a once-per-turn tachometer (plan step 6). Check the twice-mains guard on its own on a recording from our own rig before proposing it: today's reading has the same weakness on any motor with a strong hum.
 
 ### B. Tone removal before the envelope
 
@@ -106,19 +106,24 @@ Ottawa:
 | Fault files off the shaft orders (of 40) | 18 | 27 |
 | Healthy files off the shaft orders (of 20) | 10 | 17 |
 
-**Verdict:** fails all three parts of the bar. Separation falls to chance, and the healthy files go off-order as often as the faulty ones, so the extra off-order files are noise, not bearing rates.
+**Verdict on the bar as written:** fails all three parts. But the controls below show the measure itself does not work on this set, so this is not evidence against whitening.
 
-Checked post hoc: the cause is not the MPU's 218 Hz low-pass. Inside the passband, separation |2 AUC - 1| is:
+**Controls, all post hoc** (`ottawa_controls.py`, `results/ottawa_controls.json`). Two problems with the run above. `as_device` puts the real signal on axis 0 only, and axes 1 and 2 are added noise, which whitening weights equally. And nothing checked whether separation comes from the fault or from simply being another recording. So, on axis 0 only, median separation |2 AUC - 1|:
 
-| Band | Today | Whitened |
-|---|---|---|
-| 100-450 Hz | 1.00 | 0.12 |
-| 100-210 Hz | 0.89 | 0.14 |
-| 30-210 Hz | 0.93 | 0.17 |
+| Signal | Envelope | Healthy vs fault | Healthy, half vs half | Healthy vs another healthy bearing |
+|---|---|---|---|---|
+| 1 kHz, MPU noise | today | 1.00 | 0.11 | 0.99 |
+| 1 kHz, MPU noise | whitened | 0.28 | 0.17 | 0.13 |
+| 1 kHz, no noise | today | 1.00 | 0.18 | 1.00 |
+| 1 kHz, no noise | whitened | 0.45 | 0.18 | 0.46 |
+| 42 kHz raw, 2-10 kHz | today | 0.99 | 0.25 | 0.82 |
+| 42 kHz raw, 2-10 kHz | whitened | 1.00 | 0.15 | 0.93 |
 
-The likely reason: at 1 kHz, what changes with a bearing fault is mostly the shaft-locked tones, and whitening removes exactly those. This is the same mechanism `OTTAWA_RESULTS.md` proposed for the naming failure.
-
-The simulator's bearing is pulse-modulated noise, the textbook case envelope analysis is built for. Real bearings at 1 kHz don't look like that.
+- **Today's envelope tells two healthy bearings apart as well as healthy from faulty.** Its "separation" on Ottawa is mostly the recording (each bearing mounted and run separately), not the fault.
+- **Whitening at 1 kHz** separates fault files a little more than another healthy bearing with the MPU's noise (0.28 against 0.13), and no more without it (0.45 against 0.46). There is no clear fault signal either way.
+- **At 42 kHz** both reach 1.0 against faults and 0.8-0.9 against another healthy bearing. The set cannot settle it there either.
+- **So Ottawa, as converted, can't judge B.** A fair test needs the same machine before and after a fault, with no remount: our own rig (plan test 8) or a run-to-failure set such as NASA IMS.
+- **Possible knock-on for `OTTAWA_RESULTS.md` (inference, not checked):** its 35 of 40 caught compared each bearing's healthy file with its fault files. If the recording alone moves the readings this much, part of that catch rate may be the remount, not the fault. Track 3 may want a healthy-against-another-healthy check there.
 
 ### C. Envelope spectra averaged over 60 s
 
@@ -135,8 +140,8 @@ Averaging alone moves AUC by under 0.1. On whitened windows it adds 0.2 for the 
 
 ## What this changes in the plan
 
-- **Section 6 of `docs/research/research-grade-claim.md`** lists tone removal as needing "nothing new". On this evidence, it needs the kilohertz band (plan step 2) before it is worth trying again.
-- **The tachometer (step 6)** has a measured reason now: on the only real set, the device never found the shaft speed.
+- **Section 6 of `docs/research/research-grade-claim.md`** lists tone removal as needing "nothing new". It is still untested on real data: the simulator favours it, and Ottawa cannot judge it. Test it on the rig's own before-and-after recordings.
+- **The tachometer (step 6)** has a measured reason now: on this rig, the device never found the shaft speed.
 - **Rerun B and C** on the first IIS3DWB recordings, and on Ottawa converted to the new sensor's band (plan test 10). The code here takes any rate.
 - **A twice-mains guard on today's speed reading** is the one small change worth discussing now. It needs a recording from our own rig first.
 
@@ -152,6 +157,7 @@ Averaging alone moves AUC by under 0.1. On whitened windows it adds 0.2 for the 
 python3 -m pytest training/record/noise_rejection/tests                                     # seconds
 python3 -m training.record.noise_rejection.lab --seed 1                                     # about 3 minutes
 python3 -m training.record.noise_rejection.ottawa_check /path/to/ottawa-uods                # about 30 s
+python3 -m training.record.noise_rejection.ottawa_controls /path/to/ottawa-uods             # a few minutes
 ```
 
 The Ottawa folder must hold one subfolder of the `.mat` files from [Mendeley Data, y2px5tg92h](https://data.mendeley.com/datasets/y2px5tg92h) (about 290 MB; not committed).
