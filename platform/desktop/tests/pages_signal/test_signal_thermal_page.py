@@ -254,3 +254,39 @@ def test_the_boards_own_image_is_shown_at_once_and_a_record_does_not_go_back(pag
     p._live_at -= 10  # the board's images stopped: the record's own play again
     st.push("record", next_record(st))
     assert p._live is None and p._index == 0 and p._frame() is p._view["frames"][0]
+
+
+def test_the_boards_images_show_when_its_records_carry_no_camera_summary(page):
+    """Seen on the real board on 16 Nov 2026: GET /heat gave an image every half second while every
+    feature row lacked its th_* values, so the records' heat was the IMU's alone. The page shows the
+    board's own image, with that image's own numbers, and says where they come from."""
+    p, st = page
+    summary = st.latest()["heat"]
+    camera = summary["frames"][-1]
+    st.push("record", next_record(st, heat={"source": "imu", "imu_temp_c": 28.3}))
+    assert p.is_empty()
+    live = dict(camera, at="2026-11-15T00:03:03.120Z")
+    st.heat_frames.emit(st.current_machine(), [live])
+    assert not p.is_empty() and p._frame() is p._live and p._view["from_image"]
+    px = list(logic.decode_frame(live)["pixels"])
+    assert p._view["max_c"] == max(px) and p.kpis.cell(0).value() == f"{max(px):.1f} °C"
+    assert p.kpis.cell(5).value() == "–"  # the scene match is the device's to give
+    st.push("record", next_record(st, heat={"source": "imu", "imu_temp_c": 28.3}))
+    assert not p.is_empty() and p._frame() is p._live  # such a record does not take the image off
+    st.push("record", next_record(st, heat=summary))  # a record with the camera's summary: its own numbers again
+    assert not p._view.get("from_image")
+    st.push("record", next_record(st, heat={"source": "imu", "imu_temp_c": 28.3}))
+    p._live_at -= 10  # the board's images stopped
+    st.push("record", next_record(st, heat={"source": "imu", "imu_temp_c": 28.3}))
+    assert p.is_empty()
+
+
+def test_a_view_from_one_image_follows_the_contracts_definitions():
+    flat = [20.0] * (logic.HEAT_W * logic.HEAT_H)
+    flat[5 * logic.HEAT_W + 9] = 36.0  # row 5, column 9: block row 1, block column 2
+    view = logic.heat_view_from_image({"at_ms": 0, "pixels": flat})
+    assert view["kind"] == "camera" and view["from_image"] and view["scene_match"] is None and not view["frozen"]
+    assert (view["max_c"], view["background_c"], view["hot_row"], view["hot_col"]) == (36.0, 20.0, 5, 9)
+    block = 1 * logic.HEAT_COLS + 2
+    assert view["spots"][block] == 16.0 and view["cells"][block] == pytest.approx(1.0)
+    assert sum(1 for c in view["cells"] if c) == 1 and logic.heat_range(view) == {"lo": 20, "hi": 36}

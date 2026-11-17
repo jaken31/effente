@@ -227,13 +227,24 @@ class LivePage(QWidget):
 
     def _live_heat(self, machine_id: str, frames) -> None:
         """The board's newest image, read straight from it (state.heat_frames): into the Thermal panel at
-        once, on the colour scale of the newest record. The record's own copy comes up to a second later."""
+        once, on the colour scale of the newest record. The record's own copy comes up to a second later.
+        When the newest record carries no camera image (the board serves images its records lack), the
+        image is shown on its own colour scale, and the panel's hint gives the image's own numbers."""
         s, rng = self.state, self._heat_rng
         got = [f for f in (logic.decode_frame(x) for x in frames or []) if f]
-        if s is None or machine_id != s.current_machine() or rng is None or not got or self.heat_image.isHidden():
+        if s is None or machine_id != s.current_machine() or not got:
             return
         pixels = list(got[-1]["pixels"])
         at = max(range(len(pixels)), key=pixels.__getitem__)
+        if rng is None:
+            view = logic.heat_view_from_image(got[-1])
+            rng = logic.heat_range(view)
+            self.heat_bar.set_range(rng["lo"], rng["hi"])
+            self.heat_image.show()
+            self.heat_bar.show()
+            self.heat_empty.hide()
+            self.thermal_panel.set_hint(f"optional sensor · hottest {view['max_c']:.1f} °C · "
+                                        f"room {view['background_c']:.1f} °C · from the device's image, not its records")
         self.heat_image.set_image(pixels, logic.HEAT_W, logic.HEAT_H, rng["lo"], rng["hi"],
                                   (at // logic.HEAT_W, at % logic.HEAT_W, pixels[at]))
         self._heat_live_at = time.monotonic()
@@ -253,6 +264,8 @@ class LivePage(QWidget):
             self.heat_image.show()
             self.heat_bar.show()
             self.heat_empty.hide()
+        elif time.monotonic() - self._heat_live_at < LIVE_HOLD_S:
+            return  # no camera image in the record, but the board's own image is on screen (_live_heat)
         else:
             self.heat_image.clear()
             self.heat_image.hide()

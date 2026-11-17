@@ -664,6 +664,32 @@ def heat_view(rec) -> dict:
     return view
 
 
+def heat_view_from_image(frame: dict) -> dict:
+    """A camera view worked out from one decoded image (decode_frame) alone: for a board that serves
+    its camera's images (GET /heat) while its records carry no camera summary. Seen on the real board
+    on 16 Nov 2026: images every half second, and every feature row without its th_* values.
+
+    The numbers are this one image's, by the contract's definitions ("Heat" in platform/CONTRACT.md):
+    the background is the image's median, `cells` each block's average and `spots` its hottest pixel,
+    both above the background. What only the device knows (`scene_match`, `frozen`) is not made up.
+    `from_image` marks the view, so a page can say where its numbers come from."""
+    pixels = list(frame["pixels"])
+    ordered = sorted(pixels)
+    half = len(ordered) // 2
+    background = (ordered[half - 1] + ordered[half]) / 2
+    at = max(range(len(pixels)), key=pixels.__getitem__)
+    cells, spots = [], []
+    side_h, side_w = HEAT_H // HEAT_ROWS, HEAT_W // HEAT_COLS
+    for r in range(HEAT_ROWS):
+        for c in range(HEAT_COLS):
+            block = [pixels[(r * side_h + i) * HEAT_W + c * side_w + j] for i in range(side_h) for j in range(side_w)]
+            cells.append(sum(block) / len(block) - background)
+            spots.append(max(block) - background)
+    return {"kind": "camera", "imu_temp_c": None, "max_c": pixels[at], "background_c": background,
+            "hot_row": at // HEAT_W, "hot_col": at % HEAT_W, "cells": cells, "spots": spots,
+            "frozen": False, "scene_match": None, "frames": [frame], "from_image": True}
+
+
 def frame_at(frames, elapsed_ms: float) -> dict:
     """Which of a record's images to show `elapsed_ms` after it arrived: the
     images are played back at the spacing they were taken. Returns
