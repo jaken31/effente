@@ -71,12 +71,22 @@ def test_probe_is_here_sets_the_pick_and_the_strip_says_so(qtbot, page, state):
     assert state.log.probe_part() == DRIVE_ROLLER
     since = rd.clock(state.log.probe()["since"])  # the fake stamps the pick at its own clock, as the receiver does
     assert page.probe_text.text() == f"Probe on: Drive roller, since {since}"
-    assert head.probe_button.text() == "Probe on this part" and not head.probe_button.isEnabled()
+    assert head.probe_button.text() == "Take probe off" and head.probe_button.isEnabled()
     state.log.select_part(BELT)  # looking at another part leaves the probe where it is
-    assert state.log.probe_part() == DRIVE_ROLLER and head.probe_button.isEnabled()
+    assert state.log.probe_part() == DRIVE_ROLLER and head.probe_button.text() == "Probe is here"
     assert page.probe_text.text() == f"Probe on: Drive roller, since {since}"
     click(qtbot, page.probe_clear)
     assert state.log.probe_part() is None and page.probe_text.text() == rd.NO_PROBE
+
+
+def test_the_parts_own_button_takes_the_probe_off_it(qtbot, page, state):
+    state.log.select_part(DRIVE_ROLLER)
+    head = page.part_column.head
+    click(qtbot, head.probe_button)
+    assert state.log.probe_part() == DRIVE_ROLLER and head.probe_button.text() == "Take probe off"
+    click(qtbot, head.probe_button)
+    assert state.log.probe_part() is None and page.probe_text.text() == rd.NO_PROBE
+    assert head.probe_button.text() == "Probe is here" and not page.probe_clear.isVisible()
 
 
 def test_the_strip_shows_the_picks_time_when_the_store_gives_it(page, state):

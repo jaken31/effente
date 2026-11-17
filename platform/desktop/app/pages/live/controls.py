@@ -23,6 +23,7 @@ from ...data import logic
 from ...theme import fonts
 from ...theme import tokens as t
 from ...widgets import Button, Segmented, motion
+from ..machine import readings as rd
 from .common import label, short
 
 PRESETS = [("0.25", "Low"), ("0.5", "Balanced"), ("0.75", "High")]
@@ -114,6 +115,7 @@ class ControlsBody(QWidget):
     bookmark = Signal()
     export_session = Signal()
     sim_key = Signal(str)
+    probe_off = Signal()  # Take probe off was pressed: the probe is on no part now
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -158,6 +160,22 @@ class ControlsBody(QWidget):
         sens.lay.addWidget(self.impact)
         sens.lay.addWidget(self.pending_reveal)
         outer.addWidget(sens)
+
+        # which part the probe is on, as the Machine page's strip says it, and the way to take it off
+        self.probe = _Section(False, self)
+        probe_row = QHBoxLayout()
+        probe_row.setSpacing(8)
+        self.probe_text = label("", "soft", self, fonts.body())
+        self.probe_text.setWordWrap(True)
+        self.btn_probe_off = Button(rd.PROBE_OFF, "secondary", self, small=True)
+        self.btn_probe_off.setToolTip("Say the probe is on no part. Records that arrive are then kept for the "
+                                      "machine only. Put it on a part from the Machine page.")
+        self.btn_probe_off.clicked.connect(self.probe_off.emit)
+        probe_row.addWidget(self.probe_text, 1)
+        probe_row.addWidget(self.btn_probe_off, 0, Qt.AlignmentFlag.AlignTop)
+        self.probe.lay.addLayout(probe_row)
+        outer.addWidget(self.probe)
+        self.probe.hide()
 
         acts = _Section(False, self)
         row = QHBoxLayout()
@@ -254,6 +272,17 @@ class ControlsBody(QWidget):
             f"Counts as wrong at vibration {b}{short(m['vibration'])}×</span> normal, "
             f"{b}+{m['temperature']:.1f} °C</span>, {b}+{m['sound']:.1f} dB</span>, "
             f"model line {b}{line:.2f}×</span>. Limits for any machine stay fixed.")
+
+    # ---- the probe -----------------------------------------------------------
+
+    def show_probe(self, log) -> None:
+        """`log` is the state's part log, or None when the state has none: then no probe line at all."""
+        self.probe.setVisible(log is not None)
+        if log is None:
+            return
+        part_id = log.probe_part()
+        self.probe_text.setText(rd.probe_line(log.parts(), part_id, log.probe()))
+        self.btn_probe_off.setVisible(bool(part_id))
 
     # ---- actions -------------------------------------------------------------
 

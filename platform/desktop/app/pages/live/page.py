@@ -159,6 +159,7 @@ class LivePage(QWidget):
         self.controls.bookmark.connect(self.add_bookmark)
         self.controls.export_session.connect(self.export_dialog)
         self.controls.sim_key.connect(self._sim_key)
+        self.controls.probe_off.connect(self._probe_off)
         self.controls_panel.add(self.controls, 1)
         grid.addWidget(self.controls_panel, 4, 7, 1, 5)
         grid.setRowMinimumHeight(4, 330)
@@ -187,6 +188,10 @@ class LivePage(QWidget):
         state.connection_changed.connect(lambda _up: self.refresh())
         if hasattr(state, "agent_message"):
             state.agent_message.connect(self.controls.say)
+        log = getattr(state, "log", None)
+        if log is not None:
+            log.probe_changed.connect(self.refresh)
+            log.parts_changed.connect(self.refresh)  # the probe line names the part
         self.refresh()
 
     def refresh(self) -> None:
@@ -205,6 +210,7 @@ class LivePage(QWidget):
         self.controls.show_sensitivity(sens["reported"], sens["wanted"])
         self.controls.set_agent_running(s.agent_running())
         self.controls.show_sim(s.sim())
+        self.controls.show_probe(getattr(s, "log", None))
 
     def _show_spectrum(self, s, records: list) -> None:
         rec = s.live_record()
@@ -366,6 +372,11 @@ class LivePage(QWidget):
             return
         self.state.start_agent("standin")
         self.refresh()
+
+    def _probe_off(self) -> None:
+        log = getattr(self.state, "log", None)
+        if log is not None:
+            log.set_probe_part(None)
 
     def _sim_key(self, key: str) -> None:
         sim = self.state.sim() if self.state is not None else None

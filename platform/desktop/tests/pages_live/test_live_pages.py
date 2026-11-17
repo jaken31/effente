@@ -230,6 +230,20 @@ def test_run_agent_and_sim_keys(qtbot, live, state):
     assert state.sim().keys == ["2", "p"]
 
 
+def test_the_probe_can_be_taken_off_from_the_live_page(qtbot, live, state):
+    from app.pages.machine import readings as rd
+    from fake_partlog import DRIVE_ROLLER
+
+    controls = live.controls
+    assert controls.probe_text.text() == rd.NO_PROBE and not controls.btn_probe_off.isVisible()
+    state.log.set_probe_part(DRIVE_ROLLER)  # as the Machine page's Probe is here does
+    assert controls.probe_text.text().startswith("Probe on: Drive roller")
+    assert controls.btn_probe_off.isVisible() and controls.btn_probe_off.text() == "Take probe off"
+    click(qtbot, controls.btn_probe_off)
+    assert state.log.probe_part() is None
+    assert controls.probe_text.text() == rd.NO_PROBE and not controls.btn_probe_off.isVisible()
+
+
 def test_sim_controls_hidden_without_sim(qtbot):
     page = LivePage()
     qtbot.addWidget(page)

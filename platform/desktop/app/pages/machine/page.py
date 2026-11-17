@@ -113,7 +113,7 @@ class MachinePage(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(t.PAGE_GAP - 4)
 
-        # where the probe is: it moves only with "Probe is here" or "Clear", never with a selection
+        # where the probe is: it moves only with "Probe is here", "Take probe off" or "Clear", never with a selection
         self.probe_strip = QFrame()
         self.probe_strip.setObjectName("machineProbe")
         self.probe_strip.setStyleSheet(f"#machineProbe {{ background: {css(t.ASK_BG)}; "
@@ -165,6 +165,7 @@ class MachinePage(QWidget):
         self.part_column = pv.PartColumn()
         self.part_column.setMinimumWidth(MID_MIN_W)
         self.part_column.head.probe_here.connect(self.probe_here)
+        self.part_column.head.probe_off.connect(self.clear_probe)
         self.part_column.head.move_pin.connect(self.move_pin)
         self.part_column.blank.pressed.connect(self.probe_here)
         self.part_column.chart_panel.range_changed.connect(self.set_range)
